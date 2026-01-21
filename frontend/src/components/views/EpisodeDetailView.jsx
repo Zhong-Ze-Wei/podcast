@@ -490,8 +490,17 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  {/* 只有有翻译时才显示语言切换按钮 */}
-                  {summary?.has_translation && (
+                  {/* 没有翻译时显示翻译按钮，有翻译时显示语言切换 */}
+                  {summary && !summary.has_translation ? (
+                    <button
+                      onClick={translateSummary}
+                      disabled={translating || isCurrentlySummarizing}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                    >
+                      <Languages size={14} />
+                      {translating ? t('detail.translating') || 'Translating...' : t('detail.translate') || 'Translate'}
+                    </button>
+                  ) : summary?.has_translation ? (
                     <button
                       onClick={() => setShowChinese(!showChinese)}
                       className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
@@ -501,7 +510,7 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
                       <Languages size={14} />
                       {showChinese ? 'EN' : 'CN'}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
