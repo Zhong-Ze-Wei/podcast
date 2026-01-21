@@ -9,8 +9,7 @@ import Sidebar from './components/layout/Sidebar';
 import EpisodeDetailView from './components/views/EpisodeDetailView';
 import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
-import DownloadedView from './components/views/DownloadedView';
-import TranscribedView from './components/views/TranscribedView';
+import WorkspaceView from './components/views/WorkspaceView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
@@ -34,6 +33,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [feeds, setFeeds] = useState([]);
   const [episodes, setEpisodes] = useState([]);
+  const [workspaceEpisodes, setWorkspaceEpisodes] = useState([]); // 已转录/已摘要的episodes
   const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
   const [feedEpisodesLoading, setFeedEpisodesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -70,12 +70,14 @@ export default function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [feedsData, episodesData] = await Promise.all([
+      const [feedsData, episodesData, transcribedData] = await Promise.all([
         feedsApi.list(),
-        episodesApi.list({ per_page: 500 })
+        episodesApi.list({ per_page: 500 }),
+        episodesApi.listTranscribed()
       ]);
       setFeeds(feedsData.data || feedsData);
       setEpisodes(episodesData.data || episodesData);
+      setWorkspaceEpisodes(transcribedData.data || transcribedData);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -135,21 +137,27 @@ export default function App() {
     setView('detail');
   };
 
-  const handleDownload = async (episode) => {
-    try {
-      await episodesApi.download(episode.id);
-      loadData();
-    } catch (err) {
-      console.error('Download failed:', err);
-    }
-  };
-
   const handleStar = async (episode) => {
+    const newStarred = !episode.is_starred;
+
+    // 乐观更新：立即更新所有状态
+    const updateEpisodeList = (list) =>
+      list.map(ep => ep.id === episode.id ? {...ep, is_starred: newStarred} : ep);
+
+    setEpisodes(prev => updateEpisodeList(prev));
+    setFeedEpisodes(prev => updateEpisodeList(prev));
+    setWorkspaceEpisodes(prev => updateEpisodeList(prev));
+
     try {
-      await episodesApi.star(episode.id, !episode.is_starred);
-      loadData();
+      await episodesApi.star(episode.id, newStarred);
     } catch (err) {
       console.error('Star failed:', err);
+      // 失败时回滚
+      const rollback = (list) =>
+        list.map(ep => ep.id === episode.id ? {...ep, is_starred: !newStarred} : ep);
+      setEpisodes(prev => rollback(prev));
+      setFeedEpisodes(prev => rollback(prev));
+      setWorkspaceEpisodes(prev => rollback(prev));
     }
   };
 
@@ -312,7 +320,6 @@ export default function App() {
                     onClick={handleEpisodeClick}
                     onStar={handleStar}
                     onPlay={handlePlay}
-                    onDownload={handleDownload}
                     viewMode={episodeViewMode}
                     feedImage={activeFeed?.image}
                   />
@@ -341,7 +348,6 @@ export default function App() {
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
             onStar={handleStar}
-            onDownload={handleDownload}
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
@@ -352,23 +358,12 @@ export default function App() {
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
             onStar={handleStar}
-            onDownload={handleDownload}
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
-        ) : view === 'downloaded' ? (
-          <DownloadedView
-            episodes={episodes}
-            feeds={feeds}
-            onEpisodeClick={handleEpisodeClick}
-            onPlay={handlePlay}
-            onStar={handleStar}
-            viewMode={episodeViewMode}
-            onViewModeChange={setEpisodeViewMode}
-          />
-        ) : view === 'transcribed' ? (
-          <TranscribedView
-            episodes={episodes}
+        ) : view === 'workspace' ? (
+          <WorkspaceView
+            episodes={workspaceEpisodes}
             feeds={feeds}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}

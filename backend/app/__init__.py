@@ -47,6 +47,10 @@ def init_db(app):
     # 创建索引
     ensure_indexes(db)
 
+    # 初始化任务队列的数据库连接
+    from .services.task_queue import task_queue
+    task_queue.set_db(db)
+
 
 def ensure_indexes(db):
     """确保数据库索引"""

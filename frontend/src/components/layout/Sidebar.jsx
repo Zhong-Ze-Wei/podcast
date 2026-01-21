@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  LayoutGrid, Plus, Mic2, FileText, Download,
+  LayoutGrid, Plus, Mic2, Briefcase,
   Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart
 } from 'lucide-react';
 import { feedsApi } from '../../services/api';
@@ -148,18 +148,11 @@ const Sidebar = ({
           {t('sidebar.favorites')}
         </button>
         <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('downloaded'); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'downloaded' ? 'bg-blue-600/10 text-blue-300 border border-blue-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('workspace'); }}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'workspace' ? 'bg-emerald-600/10 text-emerald-300 border border-emerald-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
         >
-          <Download size={18} />
-          {t('sidebar.downloaded')}
-        </button>
-        <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('transcribed'); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'transcribed' ? 'bg-purple-600/10 text-purple-300 border border-purple-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
-        >
-          <FileText size={18} />
-          {t('sidebar.transcribed')}
+          <Briefcase size={18} />
+          {t('sidebar.workspace')}
         </button>
       </div>
 
