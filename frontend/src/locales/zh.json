@@ -1,0 +1,144 @@
+{
+  "app": {
+    "title": "PodMaster"
+  },
+  "sidebar": {
+    "allEpisodes": "所有节目",
+    "subscriptions": "订阅",
+    "addPodcast": "添加播客",
+    "favorites": "我的喜欢",
+    "downloaded": "已下载",
+    "transcribed": "已转录"
+  },
+  "feed": {
+    "addTitle": "添加播客订阅",
+    "urlPlaceholder": "https://example.com/feed.xml",
+    "cancel": "取消",
+    "adding": "添加中...",
+    "addFeed": "添加订阅",
+    "addFailed": "添加订阅失败",
+    "subscriptions": "个订阅",
+    "unknownAuthor": "未知作者",
+    "delete": "删除",
+    "confirmDelete": "确定要删除此订阅吗？这将同时删除所有相关的节目。",
+    "noteTitle": "编辑备注",
+    "notePlaceholder": "添加备注...",
+    "saveNote": "保存",
+    "menu": {
+      "refresh": "刷新",
+      "favorite": "收藏",
+      "unfavorite": "取消收藏",
+      "note": "备注",
+      "delete": "删除"
+    }
+  },
+  "feedDetail": {
+    "playLatest": "播放最新",
+    "visitWebsite": "访问官网",
+    "showMore": "展开更多",
+    "showLess": "收起",
+    "lastUpdated": "最后更新",
+    "subscribedAt": "订阅时间",
+    "allEpisodes": "全部节目",
+    "toggleStar": "收藏/取消收藏"
+  },
+  "episode": {
+    "library": "你的收藏库",
+    "episodes": "集节目",
+    "updated": "刚刚更新",
+    "searchPlaceholder": "搜索节目...",
+    "refresh": "刷新",
+    "noDescription": "暂无描述",
+    "unknown": "未知"
+  },
+  "detail": {
+    "playEpisode": "播放节目",
+    "generateTranscript": "生成转录",
+    "generateSummary": "AI生成摘要",
+    "transcript": "转录",
+    "summary": "摘要",
+    "info": "详情",
+    "content": "详细内容",
+    "duration": "时长",
+    "publishDate": "发布日期",
+    "originalLink": "原文链接",
+    "noTranscript": "暂无转录",
+    "generateTranscriptAI": "使用AI生成转录",
+    "fetchExternalTranscript": "获取官方转录",
+    "generating": "生成中...",
+    "downloading": "下载中...",
+    "downloadAudio": "下载音频",
+    "needDownloadFirst": "需要先下载音频才能生成转录",
+    "alreadyTranscribing": "转录正在进行中",
+    "alreadyTranscribed": "此节目已有转录",
+    "downloadStarted": "下载任务已提交，请稍候...",
+    "alreadyDownloaded": "音频已下载完成",
+    "downloadInProgress": "下载正在进行中",
+    "noSummary": "暂无摘要",
+    "generateSummaryAI": "使用AI生成摘要",
+    "tldr": "一句话总结",
+    "keyTakeaways": "核心要点"
+  },
+  "player": {
+    "play": "播放",
+    "pause": "暂停"
+  },
+  "status": {
+    "new": "新",
+    "downloaded": "已下载",
+    "downloading": "下载中",
+    "transcribing": "转录中",
+    "transcribed": "已转录",
+    "summarizing": "摘要中",
+    "summarized": "已摘要",
+    "error": "错误"
+  },
+  "common": {
+    "loading": "加载中..."
+  },
+  "favorites": {
+    "title": "我的喜欢",
+    "episodes": "个收藏",
+    "empty": "还没有收藏的节目",
+    "emptyHint": "点击节目列表中的星标可以收藏",
+    "remove": "取消收藏"
+  },
+  "downloaded": {
+    "title": "已下载",
+    "episodes": "个已下载",
+    "empty": "还没有下载的节目",
+    "emptyHint": "点击节目卡片上的下载按钮可以下载音频"
+  },
+  "transcribed": {
+    "title": "已转录",
+    "episodes": "个已转录",
+    "empty": "还没有转录的节目",
+    "emptyHint": "下载音频后点击AI转录按钮可以生成转录"
+  },
+  "language": {
+    "switch": "EN"
+  },
+  "view": {
+    "grid": "网格视图",
+    "list": "列表视图"
+  },
+  "tasks": {
+    "title": "任务",
+    "clearCompleted": "清除已完成",
+    "cancel": "取消",
+    "dismiss": "关闭",
+    "empty": "暂无任务",
+    "types": {
+      "download": "下载音频",
+      "transcribe": "AI转录",
+      "summarize": "生成摘要",
+      "refresh": "刷新订阅"
+    },
+    "status": {
+      "pending": "等待中",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败"
+    }
+  }
+}
