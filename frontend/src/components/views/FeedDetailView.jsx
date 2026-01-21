@@ -9,7 +9,7 @@ import EpisodeCard from '../cards/EpisodeCard';
  * FeedDetailView - 订阅源详情页
  * 显示订阅源信息和其所有节目列表
  */
-const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, onEpisodeClick, onPlay, onStar, onDownload, viewMode = 'grid', onViewModeChange }) => {
+const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
   const { t } = useTranslation();
   const [showFullDesc, setShowFullDesc] = useState(false);
 
@@ -163,7 +163,6 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
                 onClick={onEpisodeClick}
                 onStar={onStar}
                 onPlay={onPlay}
-                onDownload={onDownload}
                 viewMode={viewMode}
                 feedImage={feed.image}
               />

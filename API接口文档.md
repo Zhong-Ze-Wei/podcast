@@ -521,16 +521,40 @@ GET /api/episodes/:id/transcript
     "episode_id": "65b2c3d4e5f67890",
     "text": "Full transcript text...",
     "segments": [
-      { "start": 0.0, "end": 5.2, "text": "Hello and welcome..." },
-      { "start": 5.2, "end": 10.1, "text": "Today we have..." }
+      { "start": 0.0, "end": 5.2, "text": "Hello and welcome...", "speaker": "A" },
+      { "start": 5.2, "end": 10.1, "text": "Today we have...", "speaker": "B" }
+    ],
+    "speakers": ["A", "B"],
+    "chapters": [
+      {
+        "start": 0.0,
+        "end": 300.5,
+        "headline": "Introduction",
+        "summary": "The host introduces the guest..."
+      }
+    ],
+    "entities": [
+      { "text": "OpenAI", "entity_type": "organization" },
+      { "text": "Elon Musk", "entity_type": "person" }
     ],
     "language": "en",
     "word_count": 15000,
-    "source": "whisper",
+    "duration": 3600000,
+    "source": "assemblyai",
     "created_at": "2024-01-11T10:00:00Z"
   }
 }
 ```
+
+**字段说明:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| segments[].speaker | string | 说话人标签 (A/B/C...)，AssemblyAI转录时有此字段 |
+| speakers | array | 检测到的说话人列表 |
+| chapters | array | 自动生成的章节 (AssemblyAI) |
+| entities | array | 识别的实体 (人名、公司等) |
+| source | string | 转录来源: assemblyai, whisper, official |
 
 **响应 (无转录):**
 ```json
@@ -814,6 +838,12 @@ const result = await executeAsyncTask(() =>
 - `summarized` - 已摘要
 - `error` - 错误
 
+**Episode.transcript_source:** (新增)
+- `assemblyai` - AssemblyAI云端转录 (带说话人分离)
+- `whisper` - 本地Whisper转录
+- `official` - 官方字幕
+- `manual` - 手动上传
+
 **Task.status:**
 - `pending` - 等待中
 - `processing` - 处理中
@@ -839,3 +869,4 @@ Access-Control-Allow-Headers: Content-Type, Authorization
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2024-01 | 初始版本 |
+| v1.1 | 2025-01 | 添加AssemblyAI转录支持，segments增加speaker字段，新增chapters/entities/speakers字段 |

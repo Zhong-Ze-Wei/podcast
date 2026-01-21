@@ -37,9 +37,14 @@ def list_episodes():
     # 构建查询条件
     query = {}
 
+    # 支持多个状态值 (用逗号分隔: status=transcribing,transcribed)
     status = request.args.get("status")
     if status:
-        query["status"] = status
+        status_values = [s.strip() for s in status.split(",")]
+        if len(status_values) > 1:
+            query["status"] = {"$in": status_values}
+        else:
+            query["status"] = status_values[0]
 
     is_read = get_bool_param("is_read")
     if is_read is not None:
@@ -55,6 +60,15 @@ def list_episodes():
             query["feed_id"] = ObjectId(feed_id)
         except InvalidId:
             pass
+
+    # 转录/摘要筛选
+    has_transcript = get_bool_param("has_transcript")
+    if has_transcript is not None:
+        query["has_transcript"] = has_transcript
+
+    has_summary = get_bool_param("has_summary")
+    if has_summary is not None:
+        query["has_summary"] = has_summary
 
     # 查询
     total = db.episodes.count_documents(query)

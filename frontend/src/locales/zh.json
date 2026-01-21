@@ -7,8 +7,7 @@
     "subscriptions": "订阅",
     "addPodcast": "添加播客",
     "favorites": "我的喜欢",
-    "downloaded": "已下载",
-    "transcribed": "已转录"
+    "workspace": "工作台"
   },
   "feed": {
     "addTitle": "添加播客订阅",
@@ -77,7 +76,23 @@
     "noSummary": "暂无摘要",
     "generateSummaryAI": "使用AI生成摘要",
     "tldr": "一句话总结",
-    "keyTakeaways": "核心要点"
+    "keyTakeaways": "核心要点",
+    "investmentAnalysis": "投资分析",
+    "generalSummary": "通用摘要",
+    "translate": "翻译",
+    "translating": "翻译中...",
+    "summaryStarted": "摘要生成任务已提交",
+    "translateStarted": "翻译任务已提交",
+    "summaryInProgress": "摘要正在生成中",
+    "investmentSignals": "投资信号",
+    "mentionedTickers": "提及的股票",
+    "keyQuotes": "关键引用",
+    "riskAlerts": "风险提示",
+    "investmentDesc": "提取投资信号、股票代码和市场洞察",
+    "generalDesc": "生成包含核心要点的通用摘要",
+    "transcribingStatus": "正在转录中",
+    "estimateTime": "预计时间",
+    "summarizingStatus": "正在生成摘要"
   },
   "player": {
     "play": "播放",
@@ -114,6 +129,15 @@
     "episodes": "个已转录",
     "empty": "还没有转录的节目",
     "emptyHint": "下载音频后点击AI转录按钮可以生成转录"
+  },
+  "workspace": {
+    "title": "工作台",
+    "episodes": "个节目",
+    "empty": "还没有处理过的节目",
+    "emptyHint": "点击节目中的AI转录或摘要按钮开始处理",
+    "tabAll": "全部",
+    "tabTranscript": "转录",
+    "tabSummary": "摘要"
   },
   "language": {
     "switch": "EN"

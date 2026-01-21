@@ -41,8 +41,16 @@ class Config:
     # Whisper配置 (后续AI功能)
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
-    # LLM配置 (后续AI功能)
-    LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434")
+    # LLM配置 (摘要生成)
+    LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://10.0.10.4:7081")
+    LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-xxx")
+    LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-3-flash-preview")
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+
+    # 摘要配置
+    SUMMARY_MAX_INPUT_CHARS = int(os.getenv("SUMMARY_MAX_INPUT_CHARS", "100000"))
+    SUMMARY_DEFAULT_TYPE = os.getenv("SUMMARY_DEFAULT_TYPE", "general")
 
     @classmethod
     def init_dirs(cls):

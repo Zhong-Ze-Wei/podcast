@@ -7,8 +7,7 @@
     "subscriptions": "Subscriptions",
     "addPodcast": "Add Podcast",
     "favorites": "Favorites",
-    "downloaded": "Downloaded",
-    "transcribed": "Transcribed"
+    "workspace": "Workspace"
   },
   "feed": {
     "addTitle": "Add Podcast Feed",
@@ -77,7 +76,23 @@
     "noSummary": "No Summary Generated",
     "generateSummaryAI": "Generate Summary with AI",
     "tldr": "TL;DR",
-    "keyTakeaways": "Key Takeaways"
+    "keyTakeaways": "Key Takeaways",
+    "investmentAnalysis": "Investment",
+    "generalSummary": "General",
+    "translate": "Translate",
+    "translating": "Translating...",
+    "summaryStarted": "Summary generation started",
+    "translateStarted": "Translation started",
+    "summaryInProgress": "Summary generation in progress",
+    "investmentSignals": "Investment Signals",
+    "mentionedTickers": "Mentioned Tickers",
+    "keyQuotes": "Key Quotes",
+    "riskAlerts": "Risk Alerts",
+    "investmentDesc": "Extract investment signals, tickers, and market insights",
+    "generalDesc": "Generate a general summary with key points",
+    "transcribingStatus": "Transcribing",
+    "estimateTime": "Estimated time",
+    "summarizingStatus": "Generating summary"
   },
   "player": {
     "play": "Play",
@@ -114,6 +129,15 @@
     "episodes": "transcribed",
     "empty": "No transcriptions yet",
     "emptyHint": "Download audio first, then click AI transcribe button to generate transcription"
+  },
+  "workspace": {
+    "title": "Workspace",
+    "episodes": "episodes",
+    "empty": "No processed episodes yet",
+    "emptyHint": "Click AI transcribe or summary buttons on episodes to start",
+    "tabAll": "All",
+    "tabTranscript": "Transcript",
+    "tabSummary": "Summary"
   },
   "language": {
     "switch": "CN"

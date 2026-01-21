@@ -56,6 +56,8 @@ export const feedsApi = {
 // Episodes API
 export const episodesApi = {
   list: (params = {}) => api.get('/episodes', { params }),
+  listTranscribed: () => api.get('/episodes', { params: { status: 'transcribing,transcribed,summarizing,summarized', per_page: 1000 } }),
+  listSummarized: () => api.get('/episodes', { params: { status: 'summarizing,summarized', per_page: 1000 } }),
   get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),
@@ -74,9 +76,19 @@ export const transcriptsApi = {
 
 // Summaries API
 export const summariesApi = {
-  get: (episodeId) => api.get(`/summaries/${episodeId}`),
-  create: (episodeId) => api.post(`/summaries/${episodeId}`),
-  delete: (episodeId) => api.delete(`/summaries/${episodeId}`)
+  get: (episodeId, summaryType = null) => {
+    const params = summaryType ? { summary_type: summaryType } : {};
+    return api.get(`/summaries/${episodeId}`, { params });
+  },
+  create: (episodeId, summaryType = 'general', force = false) =>
+    api.post(`/summaries/${episodeId}`, { summary_type: summaryType, force }),
+  translate: (episodeId, summaryType = null) =>
+    api.post(`/summaries/${episodeId}/translate`, { summary_type: summaryType }),
+  delete: (episodeId, summaryType = null) => {
+    const params = summaryType ? { summary_type: summaryType } : {};
+    return api.delete(`/summaries/${episodeId}`, { params });
+  },
+  getTypes: () => api.get('/summaries/types')
 };
 
 // Tasks API

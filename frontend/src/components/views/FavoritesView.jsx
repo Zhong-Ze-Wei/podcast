@@ -8,7 +8,7 @@ import EpisodeCard from '../cards/EpisodeCard';
  * FavoritesView - 我的喜欢页面
  * 显示所有标星的节目
  */
-const FavoritesView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, onDownload, viewMode = 'grid', onViewModeChange }) => {
+const FavoritesView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
   const { t } = useTranslation();
 
   const starredEpisodes = episodes.filter(ep => ep.is_starred);
@@ -64,7 +64,6 @@ const FavoritesView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, onDown
                 onClick={onEpisodeClick}
                 onStar={onStar}
                 onPlay={onPlay}
-                onDownload={onDownload}
                 viewMode={viewMode}
                 feedImage={feedImageMap[ep.feed_id]}
               />

@@ -46,7 +46,7 @@ def get_transcript(episode_id):
 
 @transcripts_bp.route("/<episode_id>", methods=["POST"])
 def create_transcript(episode_id):
-    """创建转录任务 (异步)"""
+    """创建转录任务 (异步) - 使用AssemblyAI直接转录音频URL"""
     db = get_db()
 
     try:
@@ -58,34 +58,29 @@ def create_transcript(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    # 检查是否可以转录
+    # 检查是否已经在转录或已完成
     episode_status = episode.get("status", "new")
-    if not Episode.can_transcribe(episode_status):
-        # 提供更详细的错误信息
-        if episode_status == Episode.STATUS_NEW:
-            return error_response(
-                "Audio needs to be downloaded first",
-                "AUDIO_NOT_DOWNLOADED",
-                400
-            )
-        elif episode_status in [Episode.STATUS_TRANSCRIBING]:
-            return error_response(
-                "Episode is already being transcribed",
-                "ALREADY_TRANSCRIBING",
-                400
-            )
-        elif episode_status in [Episode.STATUS_TRANSCRIBED, Episode.STATUS_SUMMARIZING, Episode.STATUS_SUMMARIZED]:
-            return error_response(
-                "Episode already has a transcript",
-                "ALREADY_TRANSCRIBED",
-                400
-            )
-        else:
-            return error_response(
-                "Episode cannot be transcribed in current state",
-                "INVALID_STATE",
-                400
-            )
+    if episode_status == Episode.STATUS_TRANSCRIBING:
+        return error_response(
+            "Episode is already being transcribed",
+            "ALREADY_TRANSCRIBING",
+            400
+        )
+    elif episode_status in [Episode.STATUS_TRANSCRIBED, Episode.STATUS_SUMMARIZING, Episode.STATUS_SUMMARIZED]:
+        return error_response(
+            "Episode already has a transcript",
+            "ALREADY_TRANSCRIBED",
+            400
+        )
+
+    # 检查是否有音频URL
+    audio_url = episode.get("audio_url")
+    if not audio_url:
+        return error_response(
+            "No audio URL available for this episode",
+            "NO_AUDIO_URL",
+            400
+        )
 
     # 检查是否有进行中的任务
     existing_task = db.tasks.find_one({
@@ -194,7 +189,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source):
 
 
 def _transcribe_sync(episode_id: str, progress_callback=None):
-    """同步执行转录"""
+    """同步执行转录 - 使用AssemblyAI直接处理音频URL"""
     import os
     from ..config import Config
 
@@ -219,47 +214,134 @@ def _transcribe_sync(episode_id: str, progress_callback=None):
                 progress_callback(100)
             return {"text_length": len(transcript_text), "source": source}
 
-    # 无官方字幕，检查音频文件准备 AI 转录
-    local_path = episode.get("local_path")
-    if not local_path:
-        raise ValueError("No official transcript and audio not downloaded")
-
-    audio_path = os.path.join(Config.MEDIA_ROOT, local_path)
-    if not os.path.exists(audio_path):
-        raise ValueError("Audio file not found")
+    # 使用 AssemblyAI 直接转录音频URL
+    audio_url = episode.get("audio_url")
+    if not audio_url:
+        raise ValueError("No audio URL available")
 
     if progress_callback:
         progress_callback(20)
 
-    # 使用 Faster-Whisper 进行 AI 转录
-    from ..services.whisper_service import transcribe_audio, is_available
-
-    if not is_available():
-        raise RuntimeError("Whisper not available. Install: pip install faster-whisper")
-
-    # 创建进度回调包装器（将Whisper的进度映射到20-90区间）
-    def whisper_progress(pct):
-        if progress_callback:
-            # 映射 10-95 到 20-90
-            mapped = 20 + int((pct - 10) * 70 / 85)
-            progress_callback(min(mapped, 90))
-
-    transcript_text, segments, detected_lang = transcribe_audio(
-        audio_path,
-        model_name="small",  # 使用small模型，平衡速度和质量
-        progress_callback=whisper_progress
-    )
-
-    if progress_callback:
-        progress_callback(90)
-
-    # 保存转录
-    _save_transcript(db, oid, episode, transcript_text, segments, "whisper-small")
+    # 调用 AssemblyAI
+    result = _transcribe_with_assemblyai(audio_url, oid, episode, progress_callback)
 
     if progress_callback:
         progress_callback(100)
 
-    return {"text_length": len(transcript_text), "source": "whisper-small", "language": detected_lang}
+    return result
+
+
+def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, progress_callback=None):
+    """使用 AssemblyAI 进行转录（带说话人分离）"""
+    import os
+    import assemblyai as aai
+    from dotenv import load_dotenv
+
+    # 加载环境变量
+    env_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+    load_dotenv(env_path)
+
+    api_key = os.getenv('ASSEMBLYAI_API_KEY')
+    if not api_key:
+        raise RuntimeError("ASSEMBLYAI_API_KEY not configured in .env")
+
+    aai.settings.api_key = api_key
+
+    if progress_callback:
+        progress_callback(30)
+
+    # 配置转录
+    config = aai.TranscriptionConfig(
+        speaker_labels=True,      # 说话人分离
+        auto_chapters=True,       # 自动章节
+        entity_detection=True,    # 实体识别
+    )
+
+    # 执行转录
+    transcriber = aai.Transcriber()
+    transcript = transcriber.transcribe(audio_url, config=config)
+
+    if transcript.status == aai.TranscriptStatus.error:
+        raise RuntimeError(f"AssemblyAI error: {transcript.error}")
+
+    if progress_callback:
+        progress_callback(80)
+
+    # 构建 segments (带说话人标签)
+    segments = []
+    for u in transcript.utterances:
+        segments.append({
+            "start": u.start / 1000,  # ms -> seconds
+            "end": u.end / 1000,
+            "speaker": u.speaker,
+            "text": u.text
+        })
+
+    # 构建 chapters
+    chapters = []
+    if transcript.chapters:
+        for ch in transcript.chapters:
+            chapters.append({
+                "start": ch.start / 1000,
+                "end": ch.end / 1000,
+                "headline": ch.headline,
+                "summary": ch.summary
+            })
+
+    # 构建 entities
+    entities = []
+    if transcript.entities:
+        for ent in transcript.entities:
+            entities.append({
+                "text": ent.text,
+                "entity_type": ent.entity_type.value if hasattr(ent.entity_type, 'value') else str(ent.entity_type)
+            })
+
+    speakers = list(set(u.speaker for u in transcript.utterances))
+
+    # 保存到数据库
+    db = get_db()
+    transcript_doc = {
+        "episode_id": episode_oid,
+        "text": transcript.text,
+        "segments": segments,
+        "chapters": chapters,
+        "entities": list({e["text"]: e for e in entities}.values())[:50],  # 去重，最多50个
+        "speakers": speakers,
+        "language": getattr(transcript, 'language_code', None) or getattr(transcript, 'language', 'en'),
+        "duration": transcript.audio_duration,
+        "source": "assemblyai",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+
+    # 检查是否已存在
+    existing = db.transcripts.find_one({"episode_id": episode_oid})
+    if existing:
+        db.transcripts.update_one(
+            {"episode_id": episode_oid},
+            {"$set": transcript_doc}
+        )
+    else:
+        db.transcripts.insert_one(transcript_doc)
+
+    # 更新 episode 状态
+    db.episodes.update_one(
+        {"_id": episode_oid},
+        {"$set": {
+            "status": Episode.STATUS_TRANSCRIBED,
+            "has_transcript": True,
+            "transcript_source": "assemblyai",
+            "updated_at": datetime.utcnow()
+        }}
+    )
+
+    return {
+        "text_length": len(transcript.text),
+        "source": "assemblyai",
+        "speakers": len(speakers),
+        "chapters": len(chapters)
+    }
 
 
 @transcripts_bp.route("/<episode_id>", methods=["DELETE"])
