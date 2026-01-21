@@ -161,6 +161,34 @@ export default function App() {
     }
   };
 
+  // 订阅源收藏处理（乐观更新）
+  const handleStarFeed = async (feed) => {
+    const newFavorite = !feed.is_favorite;
+
+    // 乐观更新：立即更新 feeds 状态
+    setFeeds(prev =>
+      prev.map(f => f.id === feed.id ? {...f, is_favorite: newFavorite} : f)
+    );
+
+    // 更新 selectedFeed（如果当前选中的是这个feed）
+    if (selectedFeed && selectedFeed.id === feed.id) {
+      setSelectedFeed(prev => ({...prev, is_favorite: newFavorite}));
+    }
+
+    try {
+      await feedsApi.favorite(feed.id, { favorite: newFavorite });
+    } catch (err) {
+      console.error('Favorite failed:', err);
+      // 失败时回滚
+      setFeeds(prev =>
+        prev.map(f => f.id === feed.id ? {...f, is_favorite: !newFavorite} : f)
+      );
+      if (selectedFeed && selectedFeed.id === feed.id) {
+        setSelectedFeed(prev => ({...prev, is_favorite: !newFavorite}));
+      }
+    }
+  };
+
   // 播放控制函数
   const handlePlay = (episode) => {
     if (currentPlaying?.id === episode.id) {
@@ -240,7 +268,7 @@ export default function App() {
         onAddFeed={handleAddFeed}
         onRefreshFeed={handleRefreshFeed}
         onDeleteFeed={handleDeleteFeed}
-        onStarFeed={loadData}
+        onStarFeed={handleStarFeed}
         onNoteFeed={loadData}
         onFeedClick={handleFeedClick}
         hasPlayer={!!currentPlaying}

@@ -95,11 +95,16 @@ const Sidebar = ({
 
   const handleStar = async (feed) => {
     setMenuOpen(null);
-    try {
-      await feedsApi.favorite(feed.id, { favorite: !feed.is_favorite });
-      if (onStarFeed) onStarFeed();
-    } catch (err) {
-      console.error('Star failed:', err);
+    if (onStarFeed) {
+      // 传递 feed 对象给 App.jsx，由它处理 API 调用和乐观更新
+      onStarFeed(feed);
+    } else {
+      // 兜底：直接调用 API（不推荐）
+      try {
+        await feedsApi.favorite(feed.id, { favorite: !feed.is_favorite });
+      } catch (err) {
+        console.error('Star failed:', err);
+      }
     }
   };
 
