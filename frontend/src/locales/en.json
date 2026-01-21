@@ -1,0 +1,144 @@
+{
+  "app": {
+    "title": "PodMaster"
+  },
+  "sidebar": {
+    "allEpisodes": "All Episodes",
+    "subscriptions": "Subscriptions",
+    "addPodcast": "Add Podcast",
+    "favorites": "Favorites",
+    "downloaded": "Downloaded",
+    "transcribed": "Transcribed"
+  },
+  "feed": {
+    "addTitle": "Add Podcast Feed",
+    "urlPlaceholder": "https://example.com/feed.xml",
+    "cancel": "Cancel",
+    "adding": "Adding...",
+    "addFeed": "Add Feed",
+    "addFailed": "Failed to add feed",
+    "subscriptions": "subscriptions",
+    "unknownAuthor": "Unknown Author",
+    "delete": "Delete",
+    "confirmDelete": "Are you sure you want to delete this subscription? All related episodes will be removed.",
+    "noteTitle": "Edit Note",
+    "notePlaceholder": "Add a note...",
+    "saveNote": "Save",
+    "menu": {
+      "refresh": "Refresh",
+      "favorite": "Favorite",
+      "unfavorite": "Unfavorite",
+      "note": "Note",
+      "delete": "Delete"
+    }
+  },
+  "feedDetail": {
+    "playLatest": "Play Latest",
+    "visitWebsite": "Visit Website",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "lastUpdated": "Last updated",
+    "subscribedAt": "Subscribed",
+    "allEpisodes": "All Episodes",
+    "toggleStar": "Toggle star"
+  },
+  "episode": {
+    "library": "Your Library",
+    "episodes": "episodes",
+    "updated": "Updated just now",
+    "searchPlaceholder": "Search episodes...",
+    "refresh": "Refresh",
+    "noDescription": "No description available.",
+    "unknown": "Unknown"
+  },
+  "detail": {
+    "playEpisode": "Play Episode",
+    "generateTranscript": "Generate Transcript",
+    "generateSummary": "Generate AI Summary",
+    "transcript": "Transcript",
+    "summary": "Summary",
+    "info": "Info",
+    "content": "Full Content",
+    "duration": "Duration",
+    "publishDate": "Published",
+    "originalLink": "Original Link",
+    "noTranscript": "No Transcript Available",
+    "generateTranscriptAI": "Generate Transcript with AI",
+    "fetchExternalTranscript": "Fetch Official Transcript",
+    "generating": "Generating...",
+    "downloading": "Downloading...",
+    "downloadAudio": "Download Audio",
+    "needDownloadFirst": "Audio needs to be downloaded before generating transcript",
+    "alreadyTranscribing": "Transcription is already in progress",
+    "alreadyTranscribed": "Episode already has a transcript",
+    "downloadStarted": "Download started! Please wait...",
+    "alreadyDownloaded": "Audio already downloaded",
+    "downloadInProgress": "Download already in progress",
+    "noSummary": "No Summary Generated",
+    "generateSummaryAI": "Generate Summary with AI",
+    "tldr": "TL;DR",
+    "keyTakeaways": "Key Takeaways"
+  },
+  "player": {
+    "play": "Play",
+    "pause": "Pause"
+  },
+  "status": {
+    "new": "New",
+    "downloaded": "Downloaded",
+    "downloading": "Downloading",
+    "transcribing": "Transcribing",
+    "transcribed": "Transcribed",
+    "summarizing": "Summarizing",
+    "summarized": "Summarized",
+    "error": "Error"
+  },
+  "common": {
+    "loading": "Loading..."
+  },
+  "favorites": {
+    "title": "Favorites",
+    "episodes": "favorites",
+    "empty": "No favorites yet",
+    "emptyHint": "Click the star icon on episodes to add them here",
+    "remove": "Remove from favorites"
+  },
+  "downloaded": {
+    "title": "Downloaded",
+    "episodes": "downloaded",
+    "empty": "No downloads yet",
+    "emptyHint": "Click the download button on episode cards to download audio"
+  },
+  "transcribed": {
+    "title": "Transcribed",
+    "episodes": "transcribed",
+    "empty": "No transcriptions yet",
+    "emptyHint": "Download audio first, then click AI transcribe button to generate transcription"
+  },
+  "language": {
+    "switch": "CN"
+  },
+  "view": {
+    "grid": "Grid View",
+    "list": "List View"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "clearCompleted": "Clear",
+    "cancel": "Cancel",
+    "dismiss": "Dismiss",
+    "empty": "No tasks",
+    "types": {
+      "download": "Download Audio",
+      "transcribe": "AI Transcribe",
+      "summarize": "Generate Summary",
+      "refresh": "Refresh Feed"
+    },
+    "status": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  }
+}

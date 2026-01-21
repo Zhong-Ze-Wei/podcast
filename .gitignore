@@ -1,0 +1,102 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment files (contains secrets)
+.env
+.env.*
+*.env
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+.Python
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+nul
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temp files
+tmpclaude*
+*.tmp
+*.temp
+temp/
+
+# Media files (audio, covers, etc.)
+backend/media/
+media/
+audio/
+*.mp3
+*.wav
+*.m4a
+
+# Test HTML files
+1.html
+
+# Test files
+tests/
+test/
+backend/tests/
+**/test_*.py
+**/*_test.py
+
+# Claude temp files
+.claude/
+
+# Cache
+.cache/
+*.cache
+.pytest_cache/
+.mypy_cache/
+__pycache__/
+
+# Coverage
+.coverage
+htmlcov/
+coverage/
+
+# Python eggs
+*.egg
+*.egg-info/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Database files (if using SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Whisper models cache
+whisper_models/
+models/
+
+# Frontend specific
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
