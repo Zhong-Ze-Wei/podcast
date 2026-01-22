@@ -7,7 +7,8 @@
     "subscriptions": "Subscriptions",
     "addPodcast": "Add Podcast",
     "favorites": "Favorites",
-    "workspace": "Workspace"
+    "workspace": "Workspace",
+    "settings": "Settings"
   },
   "feed": {
     "addTitle": "Add Podcast Feed",
@@ -152,6 +153,12 @@
     "cancel": "Cancel",
     "dismiss": "Dismiss",
     "empty": "No tasks",
+    "elapsed": "Elapsed",
+    "lastUpdate": "Updated",
+    "justNow": "just now",
+    "secondsAgo": "s ago",
+    "minutesAgo": "m ago",
+    "maybeStuck": "Task may be stuck, check backend logs",
     "types": {
       "download": "Download Audio",
       "transcribe": "AI Transcribe",
@@ -164,5 +171,22 @@
       "completed": "Completed",
       "failed": "Failed"
     }
+  },
+  "settings": {
+    "llmTitle": "LLM Configuration",
+    "llmDesc": "Configure LLM API endpoints for AI features",
+    "save": "Save",
+    "saved": "Settings saved",
+    "loadError": "Failed to load settings",
+    "saveError": "Failed to save settings",
+    "maxConfigs": "Maximum 5 configs allowed",
+    "minConfigs": "At least one config is required",
+    "active": "Active",
+    "test": "Test",
+    "delete": "Delete",
+    "addConfig": "Add Configuration",
+    "testSuccess": "Connection successful",
+    "testFailed": "Connection test failed",
+    "testRequiredFields": "Base URL and Model are required"
   }
 }

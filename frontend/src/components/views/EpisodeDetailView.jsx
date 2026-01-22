@@ -8,42 +8,7 @@ import {
 } from 'lucide-react';
 import { transcriptsApi, summariesApi, episodesApi } from '../../services/api';
 import { decodeHtmlEntities } from '../../utils/helpers';
-
-/**
- * 转录进度条组件 - 基于预计时间显示进度，最高99%
- */
-const TranscribeProgressBar = ({ startTime, estimatedMinutes }) => {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (!startTime || !estimatedMinutes) {
-      setProgress(0);
-      return;
-    }
-
-    const estimatedMs = estimatedMinutes * 60 * 1000;
-
-    const updateProgress = () => {
-      const elapsed = Date.now() - startTime;
-      const calculatedProgress = Math.min((elapsed / estimatedMs) * 100, 99);
-      setProgress(calculatedProgress);
-    };
-
-    updateProgress();
-    const interval = setInterval(updateProgress, 1000);
-
-    return () => clearInterval(interval);
-  }, [startTime, estimatedMinutes]);
-
-  return (
-    <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-      <div
-        className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-1000 ease-linear"
-        style={{ width: `${progress}%` }}
-      />
-    </div>
-  );
-};
+import TaskProgress from '../common/TaskProgress';
 
 /**
  * EpisodeDetailView - 节目详情页
@@ -53,7 +18,7 @@ const TranscribeProgressBar = ({ startTime, estimatedMinutes }) => {
  * - AI生成的摘要
  * - 节目元信息
  */
-const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
+const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('transcript');
   const [transcript, setTranscript] = useState(null);
@@ -64,16 +29,21 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
-  // Transcribe states - 本地追踪转录状态
+  // 本地episode状态，用于实时更新
+  const [episode, setEpisode] = useState(episodeProp);
+
+  // 任务状态
   const [localTranscribing, setLocalTranscribing] = useState(false);
-  const [transcribeStartTime, setTranscribeStartTime] = useState(null);
+  const [localSummarizing, setLocalSummarizing] = useState(false);
 
   // Summary states
   const [summaryType, setSummaryType] = useState('investment');
-  const [translating, setTranslating] = useState(false);
   const [showChinese, setShowChinese] = useState(false);
-  const [localSummarizing, setLocalSummarizing] = useState(false);
-  const [summarizeStartTime, setSummarizeStartTime] = useState(null);
+
+  // 当props中的episode变化时，更新本地状态
+  useEffect(() => {
+    setEpisode(episodeProp);
+  }, [episodeProp]);
 
   // 检查是否正在转录
   const isTranscribing = episode?.status === 'transcribing';
@@ -84,11 +54,28 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
   const isSummarizing = episode?.status === 'summarizing';
   const isCurrentlySummarizing = isSummarizing || localSummarizing;
 
-  // 计算预估费用和时间 (AssemblyAI: $0.37/小时)
+  // 计算预估费用 (AssemblyAI: $0.37/小时)
   const estimateCost = episode?.duration ? (episode.duration * 0.37 / 3600).toFixed(2) : null;
-  const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null; // 约为音频时长的1/5
-  // 摘要预估时间：约1-2分钟
-  const summaryEstimateTime = 2;
+  const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null;
+
+  // 任务完成回调
+  const handleTranscribeComplete = async () => {
+    setLocalTranscribing(false);
+    await loadTranscript();
+    if (onRefresh) onRefresh();
+  };
+
+  const handleSummarizeComplete = async () => {
+    setLocalSummarizing(false);
+    await loadSummary();
+    if (onRefresh) onRefresh();
+  };
+
+  const handleTaskError = (errorMsg) => {
+    setError(errorMsg);
+    setLocalTranscribing(false);
+    setLocalSummarizing(false);
+  };
 
   useEffect(() => {
     if (episode?.id) {
@@ -158,32 +145,25 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
 
   const generateTranscript = async () => {
     setLoading(true);
-    setLocalTranscribing(true);  // 立即锁定按钮
-    setTranscribeStartTime(Date.now());  // 记录开始时间用于进度条
+    setLocalTranscribing(true);
     setError(null);
     try {
       await transcriptsApi.create(episode.id);
-      await loadTranscript();
+      // 任务已提交，TaskProgress 组件会轮询状态
       if (onRefresh) onRefresh();
-      // 成功获取到转录后，清除本地状态
-      setLocalTranscribing(false);
-      setTranscribeStartTime(null);
     } catch (err) {
       console.error('Failed to generate transcript:', err);
       const errorCode = err?.code || '';
       const errorMsg = err?.message || 'Failed to generate transcript';
       if (errorCode === 'ALREADY_TRANSCRIBING') {
         setError(t('detail.alreadyTranscribing') || 'Transcription is already in progress');
-        // 保持本地状态，因为确实在转录中
       } else if (errorCode === 'ALREADY_TRANSCRIBED') {
         setError(t('detail.alreadyTranscribed') || 'Episode already has a transcript');
         await loadTranscript();
         setLocalTranscribing(false);
-        setTranscribeStartTime(null);
       } else {
         setError(errorMsg);
         setLocalTranscribing(false);
-        setTranscribeStartTime(null);
       }
     } finally {
       setLoading(false);
@@ -192,8 +172,7 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
 
   const generateSummary = async (type = null) => {
     setLoading(true);
-    setLocalSummarizing(true);  // 立即锁定按钮
-    setSummarizeStartTime(Date.now());  // 记录开始时间用于进度条
+    setLocalSummarizing(true);
     setError(null);
     try {
       const targetType = type || summaryType;
@@ -201,49 +180,21 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
       if (onRefresh) onRefresh();
-      // 成功后清除本地状态
-      setLocalSummarizing(false);
-      setSummarizeStartTime(null);
-      // 重新加载摘要（已自动包含翻译）
-      await loadSummary(targetType);
+      // 任务已提交，TaskProgress 组件会轮询状态
     } catch (err) {
       console.error('Failed to generate summary:', err);
       const errorCode = err?.code || '';
       if (errorCode === 'SUMMARY_EXISTS') {
         await loadSummary(type);
         setLocalSummarizing(false);
-        setSummarizeStartTime(null);
       } else if (errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.summaryInProgress') || 'Summary generation in progress');
-        // 保持本地状态，因为确实在进行中
       } else {
         setError(err?.message || 'Failed to generate summary');
         setLocalSummarizing(false);
-        setSummarizeStartTime(null);
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const translateSummary = async () => {
-    setTranslating(true);
-    setError(null);
-    try {
-      await summariesApi.translate(episode.id, summaryType);
-      setSuccessMsg(t('detail.translateStarted') || 'Translation started');
-      setTimeout(() => setSuccessMsg(null), 3000);
-      if (onRefresh) onRefresh();
-    } catch (err) {
-      console.error('Failed to translate summary:', err);
-      if (err?.message?.includes('already exists')) {
-        await loadSummary();
-        setShowChinese(true);
-      } else {
-        setError(err?.message || 'Failed to translate');
-      }
-    } finally {
-      setTranslating(false);
     }
   };
 
@@ -409,22 +360,12 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
 
                   <div className="flex flex-col gap-3 items-center">
                     {isCurrentlyTranscribing ? (
-                      <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-                        <div className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500" />
-                          <span className="text-purple-400 font-medium">{t('detail.transcribingStatus')}</span>
-                        </div>
-                        {/* 进度条 */}
-                        <TranscribeProgressBar
-                          startTime={transcribeStartTime}
-                          estimatedMinutes={estimateTime}
-                        />
-                        {estimateTime && (
-                          <p className="text-xs text-zinc-500">
-                            {t('detail.estimateTime')}: ~{estimateTime} min
-                          </p>
-                        )}
-                      </div>
+                      <TaskProgress
+                        taskType="transcribe"
+                        episodeId={episode.id}
+                        onComplete={handleTranscribeComplete}
+                        onError={handleTaskError}
+                      />
                     ) : (
                       <div className="flex flex-col items-center gap-3">
                         {/* 预估费用和时间 */}
@@ -490,17 +431,8 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  {/* 没有翻译时显示翻译按钮，有翻译时显示语言切换 */}
-                  {summary && !summary.has_translation ? (
-                    <button
-                      onClick={translateSummary}
-                      disabled={translating || isCurrentlySummarizing}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
-                    >
-                      <Languages size={14} />
-                      {translating ? t('detail.translating') || 'Translating...' : t('detail.translate') || 'Translate'}
-                    </button>
-                  ) : summary?.has_translation ? (
+                  {/* 有翻译时显示语言切换 */}
+                  {summary?.has_translation && (
                     <button
                       onClick={() => setShowChinese(!showChinese)}
                       className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
@@ -510,7 +442,7 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
                       <Languages size={14} />
                       {showChinese ? 'EN' : 'CN'}
                     </button>
-                  ) : null}
+                  )}
                 </div>
               </div>
 
@@ -669,19 +601,12 @@ const EpisodeDetailView = ({ episode, onBack, onRefresh, onPlay }) => {
                     }
                   </p>
                   {isCurrentlySummarizing ? (
-                    <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500" />
-                        <span className="text-indigo-400 font-medium">{t('detail.summarizingStatus')}</span>
-                      </div>
-                      <TranscribeProgressBar
-                        startTime={summarizeStartTime}
-                        estimatedMinutes={summaryEstimateTime}
-                      />
-                      <p className="text-xs text-zinc-500">
-                        {t('detail.estimateTime')}: ~{summaryEstimateTime} min
-                      </p>
-                    </div>
+                    <TaskProgress
+                      taskType="summarize"
+                      episodeId={episode.id}
+                      onComplete={handleSummarizeComplete}
+                      onError={handleTaskError}
+                    />
                   ) : (
                     <button
                       onClick={() => generateSummary()}

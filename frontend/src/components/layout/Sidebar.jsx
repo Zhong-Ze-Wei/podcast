@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutGrid, Plus, Mic2, Briefcase,
-  Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart
+  Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings
 } from 'lucide-react';
 import { feedsApi } from '../../services/api';
 
@@ -234,7 +234,13 @@ const Sidebar = ({
         ))}
       </div>
 
-      <div className={`p-4 border-t border-zinc-800 ${hasPlayer ? 'pb-24' : ''}`}>
+      <div className={`p-4 border-t border-zinc-800 space-y-2 ${hasPlayer ? 'pb-24' : ''}`}>
+        <button
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('settings'); }}
+          className={`flex items-center gap-2 text-zinc-400 hover:text-white text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-zinc-600 hover:bg-zinc-900 ${currentView === 'settings' ? 'bg-zinc-900 text-white border-zinc-600' : ''}`}
+        >
+          <Settings size={14} /> {t('sidebar.settings')}
+        </button>
         <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 text-zinc-400 hover:text-indigo-400 text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-indigo-500/30 hover:bg-zinc-900"

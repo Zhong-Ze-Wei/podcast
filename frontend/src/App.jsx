@@ -10,6 +10,7 @@ import EpisodeDetailView from './components/views/EpisodeDetailView';
 import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
+import LlmSettingsView from './components/views/LlmSettingsView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
@@ -398,6 +399,10 @@ export default function App() {
             onStar={handleStar}
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
+          />
+        ) : view === 'settings' ? (
+          <LlmSettingsView
+            onBack={() => setView('list')}
           />
         ) : (
           <EpisodeDetailView

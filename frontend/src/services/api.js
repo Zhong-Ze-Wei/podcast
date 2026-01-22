@@ -103,4 +103,12 @@ export const statsApi = {
   get: () => api.get('/stats')
 };
 
+// Settings API
+export const settingsApi = {
+  getLlmConfigs: () => api.get('/settings/llm'),
+  saveLlmConfigs: (data) => api.put('/settings/llm', data),
+  setActiveLlm: (index) => api.put('/settings/llm/active', { index }),
+  testLlmConnection: (config) => api.post('/settings/llm/test', config)
+};
+
 export default api;

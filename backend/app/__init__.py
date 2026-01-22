@@ -88,6 +88,7 @@ def register_blueprints(app):
     from .api.summaries import summaries_bp
     from .api.tasks import tasks_bp
     from .api.stats import stats_bp
+    from .api.settings import settings_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
@@ -97,6 +98,7 @@ def register_blueprints(app):
     app.register_blueprint(summaries_bp, url_prefix=f"{prefix}/summaries")
     app.register_blueprint(tasks_bp, url_prefix=f"{prefix}/tasks")
     app.register_blueprint(stats_bp, url_prefix=f"{prefix}")
+    app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
 
 
 def register_error_handlers(app):
