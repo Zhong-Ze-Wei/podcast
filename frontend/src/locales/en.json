@@ -173,6 +173,11 @@
     }
   },
   "settings": {
+    "title": "Settings",
+    "llmTab": "LLM Configuration",
+    "templatesTab": "Summary Templates",
+    "templates": "Templates",
+    "templatesCount": "templates",
     "llmTitle": "LLM Configuration",
     "llmDesc": "Configure LLM API endpoints for AI features",
     "save": "Save",

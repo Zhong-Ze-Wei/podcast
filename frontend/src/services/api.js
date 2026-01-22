@@ -76,19 +76,38 @@ export const transcriptsApi = {
 
 // Summaries API
 export const summariesApi = {
-  get: (episodeId, summaryType = null) => {
-    const params = summaryType ? { summary_type: summaryType } : {};
+  get: (episodeId, params = {}) => {
+    // params can include: template_name or summary_type
     return api.get(`/summaries/${episodeId}`, { params });
   },
-  create: (episodeId, summaryType = 'general', force = false) =>
-    api.post(`/summaries/${episodeId}`, { summary_type: summaryType, force }),
-  translate: (episodeId, summaryType = null) =>
-    api.post(`/summaries/${episodeId}/translate`, { summary_type: summaryType }),
-  delete: (episodeId, summaryType = null) => {
-    const params = summaryType ? { summary_type: summaryType } : {};
+  // New template-based API
+  create: (episodeId, options = {}) => {
+    // options: { template_name, enabled_blocks, params, force } or legacy { summary_type, force }
+    return api.post(`/summaries/${episodeId}`, options);
+  },
+  translate: (episodeId, options = {}) =>
+    api.post(`/summaries/${episodeId}/translate`, options),
+  delete: (episodeId, params = {}) => {
+    // params: { template_name } or { summary_type }
     return api.delete(`/summaries/${episodeId}`, { params });
   },
-  getTypes: () => api.get('/summaries/types')
+  getTypes: () => api.get('/summaries/types'),
+  getTemplates: () => api.get('/summaries/templates')
+};
+
+// Prompt Templates API
+export const promptTemplatesApi = {
+  list: (includeSystem = true) =>
+    api.get('/prompt-templates', { params: { include_system: includeSystem } }),
+  get: (idOrName) => api.get(`/prompt-templates/${idOrName}`),
+  create: (data) => api.post('/prompt-templates', data),
+  update: (id, data) => api.put(`/prompt-templates/${id}`, data),
+  duplicate: (id, newName, newDisplayName) =>
+    api.post(`/prompt-templates/${id}/duplicate`, { name: newName, display_name: newDisplayName }),
+  delete: (id) => api.delete(`/prompt-templates/${id}`),
+  getBlocks: (idOrName) => api.get(`/prompt-templates/${idOrName}/blocks`),
+  getParameters: (idOrName) => api.get(`/prompt-templates/${idOrName}/parameters`),
+  init: () => api.post('/prompt-templates/init')
 };
 
 // Tasks API

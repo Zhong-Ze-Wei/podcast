@@ -6,7 +6,7 @@ import {
   Sparkles, CheckCircle2, Clock, DollarSign,
   Languages, TrendingUp, AlertTriangle, Quote
 } from 'lucide-react';
-import { transcriptsApi, summariesApi, episodesApi } from '../../services/api';
+import { transcriptsApi, summariesApi, episodesApi, promptTemplatesApi } from '../../services/api';
 import { decodeHtmlEntities } from '../../utils/helpers';
 import TaskProgress from '../common/TaskProgress';
 
@@ -37,13 +37,42 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [localSummarizing, setLocalSummarizing] = useState(false);
 
   // Summary states
-  const [summaryType, setSummaryType] = useState('investment');
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [enabledBlocks, setEnabledBlocks] = useState([]);
   const [showChinese, setShowChinese] = useState(false);
+  const [showTemplateOptions, setShowTemplateOptions] = useState(false);
 
   // 当props中的episode变化时，更新本地状态
   useEffect(() => {
     setEpisode(episodeProp);
   }, [episodeProp]);
+
+  // 加载模板列表
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const response = await promptTemplatesApi.list();
+        const templateList = response.data?.templates || response.templates || [];
+        setTemplates(templateList);
+        // 默认选择第一个模板
+        if (templateList.length > 0 && !selectedTemplate) {
+          const defaultTemplate = templateList.find(t => t.name === 'investment') || templateList[0];
+          setSelectedTemplate(defaultTemplate);
+          // 获取模板详情以获取 enabled blocks
+          const detailResp = await promptTemplatesApi.get(defaultTemplate.id);
+          const detail = detailResp.data || detailResp;
+          const defaultEnabled = detail.optional_blocks
+            ?.filter(b => b.enabled_by_default)
+            .map(b => b.id) || [];
+          setEnabledBlocks(defaultEnabled);
+        }
+      } catch (err) {
+        console.error('Failed to load templates:', err);
+      }
+    };
+    loadTemplates();
+  }, []);
 
   // 检查是否正在转录
   const isTranscribing = episode?.status === 'transcribing';
@@ -133,9 +162,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
-  const loadSummary = async (type = null) => {
+  const loadSummary = async (templateName = null) => {
     try {
-      const response = await summariesApi.get(episode.id, type || summaryType);
+      const name = templateName || selectedTemplate?.name || 'investment';
+      const response = await summariesApi.get(episode.id, { template_name: name });
       setSummary(response.data);
       setShowChinese(false);
     } catch (err) {
@@ -170,13 +200,19 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
-  const generateSummary = async (type = null) => {
+  const generateSummary = async () => {
+    if (!selectedTemplate) {
+      setError('Please select a template first');
+      return;
+    }
     setLoading(true);
     setLocalSummarizing(true);
     setError(null);
     try {
-      const targetType = type || summaryType;
-      await summariesApi.create(episode.id, targetType, false);
+      await summariesApi.create(episode.id, {
+        template_name: selectedTemplate.name,
+        enabled_blocks: enabledBlocks
+      });
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
       if (onRefresh) onRefresh();
@@ -185,7 +221,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       console.error('Failed to generate summary:', err);
       const errorCode = err?.code || '';
       if (errorCode === 'SUMMARY_EXISTS') {
-        await loadSummary(type);
+        await loadSummary();
         setLocalSummarizing(false);
       } else if (errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.summaryInProgress') || 'Summary generation in progress');
@@ -198,11 +234,31 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
-  const handleSummaryTypeChange = async (type) => {
-    setSummaryType(type);
+  const handleTemplateChange = async (template) => {
+    setSelectedTemplate(template);
     setSummary(null);
     setShowChinese(false);
-    await loadSummary(type);
+    setShowTemplateOptions(false);
+    // 获取模板详情并设置默认启用的块
+    try {
+      const response = await promptTemplatesApi.get(template.id);
+      const detail = response.data || response;
+      const defaultEnabled = detail.optional_blocks
+        ?.filter(b => b.enabled_by_default)
+        .map(b => b.id) || [];
+      setEnabledBlocks(defaultEnabled);
+    } catch (err) {
+      console.error('Failed to load template detail:', err);
+    }
+    await loadSummary(template.name);
+  };
+
+  const toggleBlock = (blockId) => {
+    setEnabledBlocks(prev =>
+      prev.includes(blockId)
+        ? prev.filter(id => id !== blockId)
+        : [...prev, blockId]
+    );
   };
 
   const tabLabels = {
@@ -403,30 +459,23 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
           {activeTab === 'summary' && (
             <div className="space-y-6 animate-in">
-              {/* Summary Type Selector & Actions */}
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
-                  {['investment', 'general'].map(type => (
+              {/* Template Selector & Actions */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex gap-2 flex-wrap">
+                  {templates.map(template => (
                     <button
-                      key={type}
-                      onClick={() => handleSummaryTypeChange(type)}
+                      key={template.id}
+                      onClick={() => handleTemplateChange(template)}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        summaryType === type
+                        selectedTemplate?.id === template.id
                           ? 'bg-indigo-600 text-white'
                           : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
                       }`}
                     >
-                      {type === 'investment' ? (
-                        <span className="flex items-center gap-2">
-                          <TrendingUp size={14} />
-                          {t('detail.investmentAnalysis') || 'Investment'}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <Sparkles size={14} />
-                          {t('detail.generalSummary') || 'General'}
-                        </span>
-                      )}
+                      <span className="flex items-center gap-2">
+                        {template.name === 'investment' ? <TrendingUp size={14} /> : <Sparkles size={14} />}
+                        {template.display_name}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -472,8 +521,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     </p>
                   </div>
 
-                  {/* Investment Signals (for investment type) */}
-                  {summary.summary_type === 'investment' && summary.investment_signals?.length > 0 && (
+                  {/* Investment Signals (for investment template) */}
+                  {(summary.template_name === 'investment' || summary.summary_type === 'investment') && summary.investment_signals?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                         <TrendingUp size={14} /> {t('detail.investmentSignals') || 'Investment Signals'}
@@ -595,10 +644,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   <Sparkles size={48} className="mb-4 text-zinc-700" />
                   <p className="text-lg font-medium mb-2">{t('detail.noSummary')}</p>
                   <p className="text-sm text-zinc-600 mb-4">
-                    {summaryType === 'investment'
-                      ? t('detail.investmentDesc') || 'Extract investment signals, tickers, and market insights'
-                      : t('detail.generalDesc') || 'Generate a general summary with key points'
-                    }
+                    {selectedTemplate?.description || t('detail.selectTemplate') || 'Select a template to generate summary'}
                   </p>
                   {isCurrentlySummarizing ? (
                     <TaskProgress
@@ -610,7 +656,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={loading || isCurrentlySummarizing}
+                      disabled={loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       {loading ? t('detail.generating') : t('detail.generateSummaryAI')}
