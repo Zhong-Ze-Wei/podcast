@@ -26,7 +26,7 @@ import { decodeHtmlEntities } from './utils/helpers';
 
 export default function App() {
   const { t } = useTranslation();
-  const [view, setView] = useState('list'); // list | feedDetail | detail
+  const [view, setView] = useState('workspace'); // list | feedDetail | detail | workspace
   const [activeFeed, setActiveFeed] = useState(null);
   const [selectedFeed, setSelectedFeed] = useState(null); // 用于FeedDetailView
   const [selectedEpisode, setSelectedEpisode] = useState(null);
