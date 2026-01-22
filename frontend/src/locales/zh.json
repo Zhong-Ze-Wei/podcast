@@ -7,7 +7,8 @@
     "subscriptions": "订阅",
     "addPodcast": "添加播客",
     "favorites": "我的喜欢",
-    "workspace": "工作台"
+    "workspace": "工作台",
+    "settings": "设置"
   },
   "feed": {
     "addTitle": "添加播客订阅",
@@ -152,6 +153,12 @@
     "cancel": "取消",
     "dismiss": "关闭",
     "empty": "暂无任务",
+    "elapsed": "已运行",
+    "lastUpdate": "更新于",
+    "justNow": "刚刚",
+    "secondsAgo": "秒前",
+    "minutesAgo": "分钟前",
+    "maybeStuck": "任务可能卡住了，请检查后端日志",
     "types": {
       "download": "下载音频",
       "transcribe": "AI转录",
@@ -164,5 +171,22 @@
       "completed": "已完成",
       "failed": "失败"
     }
+  },
+  "settings": {
+    "llmTitle": "LLM 配置",
+    "llmDesc": "配置 AI 功能的 LLM API 端点",
+    "save": "保存",
+    "saved": "设置已保存",
+    "loadError": "加载设置失败",
+    "saveError": "保存设置失败",
+    "maxConfigs": "最多允许 5 个配置",
+    "minConfigs": "至少需要一个配置",
+    "active": "当前使用",
+    "test": "测试",
+    "delete": "删除",
+    "addConfig": "添加配置",
+    "testSuccess": "连接成功",
+    "testFailed": "连接测试失败",
+    "testRequiredFields": "Base URL 和 Model 为必填项"
   }
 }

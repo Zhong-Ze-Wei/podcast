@@ -8,6 +8,7 @@ from .transcripts import transcripts_bp
 from .summaries import summaries_bp
 from .tasks import tasks_bp
 from .stats import stats_bp
+from .settings import settings_bp
 
 __all__ = [
     "feeds_bp",
@@ -15,5 +16,6 @@ __all__ = [
     "transcripts_bp",
     "summaries_bp",
     "tasks_bp",
-    "stats_bp"
+    "stats_bp",
+    "settings_bp"
 ]

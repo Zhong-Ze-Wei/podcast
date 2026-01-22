@@ -69,7 +69,7 @@ class TaskQueue:
         self.tasks[task_id] = task_info
 
         # 持久化到数据库
-        if self._db:
+        if self._db is not None:
             self._db.tasks.insert_one(task_info.copy())
 
         # 包装函数以更新状态
@@ -114,7 +114,7 @@ class TaskQueue:
                 self.tasks[task_id][key] = value
 
         # 同步到数据库
-        if self._db:
+        if self._db is not None:
             update_doc = {"status": status, **kwargs}
             self._db.tasks.update_one(
                 {"task_id": task_id},
@@ -127,7 +127,7 @@ class TaskQueue:
             self.tasks[task_id]["progress"] = progress
 
         # 同步到数据库 (进度更新不太频繁，可以每次都写)
-        if self._db:
+        if self._db is not None:
             self._db.tasks.update_one(
                 {"task_id": task_id},
                 {"$set": {"progress": progress}}
@@ -140,7 +140,7 @@ class TaskQueue:
             return self.tasks[task_id].copy()
 
         # 从数据库获取
-        if self._db:
+        if self._db is not None:
             task = self._db.tasks.find_one({"task_id": task_id})
             if task:
                 # 转换ObjectId等
@@ -160,7 +160,7 @@ class TaskQueue:
         limit: int = 50
     ) -> list:
         """获取任务列表"""
-        if self._db:
+        if self._db is not None:
             query = {}
             if status:
                 query["status"] = status
