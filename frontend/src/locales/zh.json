@@ -173,6 +173,11 @@
     }
   },
   "settings": {
+    "title": "设置",
+    "llmTab": "LLM 配置",
+    "templatesTab": "摘要模板",
+    "templates": "模板",
+    "templatesCount": "个模板",
     "llmTitle": "LLM 配置",
     "llmDesc": "配置 AI 功能的 LLM API 端点",
     "save": "保存",

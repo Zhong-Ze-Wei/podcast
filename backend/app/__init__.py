@@ -71,8 +71,24 @@ def ensure_indexes(db):
     # transcripts索引
     db.transcripts.create_index("episode_id", unique=True)
 
-    # summaries索引
-    db.summaries.create_index("episode_id", unique=True)
+    # summaries索引 - 需要先删除旧的唯一索引（如果存在）
+    try:
+        # 检查是否存在旧的唯一索引，如果存在则删除
+        existing_indexes = list(db.summaries.list_indexes())
+        for idx in existing_indexes:
+            if idx.get('name') == 'episode_id_1' and idx.get('unique'):
+                db.summaries.drop_index('episode_id_1')
+                break
+    except Exception:
+        pass
+    db.summaries.create_index("episode_id")
+    db.summaries.create_index([("episode_id", 1), ("template_name", 1)])
+    db.summaries.create_index([("episode_id", 1), ("summary_type", 1)])
+
+    # prompt_templates索引
+    db.prompt_templates.create_index("name", unique=True)
+    db.prompt_templates.create_index("is_active")
+    db.prompt_templates.create_index("is_system")
 
     # tasks索引
     db.tasks.create_index("task_id", unique=True)
@@ -89,6 +105,7 @@ def register_blueprints(app):
     from .api.tasks import tasks_bp
     from .api.stats import stats_bp
     from .api.settings import settings_bp
+    from .api.prompt_templates import prompt_templates_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
@@ -99,6 +116,7 @@ def register_blueprints(app):
     app.register_blueprint(tasks_bp, url_prefix=f"{prefix}/tasks")
     app.register_blueprint(stats_bp, url_prefix=f"{prefix}")
     app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
+    app.register_blueprint(prompt_templates_bp, url_prefix=f"{prefix}/prompt-templates")
 
 
 def register_error_handlers(app):
