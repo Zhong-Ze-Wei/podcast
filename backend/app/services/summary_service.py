@@ -46,6 +46,7 @@ class SummaryService:
         summary_type: str = None,
         enabled_blocks: List[str] = None,
         params: Dict = None,
+        user_focus: str = None,
         force: bool = False
     ) -> Dict[str, Any]:
         """
@@ -55,6 +56,7 @@ class SummaryService:
             - template_name: Name of template to use
             - enabled_blocks: List of block IDs to enable
             - params: Parameter values (e.g., {"length": "long"})
+            - user_focus: User's specific focus to prioritize (max 50 chars)
 
         Legacy API (backward compatible):
             - summary_type: "general" or "investment"
@@ -65,6 +67,7 @@ class SummaryService:
             summary_type: Summary type (legacy API, mapped to template)
             enabled_blocks: Block IDs to enable (new API)
             params: Parameters (new API)
+            user_focus: User's specific focus (new API)
             force: Force regenerate
 
         Returns:
@@ -74,7 +77,7 @@ class SummaryService:
         if template_name is None and summary_type is not None:
             template_name = self._map_legacy_type(summary_type)
         elif template_name is None:
-            template_name = "learning"  # Default template
+            template_name = "investment"  # Default template
 
         # Check if template exists in database
         template = self.db.prompt_templates.find_one({
@@ -90,6 +93,7 @@ class SummaryService:
                 template_name=template_name,
                 enabled_blocks=enabled_blocks,
                 params=params,
+                user_focus=user_focus,
                 force=force
             )
         else:
@@ -107,6 +111,7 @@ class SummaryService:
         template_name: str,
         enabled_blocks: List[str] = None,
         params: Dict = None,
+        user_focus: str = None,
         force: bool = False
     ) -> Dict[str, Any]:
         """Generate summary using new engine"""
@@ -115,6 +120,7 @@ class SummaryService:
             template_name=template_name,
             enabled_blocks=enabled_blocks,
             params=params,
+            user_focus=user_focus,
             force=force
         )
 
@@ -270,14 +276,12 @@ class SummaryService:
     def _map_legacy_type(self, summary_type: str) -> str:
         """Map legacy summary type to template name"""
         mapping = {
-            "general": "learning",
+            "general": "investment",  # Default to investment for general
             "investment": "investment",
-            "tech": "tech",
-            "startup": "startup",
-            "learning": "learning",
-            "interview": "interview"
+            "stakeholder": "stakeholder",
+            "data_evidence": "data_evidence"
         }
-        return mapping.get(summary_type, "learning")
+        return mapping.get(summary_type, "investment")
 
     def _create_legacy_summary_document(
         self,

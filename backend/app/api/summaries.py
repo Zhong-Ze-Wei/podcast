@@ -50,14 +50,19 @@ def get_summary(episode_id):
     template_name = request.args.get("template_name")
     summary_type = request.args.get("summary_type")
 
-    query = {"episode_id": oid}
-    if template_name:
-        query["template_name"] = template_name
-    elif summary_type:
-        query["summary_type"] = summary_type
+    summary = None
 
-    if template_name or summary_type:
-        summary = db.summaries.find_one(query)
+    if template_name:
+        # Try template_name first, then fall back to summary_type for legacy data
+        summary = db.summaries.find_one({"episode_id": oid, "template_name": template_name})
+        if not summary:
+            # Fallback: check if legacy data exists with matching summary_type
+            summary = db.summaries.find_one({"episode_id": oid, "summary_type": template_name})
+    elif summary_type:
+        # Legacy API
+        summary = db.summaries.find_one({"episode_id": oid, "summary_type": summary_type})
+        if not summary:
+            summary = db.summaries.find_one({"episode_id": oid, "template_name": summary_type})
     else:
         # Get latest summary
         summary = db.summaries.find_one(
@@ -77,9 +82,10 @@ def create_summary(episode_id):
     Create summary task (async).
 
     Request Body (New API - template-based):
-        - template_name: Template to use (e.g., "investment", "tech", "learning")
+        - template_name: Template to use (e.g., "investment", "stakeholder", "data_evidence")
         - enabled_blocks: List of block IDs to enable (optional)
         - params: Parameters like {"length": "long"} (optional)
+        - user_focus: User's specific focus (max 50 chars) to prioritize in analysis
         - force: Force regenerate (default: false)
 
     Request Body (Legacy API - backward compatible):
@@ -104,6 +110,7 @@ def create_summary(episode_id):
     template_name = data.get("template_name")
     enabled_blocks = data.get("enabled_blocks")  # List of block IDs
     params = data.get("params", {})  # e.g., {"length": "long"}
+    user_focus = data.get("user_focus", "")  # Max 50 chars
 
     # Legacy API parameters
     summary_type = data.get("summary_type")
@@ -119,8 +126,8 @@ def create_summary(episode_id):
         identifier = summary_type
         identifier_field = "summary_type"
     else:
-        # Default to learning template
-        template_name = "learning"
+        # Default to investment template
+        template_name = "investment"
         identifier = template_name
         identifier_field = "template_name"
 
@@ -167,6 +174,7 @@ def create_summary(episode_id):
             summary_type=summary_type,
             enabled_blocks=enabled_blocks,
             params=params,
+            user_focus=user_focus,
             force=force,
             progress_callback=progress_callback
         )
@@ -207,6 +215,7 @@ def _summarize_sync(
     summary_type: str = None,
     enabled_blocks: list = None,
     params: dict = None,
+    user_focus: str = None,
     force: bool = False,
     progress_callback=None
 ):
@@ -225,6 +234,7 @@ def _summarize_sync(
             summary_type=summary_type,
             enabled_blocks=enabled_blocks,
             params=params,
+            user_focus=user_focus,
             force=force
         )
 

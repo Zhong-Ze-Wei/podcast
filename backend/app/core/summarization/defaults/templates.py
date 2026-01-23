@@ -23,7 +23,7 @@ COMMON_USER_PROMPT = """Analyze the following podcast transcript.
 ## Podcast Information
 Title: {title}
 Guest: {guest}
-
+{user_focus_instruction}
 ## Analysis Requirements
 {length_instruction}
 {language_instruction}
@@ -373,6 +373,199 @@ COMMON_BLOCKS = {
         },
         "enabled_by_default": False,
         "order": 51
+    },
+    # Stakeholder Analysis blocks
+    "speaker_profile": {
+        "id": "speaker_profile",
+        "name": "Speaker Profile",
+        "name_zh": "发言人画像",
+        "prompt_fragment": "Analyze the speaker's background, current position, potential biases based on their affiliations, and vested interests that may influence their viewpoints.",
+        "output_field": {
+            "key": "speaker_profile",
+            "type": "object",
+            "items": {
+                "background": "string",
+                "position": "string",
+                "affiliations": "array of strings",
+                "potential_biases": "array of strings"
+            },
+            "description": "Speaker background and potential biases"
+        },
+        "enabled_by_default": True,
+        "order": 60
+    },
+    "stakeholders": {
+        "id": "stakeholders",
+        "name": "Stakeholders",
+        "name_zh": "利益相关方",
+        "prompt_fragment": "Identify all stakeholders mentioned or implied: who benefits, who loses, who is affected by the topics discussed. Include companies, groups, and individuals.",
+        "output_field": {
+            "key": "stakeholders",
+            "type": "array",
+            "items": {
+                "party": "string",
+                "interest": "beneficiary/affected/loser",
+                "reasoning": "string"
+            },
+            "description": "Stakeholders and their interests"
+        },
+        "enabled_by_default": True,
+        "order": 61
+    },
+    "hidden_agendas": {
+        "id": "hidden_agendas",
+        "name": "Hidden Agendas",
+        "name_zh": "潜在动机",
+        "prompt_fragment": "Identify unstated motivations, hidden interests, or underlying reasons that may drive the speaker's narrative. What are they NOT saying?",
+        "output_field": {
+            "key": "hidden_agendas",
+            "type": "array",
+            "items": "string",
+            "description": "Potential hidden motivations"
+        },
+        "enabled_by_default": True,
+        "order": 62
+    },
+    "power_dynamics": {
+        "id": "power_dynamics",
+        "name": "Power Dynamics",
+        "name_zh": "权力关系",
+        "prompt_fragment": "Analyze the power dynamics: who has influence, whose voice is amplified, whose perspective is missing or underrepresented.",
+        "output_field": {
+            "key": "power_dynamics",
+            "type": "object",
+            "items": {
+                "influential_parties": "array of strings",
+                "missing_voices": "array of strings",
+                "analysis": "string"
+            },
+            "description": "Power dynamics analysis"
+        },
+        "enabled_by_default": False,
+        "order": 63
+    },
+    "contrasting_views": {
+        "id": "contrasting_views",
+        "name": "Contrasting Views",
+        "name_zh": "对立观点",
+        "prompt_fragment": "For each major claim, provide what opponents or critics might argue. Present the other side of the debate.",
+        "output_field": {
+            "key": "contrasting_views",
+            "type": "array",
+            "items": {
+                "original_claim": "string",
+                "counter_argument": "string",
+                "source_perspective": "string"
+            },
+            "description": "Contrasting viewpoints"
+        },
+        "enabled_by_default": True,
+        "order": 64
+    },
+    # Data & Evidence blocks
+    "cited_data": {
+        "id": "cited_data",
+        "name": "Cited Data",
+        "name_zh": "引用数据",
+        "prompt_fragment": "Extract ALL specific numbers, statistics, percentages, and quantitative claims from the transcript. Include the exact figures as stated with their context.",
+        "output_field": {
+            "key": "cited_data",
+            "type": "array",
+            "items": {
+                "data_point": "string (the exact number/statistic)",
+                "context": "string",
+                "claim": "string"
+            },
+            "description": "Quantitative data points cited"
+        },
+        "enabled_by_default": True,
+        "order": 70
+    },
+    "data_sources": {
+        "id": "data_sources",
+        "name": "Data Sources",
+        "name_zh": "数据来源",
+        "prompt_fragment": "Identify the sources of data and claims: research institutions, studies, reports, or whether claims are unattributed. Rate credibility where possible.",
+        "output_field": {
+            "key": "data_sources",
+            "type": "array",
+            "items": {
+                "source": "string",
+                "type": "study/report/institution/personal/unattributed",
+                "credibility_note": "string"
+            },
+            "description": "Sources of cited data"
+        },
+        "enabled_by_default": True,
+        "order": 71
+    },
+    "factual_claims": {
+        "id": "factual_claims",
+        "name": "Factual Claims",
+        "name_zh": "事实断言",
+        "prompt_fragment": "List statements presented as facts that can be verified or fact-checked. These are objective claims about reality.",
+        "output_field": {
+            "key": "factual_claims",
+            "type": "array",
+            "items": {
+                "claim": "string",
+                "verifiable": "yes/partially/no",
+                "source_mentioned": "string or null"
+            },
+            "description": "Verifiable factual claims"
+        },
+        "enabled_by_default": True,
+        "order": 72
+    },
+    "opinion_claims": {
+        "id": "opinion_claims",
+        "name": "Opinion Claims",
+        "name_zh": "观点断言",
+        "prompt_fragment": "List statements that are opinions, predictions, or subjective judgments rather than verifiable facts.",
+        "output_field": {
+            "key": "opinion_claims",
+            "type": "array",
+            "items": {
+                "claim": "string",
+                "type": "opinion/prediction/judgment",
+                "speaker": "string"
+            },
+            "description": "Subjective opinion claims"
+        },
+        "enabled_by_default": True,
+        "order": 73
+    },
+    "missing_data": {
+        "id": "missing_data",
+        "name": "Missing Data",
+        "name_zh": "缺失数据",
+        "prompt_fragment": "Identify important data or evidence that SHOULD have been provided but wasn't. What questions remain unanswered? What evidence would strengthen or weaken the arguments?",
+        "output_field": {
+            "key": "missing_data",
+            "type": "array",
+            "items": "string",
+            "description": "Missing evidence and unanswered questions"
+        },
+        "enabled_by_default": True,
+        "order": 74
+    },
+    "frameworks": {
+        "id": "frameworks",
+        "name": "Frameworks",
+        "name_zh": "思维框架",
+        "prompt_fragment": "Extract any mental models, analytical frameworks, methodologies, or structured approaches mentioned that can be reused.",
+        "output_field": {
+            "key": "frameworks",
+            "type": "array",
+            "items": {
+                "name": "string",
+                "description": "string",
+                "application": "string"
+            },
+            "description": "Reusable frameworks and mental models"
+        },
+        "enabled_by_default": False,
+        "order": 75
     }
 }
 
@@ -384,7 +577,9 @@ COMMON_BLOCKS = {
 TEMPLATE_INVESTMENT = {
     "name": "investment",
     "display_name": "Investment Analysis",
+    "display_name_zh": "投资分析",
     "description": "Extract investment signals, stock mentions, and market insights from finance podcasts.",
+    "description_zh": "从财经播客中提取投资信号、股票提及和市场洞察",
     "is_system": True,
     "is_active": True,
     "locked": {
@@ -406,91 +601,51 @@ TEMPLATE_INVESTMENT = {
     "user_prompt_template": COMMON_USER_PROMPT
 }
 
-TEMPLATE_TECH = {
-    "name": "tech",
-    "display_name": "Tech & Product",
-    "description": "Analyze technology discussions, product insights, and tech industry trends.",
+TEMPLATE_STAKEHOLDER = {
+    "name": "stakeholder",
+    "display_name": "Stakeholder Analysis",
+    "display_name_zh": "利益相关方分析",
+    "description": "Analyze speakers, stakeholders, hidden agendas, and power dynamics. Who benefits? Who loses?",
+    "description_zh": "分析发言人、利益相关方、潜在动机和权力关系。谁受益？谁受损？",
     "is_system": True,
     "is_active": True,
     "locked": {
         **COMMON_LOCKED,
-        "system_prompt": "You are a technology analyst specializing in software development, product management, and tech industry trends. Your task is to extract technical insights and product knowledge. Always output valid JSON only, no other text."
+        "system_prompt": "You are a critical analyst specializing in stakeholder analysis and power dynamics. Your task is to identify who benefits, who loses, and what hidden interests may be driving the narrative. Be skeptical and analytical. Always output valid JSON only, no other text."
     },
     "optional_blocks": [
         COMMON_BLOCKS["core_content"],
-        COMMON_BLOCKS["guest_background"],
-        COMMON_BLOCKS["unique_insights"],
-        {**COMMON_BLOCKS["technologies"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["product_insights"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["tech_trends"], "enabled_by_default": True},
-        COMMON_BLOCKS["key_quotes"],
-        COMMON_BLOCKS["action_items"],
-        COMMON_BLOCKS["resources"]
+        {**COMMON_BLOCKS["speaker_profile"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["stakeholders"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["hidden_agendas"], "enabled_by_default": True},
+        COMMON_BLOCKS["power_dynamics"],
+        {**COMMON_BLOCKS["contrasting_views"], "enabled_by_default": True},
+        COMMON_BLOCKS["key_quotes"]
     ],
     "parameters": COMMON_PARAMETERS,
     "user_prompt_template": COMMON_USER_PROMPT
 }
 
-TEMPLATE_STARTUP = {
-    "name": "startup",
-    "display_name": "Startup & Business",
-    "description": "Extract business models, growth strategies, and entrepreneurship lessons.",
+TEMPLATE_DATA_EVIDENCE = {
+    "name": "data_evidence",
+    "display_name": "Data & Evidence",
+    "display_name_zh": "数据与证据",
+    "description": "Extract cited data, verify sources, distinguish facts from opinions. What evidence is provided? What's missing?",
+    "description_zh": "提取引用数据，验证来源，区分事实与观点。提供了什么证据？缺少什么？",
     "is_system": True,
     "is_active": True,
     "locked": {
         **COMMON_LOCKED,
-        "system_prompt": "You are a business analyst specializing in startups, entrepreneurship, and growth strategies. Your task is to extract actionable business insights. Always output valid JSON only, no other text."
+        "system_prompt": "You are a fact-checker and research analyst. Your task is to extract all data points, identify their sources, and distinguish between factual claims and opinions. Be rigorous about evidence. Always output valid JSON only, no other text."
     },
     "optional_blocks": [
         COMMON_BLOCKS["core_content"],
-        COMMON_BLOCKS["guest_background"],
-        COMMON_BLOCKS["unique_insights"],
-        {**COMMON_BLOCKS["business_model"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["growth_tactics"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["lessons_learned"], "enabled_by_default": True},
-        COMMON_BLOCKS["key_quotes"],
-        COMMON_BLOCKS["action_items"],
-        COMMON_BLOCKS["resources"]
-    ],
-    "parameters": COMMON_PARAMETERS,
-    "user_prompt_template": COMMON_USER_PROMPT
-}
-
-TEMPLATE_LEARNING = {
-    "name": "learning",
-    "display_name": "Learning Notes",
-    "description": "General-purpose learning summary with key concepts and actionable takeaways.",
-    "is_system": True,
-    "is_active": True,
-    "locked": COMMON_LOCKED,
-    "optional_blocks": [
-        COMMON_BLOCKS["core_content"],
-        COMMON_BLOCKS["guest_background"],
-        {**COMMON_BLOCKS["key_points"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["key_concepts"], "enabled_by_default": True},
-        COMMON_BLOCKS["examples"],
-        {**COMMON_BLOCKS["action_items"], "enabled_by_default": True},
-        COMMON_BLOCKS["resources"]
-    ],
-    "parameters": COMMON_PARAMETERS,
-    "user_prompt_template": COMMON_USER_PROMPT
-}
-
-TEMPLATE_INTERVIEW = {
-    "name": "interview",
-    "display_name": "Interview & Stories",
-    "description": "Focus on personal stories, life lessons, and memorable quotes from interviews.",
-    "is_system": True,
-    "is_active": True,
-    "locked": COMMON_LOCKED,
-    "optional_blocks": [
-        COMMON_BLOCKS["core_content"],
-        {**COMMON_BLOCKS["guest_background"], "enabled_by_default": True},
-        COMMON_BLOCKS["unique_insights"],
-        {**COMMON_BLOCKS["key_quotes"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["life_lessons"], "enabled_by_default": True},
-        {**COMMON_BLOCKS["controversial_views"], "enabled_by_default": True},
-        COMMON_BLOCKS["resources"]
+        {**COMMON_BLOCKS["cited_data"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["data_sources"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["factual_claims"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["opinion_claims"], "enabled_by_default": True},
+        {**COMMON_BLOCKS["missing_data"], "enabled_by_default": True},
+        COMMON_BLOCKS["frameworks"]
     ],
     "parameters": COMMON_PARAMETERS,
     "user_prompt_template": COMMON_USER_PROMPT
@@ -499,10 +654,8 @@ TEMPLATE_INTERVIEW = {
 # All default templates
 DEFAULT_TEMPLATES = [
     TEMPLATE_INVESTMENT,
-    TEMPLATE_TECH,
-    TEMPLATE_STARTUP,
-    TEMPLATE_LEARNING,
-    TEMPLATE_INTERVIEW
+    TEMPLATE_STAKEHOLDER,
+    TEMPLATE_DATA_EVIDENCE
 ]
 
 

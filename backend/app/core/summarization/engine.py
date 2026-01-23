@@ -49,6 +49,7 @@ class SummarizationEngine:
         template_name: str,
         enabled_blocks: List[str] = None,
         params: Dict = None,
+        user_focus: str = None,
         title: str = "Unknown",
         guest: str = "Unknown",
         retry_on_failure: bool = True
@@ -61,6 +62,7 @@ class SummarizationEngine:
             template_name: Name of template to use
             enabled_blocks: List of block IDs to enable (None = use defaults)
             params: Parameter values (e.g., {"length": "long"})
+            user_focus: User's specific focus to prioritize (max 50 chars)
             title: Podcast episode title
             guest: Guest name
             retry_on_failure: Whether to retry on validation failure
@@ -83,6 +85,8 @@ class SummarizationEngine:
             raise ValueError(f"Template not found: {template_name}")
 
         logger.info(f"Using template: {template_name}")
+        if user_focus:
+            logger.info(f"User focus: {user_focus[:50]}")
 
         # 2. Resolve enabled blocks
         actual_blocks = self.prompt_builder.get_enabled_block_ids(template, enabled_blocks)
@@ -94,6 +98,7 @@ class SummarizationEngine:
             transcript=transcript,
             enabled_blocks=enabled_blocks,
             params=params,
+            user_focus=user_focus,
             title=title,
             guest=guest
         )
@@ -123,6 +128,7 @@ class SummarizationEngine:
         template_name: str,
         enabled_blocks: List[str] = None,
         params: Dict = None,
+        user_focus: str = None,
         force: bool = False
     ) -> Dict[str, Any]:
         """
@@ -138,6 +144,7 @@ class SummarizationEngine:
             template_name: Template name to use
             enabled_blocks: Block IDs to enable
             params: Parameter values
+            user_focus: User's specific focus to prioritize (max 50 chars)
             force: Force regenerate even if exists
 
         Returns:
@@ -175,6 +182,7 @@ class SummarizationEngine:
             template_name=template_name,
             enabled_blocks=enabled_blocks,
             params=params,
+            user_focus=user_focus,
             title=title,
             guest=guest
         )

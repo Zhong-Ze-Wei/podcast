@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import {
   Play, Mic2, AlertCircle, ChevronLeft,
   Sparkles, CheckCircle2, Clock, DollarSign,
-  Languages, TrendingUp, AlertTriangle, Quote
+  Languages, TrendingUp, AlertTriangle, Quote,
+  Database, FileCheck, MessageCircle, HelpCircle, Users, Eye
 } from 'lucide-react';
 import { transcriptsApi, summariesApi, episodesApi, promptTemplatesApi } from '../../services/api';
 import { decodeHtmlEntities } from '../../utils/helpers';
@@ -42,6 +43,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [enabledBlocks, setEnabledBlocks] = useState([]);
   const [showChinese, setShowChinese] = useState(false);
   const [showTemplateOptions, setShowTemplateOptions] = useState(false);
+  const [userFocus, setUserFocus] = useState('');
+  const [selectedLength, setSelectedLength] = useState('medium');
 
   // 当props中的episode变化时，更新本地状态
   useEffect(() => {
@@ -211,7 +214,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     try {
       await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
-        enabled_blocks: enabledBlocks
+        enabled_blocks: enabledBlocks,
+        user_focus: userFocus.trim(),
+        params: { length: selectedLength }
       });
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
@@ -509,6 +514,63 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                 </div>
               )}
 
+              {/* User Focus & Length Config - 只在没有摘要或重新生成时显示 */}
+              {(!summary?.tldr || showTemplateOptions) && !isCurrentlySummarizing && (
+                <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800 space-y-4">
+                  {/* User Focus Input */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">{t('detail.userFocusLabel') || 'Focus Area (optional)'}</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={t('detail.userFocusPlaceholder') || 'e.g., China market opportunities, risk factors...'}
+                        maxLength={50}
+                        value={userFocus}
+                        onChange={e => setUserFocus(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">{userFocus.length}/50</span>
+                    </div>
+                  </div>
+
+                  {/* Length Selection */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">{t('detail.lengthLabel') || 'Summary Length'}</label>
+                    <div className="flex gap-2">
+                      {[
+                        { value: 'short', label: t('detail.lengthShort') || 'Short' },
+                        { value: 'medium', label: t('detail.lengthMedium') || 'Medium' },
+                        { value: 'long', label: t('detail.lengthLong') || 'Long' }
+                      ].map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setSelectedLength(opt.value)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            selectedLength === opt.value
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 摘要生成进度条 - 无论是否有摘要都显示 */}
+              {isCurrentlySummarizing && (
+                <div className="p-4 bg-indigo-900/20 rounded-xl border border-indigo-500/30">
+                  <TaskProgress
+                    taskType="summarize"
+                    episodeId={episode.id}
+                    onComplete={handleSummarizeComplete}
+                    onError={handleTaskError}
+                  />
+                </div>
+              )}
+
               {summary?.tldr || summary?.investment_signals ? (
                 <>
                   {/* TL;DR */}
@@ -521,8 +583,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     </p>
                   </div>
 
-                  {/* Investment Signals (for investment template) */}
-                  {(summary.template_name === 'investment' || summary.summary_type === 'investment') && summary.investment_signals?.length > 0 && (
+                  {/* Investment Signals (显示任何包含投资信号的摘要) */}
+                  {summary.investment_signals?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                         <TrendingUp size={14} /> {t('detail.investmentSignals') || 'Investment Signals'}
@@ -608,6 +670,46 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     </div>
                   )}
 
+                  {/* Market Insights */}
+                  {summary.market_insights?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <TrendingUp size={14} /> {t('detail.marketInsights') || 'Market Insights'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.market_insights_zh
+                          ? summary.content_zh.market_insights_zh
+                          : summary.market_insights
+                        ).map((insight, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+                            <span className="text-indigo-400 mt-0.5">*</span>
+                            <span className="text-zinc-300 text-sm">{typeof insight === 'string' ? insight : (insight.insight_zh || insight.insight)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unique Insights */}
+                  {summary.unique_insights?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <Sparkles size={14} /> {t('detail.uniqueInsights') || 'Unique Insights'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.unique_insights_zh
+                          ? summary.content_zh.unique_insights_zh
+                          : summary.unique_insights
+                        ).map((insight, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-purple-900/20 rounded-lg border border-purple-800/30">
+                            <span className="text-purple-400 mt-0.5">*</span>
+                            <span className="text-zinc-300 text-sm">{typeof insight === 'string' ? insight : (insight.insight_zh || insight.insight)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Key Points (for general type) */}
                   {summary.key_points?.length > 0 && (
                     <div>
@@ -625,6 +727,265 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {/* ===== Data & Evidence Template Fields ===== */}
+
+                  {/* Core Content */}
+                  {summary.core_content && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <FileCheck size={14} /> {t('detail.coreContent') || 'Core Content'}
+                      </h3>
+                      <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                        <p className="text-zinc-300 leading-relaxed">
+                          {showChinese && summary.content_zh?.core_content_zh
+                            ? summary.content_zh.core_content_zh
+                            : summary.core_content}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cited Data */}
+                  {summary.cited_data?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <Database size={14} /> {t('detail.citedData') || 'Cited Data'}
+                      </h3>
+                      <div className="space-y-3">
+                        {(showChinese && summary.content_zh?.cited_data_zh
+                          ? summary.content_zh.cited_data_zh
+                          : summary.cited_data
+                        ).map((item, i) => (
+                          <div key={i} className="p-4 bg-blue-900/10 rounded-xl border border-blue-800/30">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg text-lg font-bold">
+                                {item.data_point || item.data_point_zh}
+                              </span>
+                            </div>
+                            <p className="text-zinc-400 text-sm mb-1">{item.context_zh || item.context}</p>
+                            <p className="text-zinc-300 text-sm font-medium">{item.claim_zh || item.claim}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Data Sources */}
+                  {summary.data_sources?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <FileCheck size={14} /> {t('detail.dataSources') || 'Data Sources'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.data_sources_zh
+                          ? summary.content_zh.data_sources_zh
+                          : summary.data_sources
+                        ).map((src, i) => (
+                          <div key={i} className="flex items-start gap-3 p-3 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              src.type === 'report' || src.type === 'institution' ? 'bg-green-500/20 text-green-400' :
+                              src.type === 'personal' ? 'bg-yellow-500/20 text-yellow-400' :
+                              'bg-zinc-500/20 text-zinc-400'
+                            }`}>
+                              {src.type_zh || src.type}
+                            </span>
+                            <div className="flex-1">
+                              <p className="text-zinc-200 font-medium">{src.source_zh || src.source}</p>
+                              <p className="text-zinc-500 text-xs">{src.credibility_note_zh || src.credibility_note}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Factual Claims */}
+                  {summary.factual_claims?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <CheckCircle2 size={14} /> {t('detail.factualClaims') || 'Factual Claims'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.factual_claims_zh
+                          ? summary.content_zh.factual_claims_zh
+                          : summary.factual_claims
+                        ).map((item, i) => (
+                          <div key={i} className="flex items-start gap-3 p-3 bg-green-900/10 rounded-lg border border-green-800/30">
+                            <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <p className="text-zinc-300">{item.claim_zh || item.claim}</p>
+                              <div className="flex gap-2 mt-1">
+                                <span className={`text-xs px-2 py-0.5 rounded ${
+                                  item.verifiable === 'yes' ? 'bg-green-500/20 text-green-400' :
+                                  item.verifiable === 'partial' ? 'bg-yellow-500/20 text-yellow-400' :
+                                  'bg-zinc-500/20 text-zinc-400'
+                                }`}>
+                                  {item.verifiable_zh || item.verifiable}
+                                </span>
+                                {item.source_mentioned && (
+                                  <span className="text-xs text-zinc-500">Source: {item.source_mentioned_zh || item.source_mentioned}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Opinion Claims */}
+                  {summary.opinion_claims?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <MessageCircle size={14} /> {t('detail.opinionClaims') || 'Opinion Claims'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.opinion_claims_zh
+                          ? summary.content_zh.opinion_claims_zh
+                          : summary.opinion_claims
+                        ).map((item, i) => (
+                          <div key={i} className="flex items-start gap-3 p-3 bg-orange-900/10 rounded-lg border border-orange-800/30">
+                            <MessageCircle size={16} className="text-orange-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <p className="text-zinc-300">{item.claim_zh || item.claim}</p>
+                              <div className="flex gap-2 mt-1">
+                                <span className="text-xs px-2 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                                  {item.type_zh || item.type}
+                                </span>
+                                {item.speaker && (
+                                  <span className="text-xs text-zinc-500">- {item.speaker_zh || item.speaker}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Missing Data */}
+                  {summary.missing_data?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <HelpCircle size={14} /> {t('detail.missingData') || 'Missing Data'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.missing_data_zh
+                          ? summary.content_zh.missing_data_zh
+                          : summary.missing_data
+                        ).map((item, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+                            <HelpCircle size={16} className="text-zinc-500 mt-0.5 flex-shrink-0" />
+                            <span className="text-zinc-400 text-sm">{typeof item === 'string' ? item : (item.description_zh || item.description)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ===== Stakeholder Analysis Template Fields ===== */}
+
+                  {/* Speaker Profile */}
+                  {summary.speaker_profile && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <Users size={14} /> {t('detail.speakerProfile') || 'Speaker Profile'}
+                      </h3>
+                      <div className="p-4 bg-purple-900/10 rounded-xl border border-purple-800/30">
+                        <p className="text-zinc-300 leading-relaxed">
+                          {showChinese && summary.content_zh?.speaker_profile_zh
+                            ? summary.content_zh.speaker_profile_zh
+                            : (typeof summary.speaker_profile === 'string' ? summary.speaker_profile : summary.speaker_profile.description)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stakeholders */}
+                  {summary.stakeholders?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <Users size={14} /> {t('detail.stakeholders') || 'Stakeholders'}
+                      </h3>
+                      <div className="space-y-3">
+                        {(showChinese && summary.content_zh?.stakeholders_zh
+                          ? summary.content_zh.stakeholders_zh
+                          : summary.stakeholders
+                        ).map((item, i) => (
+                          <div key={i} className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-semibold text-zinc-200">{item.name_zh || item.name}</span>
+                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                item.impact === 'benefits' || item.impact_zh === 'benefits' ? 'bg-green-500/20 text-green-400' :
+                                item.impact === 'harmed' || item.impact_zh === 'harmed' ? 'bg-red-500/20 text-red-400' :
+                                'bg-zinc-500/20 text-zinc-400'
+                              }`}>
+                                {item.impact_zh || item.impact}
+                              </span>
+                            </div>
+                            <p className="text-zinc-400 text-sm">{item.description_zh || item.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hidden Agendas */}
+                  {summary.hidden_agendas?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <Eye size={14} /> {t('detail.hiddenAgendas') || 'Hidden Agendas'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.hidden_agendas_zh
+                          ? summary.content_zh.hidden_agendas_zh
+                          : summary.hidden_agendas
+                        ).map((item, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-yellow-900/10 rounded-lg border border-yellow-800/30">
+                            <Eye size={16} className="text-yellow-400 mt-0.5 flex-shrink-0" />
+                            <span className="text-zinc-300 text-sm">{typeof item === 'string' ? item : (item.agenda_zh || item.agenda)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Power Dynamics */}
+                  {summary.power_dynamics && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <TrendingUp size={14} /> {t('detail.powerDynamics') || 'Power Dynamics'}
+                      </h3>
+                      <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                        <p className="text-zinc-300 leading-relaxed">
+                          {showChinese && summary.content_zh?.power_dynamics_zh
+                            ? summary.content_zh.power_dynamics_zh
+                            : (typeof summary.power_dynamics === 'string' ? summary.power_dynamics : summary.power_dynamics.description)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contrasting Views */}
+                  {summary.contrasting_views?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                        <MessageCircle size={14} /> {t('detail.contrastingViews') || 'Contrasting Views'}
+                      </h3>
+                      <div className="space-y-2">
+                        {(showChinese && summary.content_zh?.contrasting_views_zh
+                          ? summary.content_zh.contrasting_views_zh
+                          : summary.contrasting_views
+                        ).map((item, i) => (
+                          <div key={i} className="flex items-start gap-2 p-3 bg-indigo-900/10 rounded-lg border border-indigo-800/30">
+                            <MessageCircle size={16} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+                            <span className="text-zinc-300 text-sm">{typeof item === 'string' ? item : (item.view_zh || item.view)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -646,17 +1007,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   <p className="text-sm text-zinc-600 mb-4">
                     {selectedTemplate?.description || t('detail.selectTemplate') || 'Select a template to generate summary'}
                   </p>
-                  {isCurrentlySummarizing ? (
-                    <TaskProgress
-                      taskType="summarize"
-                      episodeId={episode.id}
-                      onComplete={handleSummarizeComplete}
-                      onError={handleTaskError}
-                    />
-                  ) : (
+                  {!isCurrentlySummarizing && (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={loading || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       {loading ? t('detail.generating') : t('detail.generateSummaryAI')}

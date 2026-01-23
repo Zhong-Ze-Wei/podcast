@@ -27,6 +27,7 @@ class PromptBuilder:
         transcript: str,
         enabled_blocks: List[str] = None,
         params: Dict = None,
+        user_focus: str = None,
         **context
     ) -> List[Dict[str, str]]:
         """
@@ -37,6 +38,7 @@ class PromptBuilder:
             transcript: Podcast transcript text
             enabled_blocks: List of block IDs to enable (None = use defaults)
             params: Parameter values (e.g., {"length": "long"})
+            user_focus: User's specific focus (max 50 chars) to prioritize in analysis
             **context: Additional context (title, guest, etc.)
 
         Returns:
@@ -63,16 +65,22 @@ class PromptBuilder:
         length_instruction = self._build_param_instruction(parameters, params, "length")
         language_instruction = self._build_param_instruction(parameters, params, "language")
 
-        # 6. Truncate transcript
+        # 6. Build user focus instruction
+        user_focus_instruction = ""
+        if user_focus and user_focus.strip():
+            user_focus_instruction = f"\n## User Focus\nThe user wants to focus on: \"{user_focus.strip()[:50]}\"\nPrioritize and emphasize content related to this focus throughout your analysis.\n"
+
+        # 7. Truncate transcript
         truncated_transcript = self._truncate_text(transcript)
 
-        # 7. Build user prompt from template
+        # 8. Build user prompt from template
         user_prompt_template = template.get("user_prompt_template", "")
         output_format_instruction = locked.get("output_format_instruction", "")
 
         user_prompt = user_prompt_template.format(
             title=context.get("title", "Unknown"),
             guest=context.get("guest", "Unknown"),
+            user_focus_instruction=user_focus_instruction,
             length_instruction=length_instruction,
             language_instruction=language_instruction,
             optional_blocks_instructions=blocks_instructions,
