@@ -3,6 +3,7 @@
 Summary (摘要) 数据模型
 支持多种摘要类型：general, investment, learning
 """
+
 from datetime import datetime
 from bson import ObjectId
 from typing import Dict, Any, Optional
@@ -25,7 +26,7 @@ class Summary:
         content: Dict[str, Any],
         model: str = "",
         tokens_used: Dict[str, int] = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """创建新的 Summary 文档"""
         now = datetime.utcnow()
@@ -34,25 +35,20 @@ class Summary:
             "episode_id": episode_id,
             "summary_type": summary_type,
             "version": "v2",
-
             # 从 content 提取顶级字段
             "tldr": content.get("tldr", ""),
             "tags": content.get("tags", []),
-
             # 完整内容 (类型特定)
             "content": content,
-
             # 中文翻译 (可选，后续填充)
             "content_zh": kwargs.get("content_zh"),
-
             # 元信息
             "model": model,
             "tokens_used": tokens_used or {},
             "generation_time_seconds": kwargs.get("generation_time_seconds", 0),
-
             # 时间戳
             "created_at": now,
-            "updated_at": now
+            "updated_at": now,
         }
 
     @staticmethod
@@ -70,26 +66,25 @@ class Summary:
             "episode_id": str(doc["episode_id"]) if doc.get("episode_id") else None,
             "summary_type": summary_type,
             "version": doc.get("version", "v1"),
-
             # 顶级字段
             "tldr": doc.get("tldr", ""),
             "tldr_zh": content_zh.get("tldr_zh", ""),
             "tags": doc.get("tags", []),
-
             # 完整内容
             "content": content,
             "content_zh": content_zh,
-
             # 是否有中文翻译
             "has_translation": bool(content_zh),
-
             # 元信息
             "model": doc.get("model", ""),
             "tokens_used": doc.get("tokens_used", {}),
-
             # 时间戳
-            "created_at": doc.get("created_at").isoformat() + "Z" if doc.get("created_at") else None,
-            "translated_at": doc.get("translated_at").isoformat() + "Z" if doc.get("translated_at") else None
+            "created_at": doc.get("created_at").isoformat() + "Z"
+            if doc.get("created_at")
+            else None,
+            "translated_at": doc.get("translated_at").isoformat() + "Z"
+            if doc.get("translated_at")
+            else None,
         }
 
         # 根据类型添加特定字段的快捷访问
@@ -104,6 +99,42 @@ class Summary:
         elif summary_type == Summary.TYPE_GENERAL:
             response["key_points"] = content.get("key_points", [])
             response["why_it_matters"] = content.get("why_it_matters", "")
+
+        # v3 template-based 摘要的通用字段（learning, tech, startup, interview等）
+        template_name = doc.get("template_name", "")
+        if template_name or doc.get("version") == "v3":
+            # 核心内容字段
+            response["core_content"] = content.get("core_content", "")
+            response["guest_background"] = content.get("guest_background", "")
+            response["unique_insights"] = content.get("unique_insights", [])
+            response["action_items"] = content.get("action_items", [])
+            response["key_quotes"] = content.get("key_quotes", [])
+
+            # 学习相关
+            response["key_points"] = content.get("key_points", [])
+            response["key_concepts"] = content.get("key_concepts", [])
+            response["examples"] = content.get("examples", [])
+            response["resources"] = content.get("resources", [])
+
+            # 投资相关（如果存在）
+            response["investment_signals"] = content.get("investment_signals", [])
+            response["mentioned_tickers"] = content.get("mentioned_tickers", [])
+            response["market_insights"] = content.get("market_insights", [])
+            response["risk_alerts"] = content.get("risk_alerts", [])
+
+            # 技术相关
+            response["technologies"] = content.get("technologies", [])
+            response["product_insights"] = content.get("product_insights", [])
+            response["tech_trends"] = content.get("tech_trends", [])
+
+            # 创业相关
+            response["business_model"] = content.get("business_model", "")
+            response["growth_tactics"] = content.get("growth_tactics", [])
+            response["lessons_learned"] = content.get("lessons_learned", [])
+
+            # 访谈相关
+            response["life_lessons"] = content.get("life_lessons", [])
+            response["controversial_views"] = content.get("controversial_views", [])
 
         return response
 

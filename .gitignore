@@ -59,12 +59,15 @@ audio/
 # Test HTML files
 1.html
 
-# Test files
-tests/
-test/
-backend/tests/
-**/test_*.py
-**/*_test.py
+# Debug / temp scripts
+frontend/debug-summary.js
+
+# Dev notes (not project docs)
+api.md
+plan.md
+
+# Sisyphus temp files
+.sisyphus/
 
 # Claude temp files
 .claude/

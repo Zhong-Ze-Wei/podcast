@@ -11,6 +11,7 @@ import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
+import AIBriefingView from './components/views/AIBriefingView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
@@ -27,6 +28,8 @@ import { decodeHtmlEntities } from './utils/helpers';
 export default function App() {
   const { t } = useTranslation();
   const [view, setView] = useState('workspace'); // list | feedDetail | detail | workspace
+  const [previousView, setPreviousView] = useState('workspace'); // 记录进入详情页之前的视图，用于返回
+  const [viewMode, setViewMode] = useState('traditional'); // 'traditional' | 'ai-briefing'
   const [activeFeed, setActiveFeed] = useState(null);
   const [selectedFeed, setSelectedFeed] = useState(null); // 用于FeedDetailView
   const [selectedEpisode, setSelectedEpisode] = useState(null);
@@ -134,6 +137,7 @@ export default function App() {
   };
 
   const handleEpisodeClick = async (episode) => {
+    setPreviousView(view); // 记录当前视图，用于返回
     setSelectedEpisode(episode);
     setView('detail');
   };
@@ -274,6 +278,8 @@ export default function App() {
         onFeedClick={handleFeedClick}
         hasPlayer={!!currentPlaying}
         currentView={view}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
       <div className="flex-1 flex flex-col min-w-0 bg-black relative">
@@ -283,7 +289,13 @@ export default function App() {
           <LanguageSwitcher />
         </div>
 
-        {view === 'list' ? (
+        {/* AI简报模式 */}
+        {viewMode === 'ai-briefing' && view === 'list' ? (
+          <AIBriefingView
+            onEpisodeClick={handleEpisodeClick}
+            onPlay={handlePlay}
+          />
+        ) : view === 'list' ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar z-10">
             {/* 置顶工具栏 */}
             <div className="sticky top-0 z-10 bg-black/95 backdrop-blur-sm px-8 py-4 border-b border-zinc-800/50">
@@ -407,7 +419,7 @@ export default function App() {
         ) : (
           <EpisodeDetailView
             episode={selectedEpisode}
-            onBack={() => { setView(selectedFeed ? 'feedDetail' : 'list'); setSelectedEpisode(null); }}
+            onBack={() => { setView(previousView); setSelectedEpisode(null); }}
             onRefresh={loadData}
             onPlay={handlePlay}
           />

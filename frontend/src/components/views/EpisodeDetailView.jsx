@@ -55,9 +55,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         const response = await promptTemplatesApi.list();
         const templateList = response.data?.templates || response.templates || [];
         setTemplates(templateList);
-        // 默认选择第一个模板
+        // 默认选择 learning 模板（学习笔记），如果没有则选第一个
         if (templateList.length > 0 && !selectedTemplate) {
-          const defaultTemplate = templateList.find(t => t.name === 'investment') || templateList[0];
+          const defaultTemplate = templateList.find(t => t.name === 'learning') || templateList[0];
           setSelectedTemplate(defaultTemplate);
           // 获取模板详情以获取 enabled blocks
           const detailResp = await promptTemplatesApi.get(defaultTemplate.id);
@@ -164,7 +164,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   const loadSummary = async (templateName = null) => {
     try {
-      const name = templateName || selectedTemplate?.name || 'investment';
+      const name = templateName || selectedTemplate?.name || 'learning';
       const response = await summariesApi.get(episode.id, { template_name: name });
       setSummary(response.data);
       setShowChinese(false);
@@ -625,6 +625,119 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {/* Debug Info - 临时调试用 */}
+                  {(() => { console.log('DEBUG - summary:', summary); console.log('DEBUG - core_content:', summary?.core_content); return null; })()}
+
+                  {/* Core Content */}
+                  {summary?.core_content && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-3">
+                        {t('detail.coreContent') || '核心内容'}
+                      </h3>
+                      <p className="text-zinc-300 leading-relaxed">{summary.core_content}</p>
+                    </div>
+                  )}
+
+                  {/* Guest Background */}
+                  {summary.guest_background && summary.guest_background !== "No specific guest is interviewed in this transcript." && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-3">
+                        {t('detail.guestBackground') || '受访者背景'}
+                      </h3>
+                      <p className="text-zinc-300 leading-relaxed">{summary.guest_background}</p>
+                    </div>
+                  )}
+
+                  {/* Unique Insights */}
+                  {summary.unique_insights?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
+                        {t('detail.uniqueInsights') || '独特见解'}
+                      </h3>
+                      <div className="space-y-3">
+                        {summary.unique_insights.map((insight, i) => (
+                          <div key={i} className="flex gap-3 items-start p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                            <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                              {i + 1}
+                            </span>
+                            <span className="text-zinc-300">{insight}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Items */}
+                  {summary.action_items?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
+                        {t('detail.actionItems') || '行动建议'}
+                      </h3>
+                      <ul className="space-y-2">
+                        {summary.action_items.map((item, i) => (
+                          <li key={i} className="flex gap-2 items-start text-zinc-300">
+                            <span className="text-green-400 mt-1">→</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Key Concepts */}
+                  {summary.key_concepts?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
+                        {t('detail.keyConcepts') || '核心概念'}
+                      </h3>
+                      <div className="space-y-3">
+                        {summary.key_concepts.map((concept, i) => (
+                          <div key={i} className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
+                            <h4 className="text-indigo-400 font-medium mb-1">
+                              {typeof concept === 'string' ? concept : concept.concept}
+                            </h4>
+                            {typeof concept !== 'string' && concept.explanation && (
+                              <p className="text-zinc-400 text-sm">{concept.explanation}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Examples */}
+                  {summary.examples?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
+                        {t('detail.examples') || '案例举例'}
+                      </h3>
+                      <div className="space-y-2">
+                        {summary.examples.map((example, i) => (
+                          <div key={i} className="p-3 bg-zinc-900/30 rounded-lg border-l-2 border-zinc-700">
+                            <p className="text-zinc-300 text-sm">{example}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resources */}
+                  {summary.resources?.length > 0 && (
+                    <div>
+                      <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
+                        {t('detail.resources') || '推荐资源'}
+                      </h3>
+                      <div className="space-y-2">
+                        {summary.resources.map((resource, i) => (
+                          <div key={i} className="flex gap-2 items-start text-zinc-300">
+                            <span className="text-blue-400 mt-0.5">•</span>
+                            <span className="text-sm">{resource}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
