@@ -4,6 +4,7 @@ Episodes API
 
 单集管理接口
 """
+
 from flask import Blueprint, request
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -17,7 +18,7 @@ from .utils import (
     error_response,
     paginated_response,
     get_pagination_params,
-    get_bool_param
+    get_bool_param,
 )
 
 episodes_bp = Blueprint("episodes", __name__)
@@ -25,6 +26,7 @@ episodes_bp = Blueprint("episodes", __name__)
 
 def get_db():
     from .. import get_db as _get_db
+
     return _get_db()
 
 
@@ -75,10 +77,7 @@ def list_episodes():
     skip = (page - 1) * per_page
 
     episodes = list(
-        db.episodes.find(query)
-        .sort("published", -1)
-        .skip(skip)
-        .limit(per_page)
+        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
     )
 
     # 获取feed标题映射
@@ -148,13 +147,11 @@ def update_episode(episode_id):
         if "is_read" in update_fields:
             feed_id = episode.get("feed_id")
             if feed_id:
-                unread_count = db.episodes.count_documents({
-                    "feed_id": feed_id,
-                    "is_read": False
-                })
+                unread_count = db.episodes.count_documents(
+                    {"feed_id": feed_id, "is_read": False}
+                )
                 db.feeds.update_one(
-                    {"_id": feed_id},
-                    {"$set": {"unread_count": unread_count}}
+                    {"_id": feed_id}, {"$set": {"unread_count": unread_count}}
                 )
 
     # 返回更新后的episode
@@ -183,8 +180,7 @@ def star_episode(episode_id):
     starred = data.get("starred", not episode.get("is_starred", False))
 
     db.episodes.update_one(
-        {"_id": oid},
-        {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
+        {"_id": oid}, {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
     )
 
     return success_response({"id": episode_id, "is_starred": starred})
@@ -208,21 +204,16 @@ def mark_read(episode_id):
     is_read = data.get("is_read", not episode.get("is_read", False))
 
     db.episodes.update_one(
-        {"_id": oid},
-        {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
+        {"_id": oid}, {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
     )
 
     # 更新feed未读计数
     feed_id = episode.get("feed_id")
     if feed_id:
-        unread_count = db.episodes.count_documents({
-            "feed_id": feed_id,
-            "is_read": False
-        })
-        db.feeds.update_one(
-            {"_id": feed_id},
-            {"$set": {"unread_count": unread_count}}
+        unread_count = db.episodes.count_documents(
+            {"feed_id": feed_id, "is_read": False}
         )
+        db.feeds.update_one({"_id": feed_id}, {"$set": {"unread_count": unread_count}})
 
     return success_response({"id": episode_id, "is_read": is_read})
 
@@ -245,38 +236,36 @@ def download_episode(episode_id):
     episode_status = episode.get("status", "new")
     if not Episode.can_download(episode_status):
         # 如果已经下载过，返回更友好的提示
-        if episode_status in [Episode.STATUS_DOWNLOADED, Episode.STATUS_TRANSCRIBED,
-                              Episode.STATUS_TRANSCRIBING, Episode.STATUS_SUMMARIZED,
-                              Episode.STATUS_SUMMARIZING]:
+        if episode_status in [
+            Episode.STATUS_DOWNLOADED,
+            Episode.STATUS_TRANSCRIBED,
+            Episode.STATUS_TRANSCRIBING,
+            Episode.STATUS_SUMMARIZED,
+            Episode.STATUS_SUMMARIZING,
+        ]:
             return error_response(
-                "Episode already downloaded",
-                "ALREADY_DOWNLOADED",
-                400
+                "Episode already downloaded", "ALREADY_DOWNLOADED", 400
             )
         elif episode_status == Episode.STATUS_DOWNLOADING:
             return error_response(
-                "Episode is currently downloading",
-                "ALREADY_DOWNLOADING",
-                400
+                "Episode is currently downloading", "ALREADY_DOWNLOADING", 400
             )
         else:
             return error_response(
-                "Episode cannot be downloaded in current state",
-                "INVALID_STATE",
-                400
+                "Episode cannot be downloaded in current state", "INVALID_STATE", 400
             )
 
     # 检查是否有进行中的任务
-    existing_task = db.tasks.find_one({
-        "episode_id": str(oid),
-        "task_type": "download",
-        "status": {"$in": ["pending", "processing"]}
-    })
+    existing_task = db.tasks.find_one(
+        {
+            "episode_id": str(oid),
+            "task_type": "download",
+            "status": {"$in": ["pending", "processing"]},
+        }
+    )
     if existing_task:
         return error_response(
-            "Download task already in progress",
-            "TASK_IN_PROGRESS",
-            409
+            "Download task already in progress", "TASK_IN_PROGRESS", 409
         )
 
     # 提交下载任务
@@ -284,21 +273,15 @@ def download_episode(episode_id):
         return _download_episode_sync(str(oid), progress_callback)
 
     task_id = task_queue.submit(
-        task_type="download",
-        func=do_download,
-        episode_id=str(oid)
+        task_type="download", func=do_download, episode_id=str(oid)
     )
 
     # 更新状态为下载中
     db.episodes.update_one(
-        {"_id": oid},
-        {"$set": {"status": Episode.STATUS_DOWNLOADING}}
+        {"_id": oid}, {"$set": {"status": Episode.STATUS_DOWNLOADING}}
     )
 
-    return success_response({
-        "task_id": task_id,
-        "status": "queued"
-    })
+    return success_response({"task_id": task_id, "status": "queued"})
 
 
 def _download_episode_sync(episode_id: str, progress_callback=None):
@@ -306,6 +289,9 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
     import os
     import requests
     from ..config import Config
+
+    # 限制最大下载文件大小 (500MB)
+    MAX_FILE_SIZE = 500 * 1024 * 1024
 
     db = get_db()
     oid = ObjectId(episode_id)
@@ -343,6 +329,13 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
     response.raise_for_status()
 
     total_size = int(response.headers.get("content-length", 0))
+
+    # 检查文件大小限制
+    if total_size > MAX_FILE_SIZE:
+        raise ValueError(
+            f"File too large: {total_size / 1024 / 1024:.1f}MB (max {MAX_FILE_SIZE / 1024 / 1024}MB)"
+        )
+
     downloaded = 0
 
     with open(filepath, "wb") as f:
@@ -350,6 +343,14 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
             if chunk:
                 f.write(chunk)
                 downloaded += len(chunk)
+
+                # 实时检查大小限制
+                if downloaded > MAX_FILE_SIZE:
+                    os.remove(filepath)
+                    raise ValueError(
+                        f"Download exceeded maximum size of {MAX_FILE_SIZE / 1024 / 1024}MB"
+                    )
+
                 if total_size > 0 and progress_callback:
                     progress = 10 + int(80 * downloaded / total_size)
                     progress_callback(min(progress, 90))
@@ -361,11 +362,13 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
     relative_path = os.path.join("audio", feed_id, filename)
     db.episodes.update_one(
         {"_id": oid},
-        {"$set": {
-            "status": Episode.STATUS_DOWNLOADED,
-            "local_path": relative_path,
-            "updated_at": datetime.utcnow()
-        }}
+        {
+            "$set": {
+                "status": Episode.STATUS_DOWNLOADED,
+                "local_path": relative_path,
+                "updated_at": datetime.utcnow(),
+            }
+        },
     )
 
     if progress_callback:

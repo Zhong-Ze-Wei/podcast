@@ -130,4 +130,19 @@ export const settingsApi = {
   testLlmConnection: (config) => api.post('/settings/llm/test', config)
 };
 
+// Insights API (AI Briefing)
+export const insightsApi = {
+  getBriefing: () => api.get('/insights/briefing'),
+  regenerateBriefing: () => api.post('/insights/briefing'),
+  exportPdf: () => {
+    // 直接下载 PDF 文件
+    const link = document.createElement('a');
+    link.href = '/api/insights/briefing/export';
+    link.download = 'podcast-briefing.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
 export default api;

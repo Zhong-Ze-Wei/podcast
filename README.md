@@ -1,6 +1,6 @@
 # Podcast Manager
 
-播客管理应用，支持 RSS 订阅、音频播放、语音转录和 AI 摘要生成。
+播客管理应用：RSS 订阅 → 音频转录 → AI 摘要生成
 
 ## 技术栈
 
@@ -8,112 +8,65 @@
 |---|------|
 | 前端 | React 18 + Vite + TailwindCSS + i18next |
 | 后端 | Flask + MongoDB |
-| 转录 | Whisper (本地) / 外部转录源 |
-| 摘要 | LLM API |
-
-## 项目结构
-
-```
-podcast/
-├── backend/                          # Flask 后端
-│   ├── run.py                        # 启动入口
-│   └── app/
-│       ├── __init__.py               # 应用工厂, 数据库初始化, 索引创建
-│       ├── config.py                 # 配置管理 (MongoDB, 媒体目录等)
-│       │
-│       ├── api/                      # REST API 接口层
-│       │   ├── feeds.py              # 订阅源: 增删改查, 刷新, 收藏
-│       │   ├── episodes.py           # 单集: 列表, 标星, 已读, 下载
-│       │   ├── transcripts.py        # 转录: Whisper生成, 外部获取
-│       │   ├── summaries.py          # 摘要: LLM生成
-│       │   ├── tasks.py              # 异步任务状态
-│       │   ├── stats.py              # 统计数据
-│       │   └── utils.py              # 响应格式化, 分页
-│       │
-│       ├── models/                   # 数据模型 (MongoDB文档结构)
-│       │   ├── feed.py               # 订阅源
-│       │   ├── episode.py            # 单集
-│       │   ├── transcript.py         # 转录文本
-│       │   ├── summary.py            # AI摘要
-│       │   └── task.py               # 异步任务
-│       │
-│       └── services/                 # 业务服务层
-│           ├── rss_service.py        # RSS解析, 时长/图片/章节提取
-│           ├── whisper_service.py    # Whisper本地转录
-│           ├── transcript_fetcher.py # 外部转录获取
-│           └── task_queue.py         # 线程池任务队列
-│
-├── frontend/                         # React 前端
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.js                # Vite配置, API代理
-│   ├── tailwind.config.js
-│   │
-│   └── src/
-│       ├── main.jsx                  # 入口
-│       ├── App.jsx                   # 主组件, 全局状态
-│       ├── index.css                 # 全局样式
-│       ├── i18n.js                   # 国际化配置
-│       │
-│       ├── services/
-│       │   └── api.js                # Axios封装, 拦截器
-│       │
-│       ├── utils/
-│       │   └── helpers.js            # 时间格式化, HTML解码等
-│       │
-│       ├── locales/
-│       │   ├── zh.json               # 中文
-│       │   └── en.json               # English
-│       │
-│       └── components/
-│           ├── layout/
-│           │   └── Sidebar.jsx       # 侧边栏导航, 订阅列表
-│           │
-│           ├── cards/
-│           │   ├── FeedCard.jsx      # 订阅源卡片
-│           │   └── EpisodeCard.jsx   # 单集卡片
-│           │
-│           ├── views/
-│           │   ├── FeedDetailView.jsx    # 订阅源详情
-│           │   ├── EpisodeDetailView.jsx # 单集详情 (转录/摘要)
-│           │   ├── FavoritesView.jsx     # 收藏
-│           │   ├── DownloadedView.jsx    # 已下载
-│           │   └── TranscribedView.jsx   # 已转录
-│           │
-│           ├── player/
-│           │   └── PlayerBar.jsx     # 底部播放器, 进度条
-│           │
-│           ├── tasks/
-│           │   └── TaskPanel.jsx     # 右下角任务进度
-│           │
-│           └── common/
-│               ├── StatusBadge.jsx
-│               └── LanguageSwitcher.jsx
-│
-├── .gitignore
-└── README.md
-```
+| 转录 | AssemblyAI (云端，说话人分离) / 官方字幕抓取 |
+| 摘要 | LLM API (OpenAI 兼容) |
+| 异步任务 | ThreadPoolExecutor |
 
 ## 快速启动
 
 ### 环境要求
-- Python 3.8+
+
+- Python 3.10+ (推荐 3.13)
+- UV (Python 包管理器) - [安装指南](https://docs.astral.sh/uv/getting-started/installation/)
 - Node.js 18+
 - MongoDB (端口 27017)
 
 ### 后端
-```bash
+
+```powershell
 cd backend
-pip install -r requirements.txt
-python run.py                    # 默认 http://localhost:5001
+
+# 激活已有的 UV 虚拟环境
+.venv\Scripts\activate
+
+# 安装/更新依赖（依赖变更时执行）
+uv pip install -r requirements.txt
+
+# 启动服务
+python run.py                    # 默认 http://localhost:5000
 ```
 
 ### 前端
+
 ```bash
 cd frontend
 npm install
 npm run dev                      # 默认 http://localhost:3000
 ```
+
+## 核心功能
+
+- RSS 订阅管理（支持 Podcasting 2.0：官方字幕、章节）
+- AssemblyAI 云端转录（说话人分离、实体识别、自动章节）
+- AI 摘要生成（支持多种模板：通用/投资/学习等）
+- 多 LLM 配置管理（可配置最多 5 个 LLM 并切换）
+- 异步任务队列（下载、转录、摘要）
+- 中英文界面切换
+
+## API 端点概览
+
+| 模块 | 端点 | 说明 |
+|------|------|------|
+| Feeds | `/api/feeds` | 订阅源 CRUD、刷新、标星、收藏 |
+| Episodes | `/api/episodes` | 单集列表、详情、下载、标星、已读 |
+| Transcripts | `/api/transcripts` | 转录 CRUD、抓取官方字幕 |
+| Summaries | `/api/summaries` | 摘要 CRUD、翻译、模板 |
+| Tasks | `/api/tasks` | 任务列表、状态查询、取消 |
+| Stats | `/api/stats` | 统计信息 |
+| Settings | `/api/settings` | LLM 配置管理 |
+| Prompt Templates | `/api/prompt-templates` | 摘要模板管理 |
+
+详细 API 文档见 [`api.md`](./api.md)
 
 ## 数据库集合
 
@@ -122,27 +75,19 @@ npm run dev                      # 默认 http://localhost:3000
 | feeds | 订阅源 |
 | episodes | 单集 |
 | transcripts | 转录文本 |
-| summaries | AI摘要 |
+| summaries | AI 摘要 |
 | tasks | 异步任务 |
+| settings | 应用设置 (LLM 配置) |
+| prompt_templates | 摘要模板 |
 
-## API 概览
+## Episode 状态流转
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| GET | `/api/feeds` | 订阅列表 |
-| POST | `/api/feeds` | 添加订阅 |
-| GET | `/api/feeds/:id/episodes` | 订阅的单集 |
-| POST | `/api/feeds/:id/refresh` | 刷新订阅 |
-| GET | `/api/episodes` | 所有单集 |
-| POST | `/api/episodes/:id/star` | 标星 |
-| POST | `/api/transcripts/:id` | 生成转录 |
-| POST | `/api/summaries/:id` | 生成摘要 |
-| GET | `/api/tasks` | 任务列表 |
+```
+new → downloading → downloaded → transcribing → transcribed → summarizing → summarized
+                              ↓
+                        官方字幕 (transcript_url)
+```
 
-## 核心功能
+## 开发进度
 
-- RSS订阅管理 (支持 Podcasting 2.0 标签)
-- 内置播放器 (进度保存)
-- 语音转录 (Whisper本地 / 外部源)
-- AI摘要生成
-- 中英文切换
+详见 [`plan.md`](./plan.md)

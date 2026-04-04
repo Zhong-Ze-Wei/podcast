@@ -4,6 +4,7 @@ Feeds API
 
 订阅源管理接口
 """
+
 from flask import Blueprint, request
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -18,14 +19,16 @@ from .utils import (
     error_response,
     paginated_response,
     get_pagination_params,
-    get_bool_param
+    get_bool_param,
 )
+from .decorators import validate_object_id
 
 feeds_bp = Blueprint("feeds", __name__)
 
 
 def get_db():
     from .. import get_db as _get_db
+
     return _get_db()
 
 
@@ -54,12 +57,7 @@ def list_feeds():
     total = db.feeds.count_documents(query)
     skip = (page - 1) * per_page
 
-    feeds = list(
-        db.feeds.find(query)
-        .sort("created_at", -1)
-        .skip(skip)
-        .limit(per_page)
-    )
+    feeds = list(db.feeds.find(query).sort("created_at", -1).skip(skip).limit(per_page))
 
     # 转换响应格式
     data = [Feed.to_response(f) for f in feeds]
@@ -68,16 +66,12 @@ def list_feeds():
 
 
 @feeds_bp.route("/<feed_id>", methods=["GET"])
+@validate_object_id("feed_id")
 def get_feed(feed_id):
     """获取单个订阅详情"""
     db = get_db()
 
-    try:
-        oid = ObjectId(feed_id)
-    except InvalidId:
-        return error_response("Invalid feed ID", "INVALID_ID", 400)
-
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one({"_id": feed_id})
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -119,7 +113,7 @@ def create_feed():
         description=feed_info.get("description"),
         author=feed_info.get("author"),
         language=feed_info.get("language"),
-        tags=tags
+        tags=tags,
     )
     feed_doc["last_checked"] = datetime.utcnow()
     feed_doc["episode_count"] = len(episodes)
@@ -147,7 +141,7 @@ def create_feed():
                 duration=ep_info.get("duration", 0),
                 image=ep_info.get("image"),
                 chapters_url=ep_info.get("chapters_url"),
-                transcript_url=ep_info.get("transcript_url")
+                transcript_url=ep_info.get("transcript_url"),
             )
             episode_docs.append(ep_doc)
 
@@ -156,11 +150,7 @@ def create_feed():
 
     # 获取并返回创建的Feed
     feed_doc["_id"] = feed_id
-    return success_response(
-        Feed.to_response(feed_doc),
-        "Feed added successfully",
-        201
-    )
+    return success_response(Feed.to_response(feed_doc), "Feed added successfully", 201)
 
 
 @feeds_bp.route("/<feed_id>", methods=["PUT"])
@@ -242,16 +232,9 @@ def refresh_feed(feed_id):
     def do_refresh(progress_callback=None):
         return _refresh_feed_sync(str(oid), progress_callback)
 
-    task_id = task_queue.submit(
-        task_type="refresh",
-        func=do_refresh,
-        feed_id=str(oid)
-    )
+    task_id = task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(oid))
 
-    return success_response({
-        "task_id": task_id,
-        "status": "queued"
-    })
+    return success_response({"task_id": task_id, "status": "queued"})
 
 
 def _refresh_feed_sync(feed_id: str, progress_callback=None):
@@ -271,11 +254,13 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
     if error:
         db.feeds.update_one(
             {"_id": oid},
-            {"$set": {
-                "status": Feed.STATUS_ERROR,
-                "check_error": error,
-                "last_checked": datetime.utcnow()
-            }}
+            {
+                "$set": {
+                    "status": Feed.STATUS_ERROR,
+                    "check_error": error,
+                    "last_checked": datetime.utcnow(),
+                }
+            },
         )
         raise ValueError(error)
 
@@ -307,7 +292,7 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
                 duration=ep_info.get("duration", 0),
                 image=ep_info.get("image"),
                 chapters_url=ep_info.get("chapters_url"),
-                transcript_url=ep_info.get("transcript_url")
+                transcript_url=ep_info.get("transcript_url"),
             )
             new_episodes.append(ep_doc)
 
@@ -323,23 +308,24 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
 
     db.feeds.update_one(
         {"_id": oid},
-        {"$set": {
-            "status": Feed.STATUS_ACTIVE,
-            "check_error": None,
-            "last_checked": datetime.utcnow(),
-            "last_updated": datetime.utcnow() if new_episodes else feed.get("last_updated"),
-            "episode_count": total_count,
-            "unread_count": unread_count
-        }}
+        {
+            "$set": {
+                "status": Feed.STATUS_ACTIVE,
+                "check_error": None,
+                "last_checked": datetime.utcnow(),
+                "last_updated": datetime.utcnow()
+                if new_episodes
+                else feed.get("last_updated"),
+                "episode_count": total_count,
+                "unread_count": unread_count,
+            }
+        },
     )
 
     if progress_callback:
         progress_callback(100)
 
-    return {
-        "new_episodes": len(new_episodes),
-        "total_episodes": total_count
-    }
+    return {"new_episodes": len(new_episodes), "total_episodes": total_count}
 
 
 @feeds_bp.route("/<feed_id>/star", methods=["POST"])
@@ -360,8 +346,7 @@ def star_feed(feed_id):
     starred = data.get("starred", not feed.get("is_starred", False))
 
     db.feeds.update_one(
-        {"_id": oid},
-        {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
+        {"_id": oid}, {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
     )
 
     return success_response({"id": feed_id, "is_starred": starred})
@@ -386,7 +371,7 @@ def favorite_feed(feed_id):
 
     db.feeds.update_one(
         {"_id": oid},
-        {"$set": {"is_favorite": favorite, "updated_at": datetime.utcnow()}}
+        {"$set": {"is_favorite": favorite, "updated_at": datetime.utcnow()}},
     )
 
     return success_response({"id": feed_id, "is_favorite": favorite})
@@ -428,10 +413,7 @@ def list_feed_episodes(feed_id):
     skip = (page - 1) * per_page
 
     episodes = list(
-        db.episodes.find(query)
-        .sort("published", -1)
-        .skip(skip)
-        .limit(per_page)
+        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
     )
 
     # 添加feed_title并转换响应格式

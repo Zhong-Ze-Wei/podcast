@@ -2,14 +2,12 @@
 """
 Flask应用工厂
 """
+
 from flask import Flask
 from flask_cors import CORS
 from pymongo import MongoClient
 
 from .config import get_config
-
-# 全局数据库连接
-db = None
 
 
 def create_app():
@@ -23,11 +21,34 @@ def create_app():
     # 初始化目录
     config.init_dirs()
 
-    # 启用CORS
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # 启用CORS - 限制为本地开发环境
+    CORS(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "Authorization"],
+            }
+        },
+    )
 
-    # 初始化数据库
-    init_db(app)
+    # 存储 MongoDB 客户端实例到应用对象
+    app.mongo_client = MongoClient(app.config["MONGO_URI"])
+    app.db = app.mongo_client[app.config["MONGO_DB"]]
+
+    # 创建索引
+    ensure_indexes(app.db)
+
+    # 初始化任务队列的数据库连接
+    from .services.task_queue import task_queue
+
+    task_queue.set_db(app.db)
+
+    # 启动自动刷新服务（每小时检查一次，超过6小时未更新的订阅源自动刷新）
+    from .services.auto_refresher import start_auto_refresher
+
+    start_auto_refresher(app.db, interval_hours=1, stale_threshold_hours=6)
 
     # 注册蓝图
     register_blueprints(app)
@@ -36,20 +57,6 @@ def create_app():
     register_error_handlers(app)
 
     return app
-
-
-def init_db(app):
-    """初始化MongoDB连接"""
-    global db
-    client = MongoClient(app.config["MONGO_URI"])
-    db = client[app.config["MONGO_DB"]]
-
-    # 创建索引
-    ensure_indexes(db)
-
-    # 初始化任务队列的数据库连接
-    from .services.task_queue import task_queue
-    task_queue.set_db(db)
 
 
 def ensure_indexes(db):
@@ -76,8 +83,8 @@ def ensure_indexes(db):
         # 检查是否存在旧的唯一索引，如果存在则删除
         existing_indexes = list(db.summaries.list_indexes())
         for idx in existing_indexes:
-            if idx.get('name') == 'episode_id_1' and idx.get('unique'):
-                db.summaries.drop_index('episode_id_1')
+            if idx.get("name") == "episode_id_1" and idx.get("unique"):
+                db.summaries.drop_index("episode_id_1")
                 break
     except Exception:
         pass
@@ -95,6 +102,9 @@ def ensure_indexes(db):
     db.tasks.create_index("status")
     db.tasks.create_index("created_at")
 
+    # briefings索引（AI简报）
+    db.briefings.create_index("date", unique=True)
+
 
 def register_blueprints(app):
     """注册蓝图"""
@@ -106,6 +116,7 @@ def register_blueprints(app):
     from .api.stats import stats_bp
     from .api.settings import settings_bp
     from .api.prompt_templates import prompt_templates_bp
+    from .api.insights import insights_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
@@ -117,6 +128,7 @@ def register_blueprints(app):
     app.register_blueprint(stats_bp, url_prefix=f"{prefix}")
     app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
     app.register_blueprint(prompt_templates_bp, url_prefix=f"{prefix}/prompt-templates")
+    app.register_blueprint(insights_bp, url_prefix=f"{prefix}/insights")
 
 
 def register_error_handlers(app):
@@ -133,5 +145,7 @@ def register_error_handlers(app):
 
 
 def get_db():
-    """获取数据库连接"""
-    return db
+    """获取数据库连接 - 从当前应用上下文"""
+    from flask import current_app
+
+    return current_app.db

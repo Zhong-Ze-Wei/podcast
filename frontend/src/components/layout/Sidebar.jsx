@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutGrid, Plus, Mic2, Briefcase,
-  Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings
+  Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings,
+  Sparkles, List
 } from 'lucide-react';
 import { feedsApi } from '../../services/api';
 
@@ -30,7 +31,9 @@ const Sidebar = ({
   onNoteFeed,
   onFeedClick,
   hasPlayer,
-  currentView
+  currentView,
+  viewMode = 'traditional',  // 'traditional' | 'ai-briefing'
+  onViewModeChange
 }) => {
   const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -135,6 +138,36 @@ const Sidebar = ({
           <Mic2 className="text-indigo-500" />
           {t('app.title')}
         </h1>
+      </div>
+
+      {/* 视图模式切换 */}
+      <div className="px-4 mb-4">
+        <div className="bg-zinc-900/50 rounded-xl p-1 flex gap-1">
+          <button
+            onClick={() => onViewModeChange && onViewModeChange('traditional')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+              viewMode === 'traditional'
+                ? 'bg-zinc-800 text-white shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+            title="传统视图 - 按播客浏览"
+          >
+            <List size={14} />
+            传统
+          </button>
+          <button
+            onClick={() => onViewModeChange && onViewModeChange('ai-briefing')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+              viewMode === 'ai-briefing'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+            title="AI简报 - 智能聚合"
+          >
+            <Sparkles size={14} />
+            AI简报
+          </button>
+        </div>
       </div>
 
       <div className="px-4 mb-4 space-y-1">

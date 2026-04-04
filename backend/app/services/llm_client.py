@@ -3,6 +3,7 @@
 LLM 客户端封装
 支持 OpenAI 兼容接口 (LiteLLM 代理)
 """
+
 import json
 import logging
 from typing import Optional
@@ -19,20 +20,12 @@ config = get_config()
 class LLMClient:
     """LLM 调用客户端"""
 
-    def __init__(
-        self,
-        base_url: str = None,
-        api_key: str = None,
-        model: str = None
-    ):
+    def __init__(self, base_url: str = None, api_key: str = None, model: str = None):
         self.base_url = base_url or config.LLM_BASE_URL
         self.api_key = api_key or config.LLM_API_KEY
         self.model = model or config.LLM_MODEL
 
-        self.client = openai.OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def chat(
         self,
@@ -40,7 +33,7 @@ class LLMClient:
         model: str = None,
         max_tokens: int = None,
         temperature: float = None,
-        json_mode: bool = False
+        json_mode: bool = False,
     ) -> dict:
         """
         发送聊天请求
@@ -68,7 +61,7 @@ class LLMClient:
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": temperature
+            "temperature": temperature,
         }
 
         if json_mode:
@@ -95,7 +88,7 @@ class LLMClient:
             usage = {
                 "prompt": response.usage.prompt_tokens if response.usage else 0,
                 "completion": response.usage.completion_tokens if response.usage else 0,
-                "total": response.usage.total_tokens if response.usage else 0
+                "total": response.usage.total_tokens if response.usage else 0,
             }
 
             logger.info(
@@ -107,7 +100,7 @@ class LLMClient:
                 "content": content,
                 "usage": usage,
                 "model": model,
-                "elapsed_seconds": elapsed
+                "elapsed_seconds": elapsed,
             }
 
         except Exception as e:
@@ -119,7 +112,7 @@ class LLMClient:
         messages: list,
         model: str = None,
         max_tokens: int = None,
-        temperature: float = None
+        temperature: float = None,
     ) -> dict:
         """
         发送聊天请求并解析 JSON 响应
@@ -137,7 +130,7 @@ class LLMClient:
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
-            json_mode=True
+            json_mode=True,
         )
 
         content = result.get("content", "")
@@ -163,24 +156,18 @@ class LLMClient:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Content length: {len(content) if content else 0}")
-            logger.error(f"Content preview: {repr(content[:200]) if content else 'None'}")
+            logger.error(
+                f"Content preview: {repr(content[:200]) if content else 'None'}"
+            )
             raise ValueError(f"Invalid JSON response from LLM: {e}")
-
-
-# 全局客户端实例
-_client: Optional[LLMClient] = None
-_client_config_hash: Optional[str] = None
 
 
 def get_llm_client() -> LLMClient:
     """
-    获取 LLM 客户端
+    获取 LLM 客户端 - 每次创建新实例（线程安全）
 
     优先从数据库获取活动配置，如果数据库不可用则使用环境变量配置
-    配置变更时会自动重建客户端
     """
-    global _client, _client_config_hash
-
     active_config = None
 
     # 尝试从 Flask 应用上下文获取数据库
@@ -209,6 +196,7 @@ def get_llm_client() -> LLMClient:
             db = client[mongo_db]
 
             from app.models.setting import SettingModel
+
             setting_model = SettingModel(db)
             active_config = setting_model.get_active_llm_config()
 
@@ -217,21 +205,15 @@ def get_llm_client() -> LLMClient:
 
     # 使用获取到的配置创建客户端
     if active_config:
-        config_hash = f"{active_config.get('base_url')}:{active_config.get('model')}:{active_config.get('api_key', '')[:8]}"
-
-        if _client is None or _client_config_hash != config_hash:
-            logger.info(f"Creating LLM client with config: {active_config.get('name', 'unnamed')}")
-            _client = LLMClient(
-                base_url=active_config.get("base_url"),
-                api_key=active_config.get("api_key"),
-                model=active_config.get("model")
-            )
-            _client_config_hash = config_hash
-
-        return _client
+        logger.debug(
+            f"Creating LLM client with config: {active_config.get('name', 'unnamed')}"
+        )
+        return LLMClient(
+            base_url=active_config.get("base_url"),
+            api_key=active_config.get("api_key"),
+            model=active_config.get("model"),
+        )
 
     # 回退到环境变量配置
-    logger.warning("No LLM config found in database, using environment variables")
-    if _client is None:
-        _client = LLMClient()
-    return _client
+    logger.debug("Using environment variables for LLM config")
+    return LLMClient()
