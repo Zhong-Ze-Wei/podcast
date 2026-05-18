@@ -41,22 +41,3 @@ class Task:
             "completed_at": None
         }
 
-    @staticmethod
-    def to_response(doc: dict) -> dict:
-        """转换为API响应格式"""
-        if not doc:
-            return None
-        return {
-            "id": str(doc["_id"]) if doc.get("_id") else None,
-            "task_id": doc.get("task_id", ""),
-            "task_type": doc.get("task_type", ""),
-            "episode_id": str(doc["episode_id"]) if doc.get("episode_id") else None,
-            "feed_id": str(doc["feed_id"]) if doc.get("feed_id") else None,
-            "status": doc.get("status", Task.STATUS_PENDING),
-            "progress": doc.get("progress", 0),
-            "result": doc.get("result"),
-            "error_message": doc.get("error_message"),
-            "created_at": doc.get("created_at").isoformat() + "Z" if doc.get("created_at") else None,
-            "started_at": doc.get("started_at").isoformat() + "Z" if doc.get("started_at") else None,
-            "completed_at": doc.get("completed_at").isoformat() + "Z" if doc.get("completed_at") else None
-        }
