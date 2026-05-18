@@ -1,7 +1,7 @@
 // -*- coding: utf-8 -*-
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Clock, Mic2, FileText, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Clock, Download, HardDrive, Mic2, FileText, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 
 /**
  * StatusBadge - 状态徽章组件
@@ -29,6 +29,8 @@ const StatusBadge = ({ status, hasTranscript, hasSummary }) => {
 
   const styles = {
     new: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+    downloading: 'bg-blue-900/30 text-blue-400 border-blue-800 animate-pulse',
+    downloaded: 'bg-cyan-900/30 text-cyan-400 border-cyan-800',
     transcribing: 'bg-purple-900/30 text-purple-400 border-purple-800 animate-pulse',
     transcribed: 'bg-green-900/30 text-green-400 border-green-800',
     summarizing: 'bg-amber-900/30 text-amber-400 border-amber-800 animate-pulse',
@@ -38,6 +40,8 @@ const StatusBadge = ({ status, hasTranscript, hasSummary }) => {
 
   const icons = {
     new: <Clock size={12} />,
+    downloading: <Download size={12} />,
+    downloaded: <HardDrive size={12} />,
     transcribing: <Mic2 size={12} />,
     transcribed: <FileText size={12} />,
     summarizing: <Sparkles size={12} />,
