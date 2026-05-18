@@ -7,9 +7,11 @@ RSS解析服务
 import feedparser
 import requests
 import re
+from html import unescape
 from datetime import datetime
 from typing import Tuple, Optional
 from email.utils import parsedate_to_datetime
+from urllib.parse import urljoin, urlparse
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,8 +75,35 @@ class RSSService:
             return feed_info, None
 
         except Exception as e:
+            classified_error = cls._classify_request_error(e)
+            if classified_error:
+                logger.warning(f"Failed to fetch RSS: {rss_url}: {classified_error}")
+                return None, classified_error
             logger.exception(f"Failed to parse RSS: {rss_url}")
             return None, f"Failed to parse RSS: {str(e)}"
+
+    @staticmethod
+    def _classify_request_error(error: Exception) -> Optional[str]:
+        """Return a human-readable RSS fetch error when the failure is classifiable."""
+        if isinstance(error, requests.exceptions.SSLError):
+            return "RSS HTTPS certificate error. The source site's SSL certificate could not be verified."
+
+        if isinstance(error, requests.exceptions.Timeout):
+            return "RSS request timed out. Please try again later."
+
+        if isinstance(error, requests.exceptions.HTTPError):
+            status_code = getattr(getattr(error, "response", None), "status_code", None)
+            if status_code in (404, 410):
+                return "RSS URL not found or moved. Please check whether the feed address is still valid."
+            if status_code and 500 <= status_code < 600:
+                return "RSS service is temporarily unavailable (HTTP 5xx). Please try again later."
+            if status_code:
+                return f"RSS request failed with HTTP {status_code}."
+
+        if isinstance(error, requests.exceptions.RequestException):
+            return f"RSS request failed: {str(error)}"
+
+        return None
 
     @classmethod
     def _extract_feed_info(cls, feed) -> dict:
@@ -318,15 +347,25 @@ class RSSService:
         transcript_patterns = [
             r'[Tt]ranscript[:\s]*</[^>]+>\s*<a[^>]+href=["\']([^"\']+)["\']',
             r'[Tt]ranscript[:\s]*<a[^>]+href=["\']([^"\']+)["\']',
-            r'<a[^>]+href=["\']([^"\']*transcript[^"\']*)["\'][^>]*>',
         ]
 
         for pattern in transcript_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
-                url = match.group(1)
-                if url.startswith("http"):
+                url = cls._normalize_transcript_url(match.group(1), episode_link)
+                if url:
                     return url
+
+        for match in re.finditer(
+            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+            html_content,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            href, label_html = match.groups()
+            url = cls._normalize_transcript_url(href, episode_link)
+            label = cls._clean_html(label_html).lower()
+            if url and ("transcript" in label or cls._url_path_looks_like_transcript(url)):
+                return url
 
         # 模式2: 基于episode链接推测 (适用于lexfridman.com等)
         if episode_link and "lexfridman.com" in episode_link:
@@ -336,9 +375,17 @@ class RSSService:
 
         return None
 
-    @classmethod
-    def validate_url(cls, url: str) -> bool:
-        """验证URL格式"""
-        if not url:
-            return False
-        return url.startswith("http://") or url.startswith("https://")
+    @staticmethod
+    def _normalize_transcript_url(href: str, base_url: str) -> Optional[str]:
+        if not href:
+            return None
+        url = urljoin(base_url or "", unescape(href).strip())
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        return None
+
+    @staticmethod
+    def _url_path_looks_like_transcript(url: str) -> bool:
+        path = urlparse(url).path.lower()
+        return "transcript" in path or path.endswith((".srt", ".vtt", ".json"))
+

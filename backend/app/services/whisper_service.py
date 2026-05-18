@@ -5,6 +5,7 @@ Whisper转录服务
 使用Faster-Whisper进行本地AI转录
 """
 import logging
+import os
 from typing import Optional, List, Dict, Tuple, Callable
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,16 @@ logger = logging.getLogger(__name__)
 # 全局模型实例（延迟加载）
 _model = None
 _model_name = None
+_model_dir = None
+_model_runtime = None
+
+
+def _parse_int_env(name: str, default: int) -> int:
+    value = os.getenv(name, str(default)).strip()
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer, got {value!r}") from exc
 
 
 def get_model(model_name: str = "small"):
@@ -24,17 +35,47 @@ def get_model(model_name: str = "small"):
     Returns:
         WhisperModel实例
     """
-    global _model, _model_name
+    global _model, _model_name, _model_dir, _model_runtime
 
-    if _model is not None and _model_name == model_name:
+    model_dir = os.getenv("WHISPER_MODEL_DIR", "").strip()
+    device = os.getenv("WHISPER_DEVICE", "cpu").strip() or "cpu"
+    compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8").strip() or "int8"
+    device_index = _parse_int_env("WHISPER_DEVICE_INDEX", 0)
+    num_workers = _parse_int_env("WHISPER_NUM_WORKERS", 1)
+    runtime = (device, compute_type, device_index, num_workers)
+
+    if (
+        _model is not None
+        and _model_name == model_name
+        and _model_dir == model_dir
+        and _model_runtime == runtime
+    ):
         return _model
 
     try:
         from faster_whisper import WhisperModel
 
-        logger.info(f"Loading Whisper model: {model_name}")
-        _model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        logger.info(
+            "Loading Whisper model: %s (device=%s, compute_type=%s, device_index=%s)",
+            model_name,
+            device,
+            compute_type,
+            device_index,
+        )
+        model_options = {
+            "device": device,
+            "compute_type": compute_type,
+            "device_index": device_index,
+            "num_workers": num_workers,
+        }
+        if model_dir:
+            os.makedirs(model_dir, exist_ok=True)
+            model_options["download_root"] = model_dir
+
+        _model = WhisperModel(model_name, **model_options)
         _model_name = model_name
+        _model_dir = model_dir
+        _model_runtime = runtime
         logger.info(f"Whisper model {model_name} loaded successfully")
         return _model
 
@@ -140,12 +181,3 @@ def format_timestamp(seconds: float) -> str:
     if hours > 0:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
-
-
-def is_available() -> bool:
-    """检查Whisper是否可用"""
-    try:
-        import faster_whisper
-        return True
-    except ImportError:
-        return False
