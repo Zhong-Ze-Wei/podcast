@@ -7,3 +7,7 @@ export const decodeHtmlEntities = (text) => {
   const doc = new DOMParser().parseFromString(text, 'text/html');
   return doc.documentElement.textContent;
 };
+
+export const AI_ANALYSIS_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(import.meta.env.VITE_AI_ANALYSIS_ENABLED || '').toLowerCase()
+);
