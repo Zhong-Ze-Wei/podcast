@@ -3,7 +3,6 @@
 配置管理模块
 """
 import os
-from datetime import timedelta
 
 
 class Config:
@@ -23,34 +22,28 @@ class Config:
     TEMP_DIR = os.path.join(MEDIA_ROOT, "temp")
 
     # Flask配置
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
     DEBUG = os.getenv("FLASK_DEBUG", "1") == "1"
 
     # API配置
     API_PREFIX = "/api"
-    PER_PAGE_DEFAULT = 20
-    PER_PAGE_MAX = 100
-
-    # 任务队列配置
-    TASK_WORKERS = int(os.getenv("TASK_WORKERS", "3"))
-
-    # RSS配置
-    RSS_TIMEOUT = int(os.getenv("RSS_TIMEOUT", "30"))
-    RSS_USER_AGENT = "PodcastManager/1.0"
 
     # Whisper配置 (后续AI功能)
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+    WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", "")
+    WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+    WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+    WHISPER_DEVICE_INDEX = int(os.getenv("WHISPER_DEVICE_INDEX", "0"))
+    WHISPER_NUM_WORKERS = int(os.getenv("WHISPER_NUM_WORKERS", "1"))
+    TRANSCRIPTION_DEFAULT_PROVIDER = os.getenv("TRANSCRIPTION_DEFAULT_PROVIDER", "official").lower()
+    TRANSCRIPTION_CLOUD_ENABLED = os.getenv("TRANSCRIPTION_CLOUD_ENABLED", "0").lower() in ("1", "true", "yes", "on")
 
     # LLM配置 (摘要生成) - 从环境变量读取，无默认值
+    AI_ANALYSIS_ENABLED = os.getenv("AI_ANALYSIS_ENABLED", "0").lower() in ("1", "true", "yes", "on")
     LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
     LLM_API_KEY = os.getenv("LLM_API_KEY", "")
     LLM_MODEL = os.getenv("LLM_MODEL", "")
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
-
-    # 摘要配置
-    SUMMARY_MAX_INPUT_CHARS = int(os.getenv("SUMMARY_MAX_INPUT_CHARS", "100000"))
-    SUMMARY_DEFAULT_TYPE = os.getenv("SUMMARY_DEFAULT_TYPE", "general")
 
     @classmethod
     def init_dirs(cls):
