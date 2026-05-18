@@ -1,8 +1,9 @@
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, TrendingUp, Lightbulb, BookOpen, Clock, Play, ChevronRight, Target, Zap, RefreshCw, Download, AlertCircle } from 'lucide-react';
-import { insightsApi, episodesApi } from '../../services/api';
+import { Sparkles, TrendingUp, Lightbulb, BookOpen, Play, ChevronRight, Target, Zap, RefreshCw, Download, AlertCircle } from 'lucide-react';
+import { insightsApi } from '../../services/api';
+import { AI_ANALYSIS_ENABLED } from '../../utils/helpers';
 
 /**
  * AIBriefingView - AI每日简报视图
@@ -14,7 +15,6 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedTopic, setSelectedTopic] = useState(null);
 
   const loadBriefing = useCallback(async () => {
     setLoading(true);
@@ -40,6 +40,10 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   }, [loadBriefing]);
 
   const handleRegenerate = async () => {
+    if (!AI_ANALYSIS_ENABLED) {
+      setError('AI 分析已冻结：已有缓存可查看，但暂时不再生成今日简报。');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -57,8 +61,16 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
     }
   };
 
-  const handleExportPdf = () => {
-    insightsApi.exportPdf();
+  const handleExportPdf = async () => {
+    if (!briefing?.briefing?.markdownReport) {
+      setError('简报内容为空，无法导出 PDF');
+      return;
+    }
+    try {
+      await insightsApi.exportPdf();
+    } catch (err) {
+      setError('PDF 导出失败，请重试');
+    }
   };
 
   // Loading 状态
@@ -82,9 +94,10 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
           <p className="text-zinc-400 mb-4">{error || '暂无简报数据'}</p>
           <button
             onClick={handleRegenerate}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+            disabled={!AI_ANALYSIS_ENABLED}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-lg transition-colors"
           >
-            生成今日简报
+            {AI_ANALYSIS_ENABLED ? '生成今日简报' : 'AI 分析已冻结'}
           </button>
         </div>
       </div>
@@ -117,8 +130,9 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
               )}
               <button
                 onClick={handleRegenerate}
-                className="p-2 text-zinc-500 hover:text-indigo-400 transition-colors"
-                title="重新生成"
+                disabled={!AI_ANALYSIS_ENABLED}
+                className="p-2 text-zinc-500 hover:text-indigo-400 disabled:text-zinc-700 disabled:cursor-not-allowed transition-colors"
+                title={AI_ANALYSIS_ENABLED ? '重新生成' : 'AI 分析已冻结'}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>

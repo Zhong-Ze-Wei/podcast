@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 import {
   Play, Mic2, AlertCircle, ChevronLeft,
   Sparkles, CheckCircle2, Clock, DollarSign,
-  Languages, TrendingUp, AlertTriangle, Quote
+  Languages, TrendingUp, AlertTriangle, Quote, Download
 } from 'lucide-react';
-import { transcriptsApi, summariesApi, episodesApi, promptTemplatesApi } from '../../services/api';
-import { decodeHtmlEntities } from '../../utils/helpers';
+import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
+import { decodeHtmlEntities, AI_ANALYSIS_ENABLED } from '../../utils/helpers';
 import TaskProgress from '../common/TaskProgress';
 
 /**
@@ -34,14 +34,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   // 任务状态
   const [localTranscribing, setLocalTranscribing] = useState(false);
+  const [localDownloading, setLocalDownloading] = useState(false);
   const [localSummarizing, setLocalSummarizing] = useState(false);
+  const [transcriptionProvider, setTranscriptionProvider] = useState('official');
 
   // Summary states
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateBlocks, setTemplateBlocks] = useState([]);
   const [enabledBlocks, setEnabledBlocks] = useState([]);
   const [showChinese, setShowChinese] = useState(false);
-  const [showTemplateOptions, setShowTemplateOptions] = useState(false);
 
   // 当props中的episode变化时，更新本地状态
   useEffect(() => {
@@ -66,6 +68,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             ?.filter(b => b.enabled_by_default)
             .map(b => b.id) || [];
           setEnabledBlocks(defaultEnabled);
+          setTemplateBlocks(detail.optional_blocks || []);
         }
       } catch (err) {
         console.error('Failed to load templates:', err);
@@ -78,6 +81,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const isTranscribing = episode?.status === 'transcribing';
   // 综合判断：后端状态或本地刚触发的状态
   const isCurrentlyTranscribing = isTranscribing || localTranscribing;
+  const isDownloading = episode?.status === 'downloading';
+  const isCurrentlyDownloading = isDownloading || localDownloading;
 
   // 检查是否正在生成摘要
   const isSummarizing = episode?.status === 'summarizing';
@@ -86,12 +91,87 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   // 计算预估费用 (AssemblyAI: $0.37/小时)
   const estimateCost = episode?.duration ? (episode.duration * 0.37 / 3600).toFixed(2) : null;
   const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null;
+  const hasOfficialTranscript = Boolean(episode?.transcript_url);
+  const hasLocalAudio = Boolean(episode?.local_audio_url || episode?.local_path || episode?.audio_path);
+  const hasRemoteAudio = Boolean(episode?.audio_url);
+  const transcriptionOptions = [
+    {
+      value: 'official',
+      label: '官方字幕',
+      description: hasOfficialTranscript ? '免费，优先使用节目源提供的字幕。' : '当前单集没有官方字幕地址。',
+      disabled: !hasOfficialTranscript
+    },
+    {
+      value: 'local_whisper',
+      label: '本地 Whisper',
+      description: hasLocalAudio
+        ? '使用已下载音频在本机转录，不调用云端。'
+        : hasRemoteAudio
+          ? '需要先下载音频到本地，然后再用 Whisper 转录。'
+          : '当前单集没有可下载的音频 URL。',
+      disabled: !hasLocalAudio && !hasRemoteAudio
+    },
+    {
+      value: 'local_whisperx',
+      label: 'WhisperX',
+      description: hasLocalAudio
+        ? '本地高级转录模式，用于后续接入说话人识别；当前需要单独安装 WhisperX runtime。'
+        : hasRemoteAudio
+          ? '需要先下载音频到本地，然后再用 WhisperX 转录。'
+          : '当前单集没有可下载的音频 URL。',
+      disabled: !hasLocalAudio && !hasRemoteAudio
+    },
+    {
+      value: 'assemblyai',
+      label: 'AssemblyAI 云端',
+      description: '付费云端转录，后端必须显式开启 TRANSCRIPTION_CLOUD_ENABLED=1。',
+      disabled: false
+    },
+    {
+      value: 'manual',
+      label: '手动导入',
+      description: '预留入口，后续支持粘贴或上传文本。',
+      disabled: true
+    }
+  ];
+  const selectedTranscriptionOption =
+    transcriptionOptions.find(option => option.value === transcriptionProvider) || transcriptionOptions[0];
+  const transcriptSourceLabels = {
+    local_whisper: '本地 Whisper',
+    local_whisperx: 'WhisperX',
+    assemblyai: 'AssemblyAI 云端',
+    official: '官方字幕',
+    official_srt: '官方 SRT',
+    official_vtt: '官方 VTT',
+    official_json: '官方 JSON',
+    external: '外部字幕',
+    manual: '手工导入'
+  };
+  const transcriptSourceLabel =
+    transcriptSourceLabels[transcript?.source] || transcript?.source || episode?.transcript_source || '未知来源';
+
+  useEffect(() => {
+    if (hasOfficialTranscript) {
+      setTranscriptionProvider('official');
+    } else if (hasLocalAudio || hasRemoteAudio) {
+      setTranscriptionProvider('local_whisper');
+    } else {
+      setTranscriptionProvider('assemblyai');
+    }
+  }, [episode?.id, hasOfficialTranscript, hasLocalAudio, hasRemoteAudio]);
 
   // 任务完成回调
   const handleTranscribeComplete = async () => {
     setLocalTranscribing(false);
     await loadTranscript();
     if (onRefresh) onRefresh();
+  };
+
+  const handleDownloadComplete = async () => {
+    setLocalDownloading(false);
+    if (onRefresh) {
+      await onRefresh();
+    }
   };
 
   const handleSummarizeComplete = async () => {
@@ -102,6 +182,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   const handleTaskError = (errorMsg) => {
     setError(errorMsg);
+    setLocalDownloading(false);
     setLocalTranscribing(false);
     setLocalSummarizing(false);
   };
@@ -174,11 +255,27 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateTranscript = async () => {
+    if (selectedTranscriptionOption?.disabled) {
+      setError(selectedTranscriptionOption.description);
+      return;
+    }
+    if ((transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio) {
+      const downloadResult = await downloadAudio();
+      if (downloadResult === 'already_downloaded') {
+        try {
+          await transcriptsApi.create(episode.id, { provider: transcriptionProvider });
+          if (onRefresh) onRefresh();
+        } catch (err) {
+          setError(err?.message || 'Failed to generate transcript');
+        }
+      }
+      return;
+    }
     setLoading(true);
     setLocalTranscribing(true);
     setError(null);
     try {
-      await transcriptsApi.create(episode.id);
+      await transcriptsApi.create(episode.id, { provider: transcriptionProvider });
       // 任务已提交，TaskProgress 组件会轮询状态
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -200,7 +297,52 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
-  const generateSummary = async () => {
+  const downloadAudio = async () => {
+    if (!hasRemoteAudio) {
+      setError('当前单集没有可下载的音频 URL');
+      return 'failed';
+    }
+    setLoading(true);
+    setLocalDownloading(true);
+    setError(null);
+    try {
+      await episodesApi.download(episode.id);
+      if (onRefresh) onRefresh();
+      return 'queued';
+    } catch (err) {
+      const errorCode = err?.code || '';
+      if (errorCode === 'ALREADY_DOWNLOADED') {
+        setLocalDownloading(false);
+        if (onRefresh) onRefresh();
+        return 'already_downloaded';
+      } else if (errorCode === 'ALREADY_DOWNLOADING') {
+        setError(t('detail.downloadInProgress') || 'Download already in progress');
+      } else {
+        setError(err?.message || 'Failed to download audio');
+        setLocalDownloading(false);
+      }
+      return 'failed';
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteTranscript = async () => {
+    setError(null);
+    try {
+      await transcriptsApi.delete(episode.id);
+      setTranscript(null);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setError(err?.message || 'Failed to delete transcript');
+    }
+  };
+
+  const generateSummary = async (force = false) => {
+    if (!AI_ANALYSIS_ENABLED) {
+      setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
+      return;
+    }
     if (!selectedTemplate) {
       setError('Please select a template first');
       return;
@@ -211,7 +353,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     try {
       await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
-        enabled_blocks: enabledBlocks
+        enabled_blocks: enabledBlocks,
+        force
       });
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
@@ -220,7 +363,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     } catch (err) {
       console.error('Failed to generate summary:', err);
       const errorCode = err?.code || '';
-      if (errorCode === 'SUMMARY_EXISTS') {
+      if (errorCode === 'SUMMARY_EXISTS' && !force) {
         await loadSummary();
         setLocalSummarizing(false);
       } else if (errorCode === 'TASK_IN_PROGRESS') {
@@ -238,7 +381,6 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setSelectedTemplate(template);
     setSummary(null);
     setShowChinese(false);
-    setShowTemplateOptions(false);
     // 获取模板详情并设置默认启用的块
     try {
       const response = await promptTemplatesApi.get(template.id);
@@ -247,6 +389,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         ?.filter(b => b.enabled_by_default)
         .map(b => b.id) || [];
       setEnabledBlocks(defaultEnabled);
+      setTemplateBlocks(detail.optional_blocks || []);
     } catch (err) {
       console.error('Failed to load template detail:', err);
     }
@@ -294,15 +437,17 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             <div className="flex gap-2">
               <button
                 onClick={generateTranscript}
-                disabled={loading || isCurrentlyTranscribing}
+                disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlyTranscribing
                     ? 'border-purple-500 bg-purple-900/30 text-purple-400 cursor-not-allowed'
                     : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={isCurrentlyTranscribing ? t('detail.transcribingStatus') : t('detail.generateTranscript')}
+                title={isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : t('detail.generateTranscript'))}
               >
-                {isCurrentlyTranscribing ? (
+                {isCurrentlyDownloading ? (
+                  <div className="animate-spin"><Download size={20} /></div>
+                ) : isCurrentlyTranscribing ? (
                   <div className="animate-spin"><Mic2 size={20} /></div>
                 ) : (
                   <Mic2 size={20} />
@@ -310,13 +455,15 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
-                disabled={loading || isCurrentlySummarizing}
+                disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
                     ? 'border-indigo-500 bg-indigo-900/30 text-indigo-400 cursor-not-allowed'
-                    : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                    : !AI_ANALYSIS_ENABLED
+                      ? 'border-zinc-800 text-zinc-600 cursor-not-allowed'
+                      : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary')}
+                title={!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
               >
                 {isCurrentlySummarizing ? (
                   <div className="animate-spin"><Sparkles size={20} /></div>
@@ -349,6 +496,38 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         <div className="max-w-4xl mx-auto">
           {activeTab === 'transcript' && (
             <div className="space-y-6">
+              {/* 有转录时显示删除/重新转录按钮 */}
+              {transcript && !transcriptLoading && !isCurrentlyTranscribing && (
+                <div className="flex items-start justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium text-zinc-200">{transcriptSourceLabel}</span>
+                      {transcript.model && (
+                        <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
+                          {transcript.model}
+                        </span>
+                      )}
+                      {transcript.language && (
+                        <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
+                          {transcript.language}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
+                      {typeof transcript.word_count === 'number' && <span>{transcript.word_count} words</span>}
+                      {Array.isArray(transcript.segments) && <span>{transcript.segments.length} segments</span>}
+                      {transcript.created_at && <span>{new Date(transcript.created_at).toLocaleString()}</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={deleteTranscript}
+                    className="flex-shrink-0 px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-red-400 rounded-lg transition-colors border border-zinc-700"
+                    title="删除转录并重新生成"
+                  >
+                    删除转录
+                  </button>
+                </div>
+              )}
               {transcriptLoading || loading ? (
                 <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
@@ -415,7 +594,14 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   )}
 
                   <div className="flex flex-col gap-3 items-center">
-                    {isCurrentlyTranscribing ? (
+                    {isCurrentlyDownloading ? (
+                      <TaskProgress
+                        taskType="download"
+                        episodeId={episode.id}
+                        onComplete={handleDownloadComplete}
+                        onError={handleTaskError}
+                      />
+                    ) : isCurrentlyTranscribing ? (
                       <TaskProgress
                         taskType="transcribe"
                         episodeId={episode.id}
@@ -424,8 +610,36 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-3">
+                        <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <label htmlFor="transcription-provider" className="text-xs font-medium text-zinc-300">
+                              转录方式
+                            </label>
+                            {transcriptionProvider === 'assemblyai' && (
+                              <span className="text-[11px] text-amber-400">付费云端</span>
+                            )}
+                          </div>
+                          <select
+                            id="transcription-provider"
+                            value={transcriptionProvider}
+                            onChange={(event) => {
+                              setTranscriptionProvider(event.target.value);
+                              setError(null);
+                            }}
+                            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+                          >
+                            {transcriptionOptions.map(option => (
+                              <option key={option.value} value={option.value} disabled={option.disabled}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                            {selectedTranscriptionOption?.description}
+                          </p>
+                        </div>
                         {/* 预估费用和时间 */}
-                        {(estimateCost || estimateTime) && (
+                        {transcriptionProvider === 'assemblyai' && (estimateCost || estimateTime) && (
                           <div className="flex items-center gap-4 text-xs text-zinc-500 mb-2">
                             {estimateCost && (
                               <span className="flex items-center gap-1">
@@ -443,11 +657,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                         )}
                         <button
                           onClick={generateTranscript}
-                          disabled={loading || isCurrentlyTranscribing}
+                          disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
                         >
-                          {isCurrentlyTranscribing ? t('detail.transcribingStatus') :
-                           loading ? t('detail.generating') : t('detail.generateTranscriptAI')}
+                          {isCurrentlyDownloading ? '正在下载音频' :
+                           isCurrentlyTranscribing ? t('detail.transcribingStatus') :
+                           loading ? t('detail.generating') :
+                            (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? '先下载音频' : `开始${selectedTranscriptionOption?.label || '转录'}`}
                         </button>
                       </div>
                     )}
@@ -480,6 +696,18 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ))}
                 </div>
                 <div className="flex gap-2">
+                  {/* 有摘要时显示强制重新生成按钮 */}
+                  {summary && !isCurrentlySummarizing && (
+                    <button
+                      onClick={() => generateSummary(true)}
+                      disabled={!AI_ANALYSIS_ENABLED || loading}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 text-zinc-400 hover:text-white rounded-lg transition-colors"
+                      title={AI_ANALYSIS_ENABLED ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
+                    >
+                      <Sparkles size={13} />
+                      {AI_ANALYSIS_ENABLED ? '重新生成' : '已冻结'}
+                    </button>
+                  )}
                   {/* 有翻译时显示语言切换 */}
                   {summary?.has_translation && (
                     <button
@@ -494,6 +722,25 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   )}
                 </div>
               </div>
+
+              {/* Block Toggles */}
+              {templateBlocks.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {templateBlocks.map(block => (
+                    <button
+                      key={block.id}
+                      onClick={() => toggleBlock(block.id)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
+                        enabledBlocks.includes(block.id)
+                          ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/50'
+                          : 'bg-zinc-900 text-zinc-500 border-zinc-700 hover:border-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {block.name_zh || block.name}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Error/Success Messages */}
               {error && (
@@ -522,7 +769,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   </div>
 
                   {/* Investment Signals (for investment template) */}
-                  {(summary.template_name === 'investment' || summary.summary_type === 'investment') && summary.investment_signals?.length > 0 && (
+                  {summary.template_name === 'investment' && summary.investment_signals?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                         <TrendingUp size={14} /> {t('detail.investmentSignals') || 'Investment Signals'}
@@ -629,8 +876,6 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   )}
 
                   {/* Debug Info - 临时调试用 */}
-                  {(() => { console.log('DEBUG - summary:', summary); console.log('DEBUG - core_content:', summary?.core_content); return null; })()}
-
                   {/* Core Content */}
                   {summary?.core_content && (
                     <div>
@@ -769,10 +1014,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {loading ? t('detail.generating') : t('detail.generateSummaryAI')}
+                      {!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
                     </button>
                   )}
                 </div>

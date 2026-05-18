@@ -26,6 +26,26 @@ from .decorators import validate_object_id
 feeds_bp = Blueprint("feeds", __name__)
 
 
+def _build_episode_doc(feed_id, ep_info):
+    """从 RSS 解析结果构造 Episode 文档"""
+    return Episode.create(
+        feed_id=feed_id,
+        guid=ep_info["guid"],
+        title=ep_info["title"],
+        summary=ep_info.get("summary"),
+        content=ep_info.get("content"),
+        link=ep_info.get("link"),
+        published=ep_info.get("published"),
+        audio_url=ep_info.get("audio_url"),
+        audio_type=ep_info.get("audio_type"),
+        audio_size=ep_info.get("audio_size"),
+        duration=ep_info.get("duration", 0),
+        image=ep_info.get("image"),
+        chapters_url=ep_info.get("chapters_url"),
+        transcript_url=ep_info.get("transcript_url"),
+    )
+
+
 def get_db():
     from .. import get_db as _get_db
 
@@ -125,26 +145,7 @@ def create_feed():
 
     # 插入Episodes
     if episodes:
-        episode_docs = []
-        for ep_info in episodes:
-            ep_doc = Episode.create(
-                feed_id=feed_id,
-                guid=ep_info["guid"],
-                title=ep_info["title"],
-                summary=ep_info.get("summary"),
-                content=ep_info.get("content"),
-                link=ep_info.get("link"),
-                published=ep_info.get("published"),
-                audio_url=ep_info.get("audio_url"),
-                audio_type=ep_info.get("audio_type"),
-                audio_size=ep_info.get("audio_size"),
-                duration=ep_info.get("duration", 0),
-                image=ep_info.get("image"),
-                chapters_url=ep_info.get("chapters_url"),
-                transcript_url=ep_info.get("transcript_url"),
-            )
-            episode_docs.append(ep_doc)
-
+        episode_docs = [_build_episode_doc(feed_id, ep) for ep in episodes]
         if episode_docs:
             db.episodes.insert_many(episode_docs)
 
@@ -278,23 +279,7 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
 
     for ep_info in episodes:
         if ep_info["guid"] not in existing_guids:
-            ep_doc = Episode.create(
-                feed_id=oid,
-                guid=ep_info["guid"],
-                title=ep_info["title"],
-                summary=ep_info.get("summary"),
-                content=ep_info.get("content"),
-                link=ep_info.get("link"),
-                published=ep_info.get("published"),
-                audio_url=ep_info.get("audio_url"),
-                audio_type=ep_info.get("audio_type"),
-                audio_size=ep_info.get("audio_size"),
-                duration=ep_info.get("duration", 0),
-                image=ep_info.get("image"),
-                chapters_url=ep_info.get("chapters_url"),
-                transcript_url=ep_info.get("transcript_url"),
-            )
-            new_episodes.append(ep_doc)
+            new_episodes.append(_build_episode_doc(oid, ep_info))
 
     if new_episodes:
         db.episodes.insert_many(new_episodes)

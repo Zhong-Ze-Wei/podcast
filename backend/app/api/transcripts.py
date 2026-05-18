@@ -4,7 +4,9 @@ Transcripts API
 
 转录管理接口
 """
-from flask import Blueprint, request
+import os
+
+from flask import Blueprint, current_app, request
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -17,10 +19,76 @@ from .utils import success_response, error_response
 
 transcripts_bp = Blueprint("transcripts", __name__)
 
+TRANSCRIPTION_PROVIDER_AUTO = "auto"
+TRANSCRIPTION_PROVIDER_OFFICIAL = "official"
+TRANSCRIPTION_PROVIDER_LOCAL_WHISPER = "local_whisper"
+TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX = "local_whisperx"
+TRANSCRIPTION_PROVIDER_ASSEMBLYAI = "assemblyai"
+TRANSCRIPTION_PROVIDER_MANUAL = "manual"
+
+SUPPORTED_TRANSCRIPTION_PROVIDERS = {
+    TRANSCRIPTION_PROVIDER_AUTO,
+    TRANSCRIPTION_PROVIDER_OFFICIAL,
+    TRANSCRIPTION_PROVIDER_LOCAL_WHISPER,
+    TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX,
+    TRANSCRIPTION_PROVIDER_ASSEMBLYAI,
+    TRANSCRIPTION_PROVIDER_MANUAL,
+}
+
+CLOUD_TRANSCRIPTION_DISABLED_MESSAGE = (
+    "Cloud transcription is disabled. Set TRANSCRIPTION_CLOUD_ENABLED=1 to enable AssemblyAI."
+)
+
 
 def get_db():
     from .. import get_db as _get_db
     return _get_db()
+
+
+def _get_requested_provider(payload=None):
+    payload = payload or {}
+    provider = payload.get("provider") or current_app.config.get(
+        "TRANSCRIPTION_DEFAULT_PROVIDER",
+        TRANSCRIPTION_PROVIDER_OFFICIAL,
+    )
+    provider = str(provider).strip().lower()
+    if provider not in SUPPORTED_TRANSCRIPTION_PROVIDERS:
+        return None
+    return provider
+
+
+def _resolve_transcription_provider(provider, episode):
+    if provider == TRANSCRIPTION_PROVIDER_AUTO:
+        if episode.get("transcript_url"):
+            return TRANSCRIPTION_PROVIDER_OFFICIAL
+        return None
+    return provider
+
+
+def _is_cloud_transcription_enabled():
+    return bool(current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False))
+
+
+def _get_local_audio_path(episode):
+    local_path = episode.get("local_path") or episode.get("audio_path")
+    if not local_path:
+        return None
+
+    media_root = os.path.abspath(current_app.config.get("MEDIA_ROOT", "."))
+    candidate = local_path
+    if not os.path.isabs(candidate):
+        candidate = os.path.join(media_root, candidate)
+    candidate = os.path.abspath(candidate)
+
+    try:
+        if os.path.commonpath([media_root, candidate]) != media_root:
+            return None
+    except ValueError:
+        return None
+
+    if not os.path.isfile(candidate):
+        return None
+    return candidate
 
 
 @transcripts_bp.route("/<episode_id>", methods=["GET"])
@@ -58,6 +126,54 @@ def create_transcript(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
+    payload = request.get_json(silent=True) or {}
+    requested_provider = _get_requested_provider(payload)
+    if not requested_provider:
+        return error_response(
+            "Unsupported transcription provider",
+            "UNSUPPORTED_TRANSCRIPTION_PROVIDER",
+            400
+        )
+
+    provider = _resolve_transcription_provider(requested_provider, episode)
+    if not provider:
+        return error_response(
+            "No official transcript is available. Choose local_whisper or assemblyai explicitly.",
+            "TRANSCRIPTION_PROVIDER_REQUIRED",
+            400
+        )
+    if provider == TRANSCRIPTION_PROVIDER_MANUAL:
+        return error_response(
+            "Manual transcripts are not available from this endpoint yet.",
+            "MANUAL_TRANSCRIPT_REQUIRED",
+            400
+        )
+    if provider == TRANSCRIPTION_PROVIDER_OFFICIAL and not episode.get("transcript_url"):
+        return error_response(
+            "No official transcript URL available for this episode",
+            "NO_TRANSCRIPT_URL",
+            400
+        )
+    if provider in {TRANSCRIPTION_PROVIDER_LOCAL_WHISPER, TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX} and not _get_local_audio_path(episode):
+        return error_response(
+            "Local audio file not found for this episode",
+            "LOCAL_AUDIO_NOT_FOUND",
+            400
+        )
+    if provider == TRANSCRIPTION_PROVIDER_ASSEMBLYAI:
+        if not _is_cloud_transcription_enabled():
+            return error_response(
+                CLOUD_TRANSCRIPTION_DISABLED_MESSAGE,
+                "CLOUD_TRANSCRIPTION_DISABLED",
+                423
+            )
+        if not episode.get("audio_url"):
+            return error_response(
+                "No audio URL available for this episode",
+                "NO_AUDIO_URL",
+                400
+            )
+
     # 检查是否已经在转录或已完成
     episode_status = episode.get("status", "new")
     if episode_status == Episode.STATUS_TRANSCRIBING:
@@ -70,15 +186,6 @@ def create_transcript(episode_id):
         return error_response(
             "Episode already has a transcript",
             "ALREADY_TRANSCRIBED",
-            400
-        )
-
-    # 检查是否有音频URL
-    audio_url = episode.get("audio_url")
-    if not audio_url:
-        return error_response(
-            "No audio URL available for this episode",
-            "NO_AUDIO_URL",
             400
         )
 
@@ -97,23 +204,40 @@ def create_transcript(episode_id):
 
     # 提交转录任务
     def do_transcribe(progress_callback=None):
-        return _transcribe_sync(str(oid), progress_callback)
+        return _transcribe_sync(str(oid), provider=provider, progress_callback=progress_callback)
+
+    previous_status = episode_status
+
+    def rollback_episode_status(error):
+        db.episodes.update_one(
+            {"_id": oid},
+            {"$set": {
+                "status": previous_status,
+                "last_transcript_error": str(error),
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+    db.episodes.update_one(
+        {"_id": oid},
+        {"$set": {
+            "status": Episode.STATUS_TRANSCRIBING,
+            "last_transcript_error": None,
+            "updated_at": datetime.utcnow()
+        }}
+    )
 
     task_id = task_queue.submit(
         task_type="transcribe",
         func=do_transcribe,
-        episode_id=str(oid)
-    )
-
-    # 更新状态为转录中
-    db.episodes.update_one(
-        {"_id": oid},
-        {"$set": {"status": Episode.STATUS_TRANSCRIBING}}
+        episode_id=str(oid),
+        on_failure=rollback_episode_status
     )
 
     return success_response({
         "task_id": task_id,
-        "status": "queued"
+        "status": "queued",
+        "provider": provider
     })
 
 
@@ -127,18 +251,18 @@ def _download_official_transcript(url: str, progress_callback=None):
     if progress_callback:
         progress_callback(20)
 
-    text, error = TranscriptFetcher.fetch_transcript(url)
+    result, error = TranscriptFetcher.fetch_transcript_result(url)
 
     if progress_callback:
         progress_callback(60)
 
+    if error:
+        raise ValueError(f"Official transcript could not be fetched: {error}")
+
+    text = result.text if result else None
     if text:
         # 将文本分段（按段落或句号分割）
-        segments = []
-        paragraphs = text.split('\n\n')
-        for para in paragraphs:
-            if para.strip():
-                segments.append({"text": para.strip(), "time": ""})
+        segments = result.segments or _build_plain_text_segments(text)
 
         source = "official"
         if ".srt" in url:
@@ -153,14 +277,32 @@ def _download_official_transcript(url: str, progress_callback=None):
     return None
 
 
-def _save_transcript(db, episode_oid, episode, text, segments, source):
+def _build_plain_text_segments(text: str):
+    """Build display-friendly segments from fetched transcript text."""
+    if not text:
+        return []
+
+    segments = []
+    for paragraph in text.split("\n\n"):
+        normalized = " ".join(paragraph.split())
+        if normalized:
+            segments.append({"text": normalized, "time": ""})
+
+    if len(segments) > 1:
+        return segments
+
+    return [{"text": " ".join(text.split()), "time": ""}] if text.strip() else []
+
+
+def _save_transcript(db, episode_oid, episode, text, segments, source, language=None, model=None):
     """保存转录到数据库"""
     transcript_doc = Transcript.create(
         episode_id=episode_oid,
         text=text,
         segments=segments,
-        language=episode.get("language", ""),
-        model=source
+        language=language or episode.get("language", ""),
+        source=source,
+        model=model or source
     )
 
     existing = db.transcripts.find_one({"episode_id": episode_oid})
@@ -170,7 +312,9 @@ def _save_transcript(db, episode_oid, episode, text, segments, source):
             {"$set": {
                 "text": text,
                 "segments": segments,
-                "model": source,
+                "source": source,
+                "model": model or source,
+                "language": language or episode.get("language", ""),
                 "updated_at": datetime.utcnow()
             }}
         )
@@ -183,16 +327,14 @@ def _save_transcript(db, episode_oid, episode, text, segments, source):
         {"$set": {
             "status": Episode.STATUS_TRANSCRIBED,
             "has_transcript": True,
+            "transcript_source": source,
             "updated_at": datetime.utcnow()
         }}
     )
 
 
-def _transcribe_sync(episode_id: str, progress_callback=None):
-    """同步执行转录 - 使用AssemblyAI直接处理音频URL"""
-    import os
-    from ..config import Config
-
+def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, progress_callback=None):
+    """同步执行指定 provider 的转录。"""
     db = get_db()
     oid = ObjectId(episode_id)
 
@@ -200,12 +342,18 @@ def _transcribe_sync(episode_id: str, progress_callback=None):
     if not episode:
         raise ValueError("Episode not found")
 
+    provider = _resolve_transcription_provider(provider, episode)
+    if not provider:
+        raise ValueError("No transcription provider selected")
+
     if progress_callback:
         progress_callback(10)
 
     # 优先尝试下载官方字幕
     transcript_url = episode.get("transcript_url")
-    if transcript_url:
+    if provider == TRANSCRIPTION_PROVIDER_OFFICIAL:
+        if not transcript_url:
+            raise ValueError("No official transcript URL available")
         result = _download_official_transcript(transcript_url, progress_callback)
         if result:
             transcript_text, segments, source = result
@@ -213,6 +361,89 @@ def _transcribe_sync(episode_id: str, progress_callback=None):
             if progress_callback:
                 progress_callback(100)
             return {"text_length": len(transcript_text), "source": source}
+        raise ValueError("Official transcript could not be fetched")
+
+    if provider == TRANSCRIPTION_PROVIDER_LOCAL_WHISPER:
+        from ..services.whisper_service import transcribe_audio
+
+        local_audio_path = _get_local_audio_path(episode)
+        if not local_audio_path:
+            raise ValueError("Local audio file not found")
+
+        if progress_callback:
+            progress_callback(20)
+
+        model_name = current_app.config.get("WHISPER_MODEL", "base")
+        transcript_text, segments, language = transcribe_audio(
+            local_audio_path,
+            model_name=model_name,
+            progress_callback=progress_callback,
+        )
+        device = current_app.config.get("WHISPER_DEVICE", "cpu")
+        compute_type = current_app.config.get("WHISPER_COMPUTE_TYPE", "int8")
+        model = f"faster-whisper:{model_name}:{device}:{compute_type}"
+        _save_transcript(
+            db,
+            oid,
+            episode,
+            transcript_text,
+            segments,
+            TRANSCRIPTION_PROVIDER_LOCAL_WHISPER,
+            language=language,
+            model=model,
+        )
+        if progress_callback:
+            progress_callback(100)
+        return {
+            "text_length": len(transcript_text),
+            "source": TRANSCRIPTION_PROVIDER_LOCAL_WHISPER,
+            "model": model,
+            "language": language,
+        }
+
+    if provider == TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX:
+        from ..services.whisperx_service import transcribe_audio
+
+        local_audio_path = _get_local_audio_path(episode)
+        if not local_audio_path:
+            raise ValueError("Local audio file not found")
+
+        if progress_callback:
+            progress_callback(20)
+
+        model_name = current_app.config.get("WHISPER_MODEL", "base")
+        transcript_text, segments, language = transcribe_audio(
+            local_audio_path,
+            model_name=model_name,
+            progress_callback=progress_callback,
+        )
+        device = current_app.config.get("WHISPER_DEVICE", "cpu")
+        compute_type = current_app.config.get("WHISPER_COMPUTE_TYPE", "int8")
+        model = f"whisperx:{model_name}:{device}:{compute_type}"
+        _save_transcript(
+            db,
+            oid,
+            episode,
+            transcript_text,
+            segments,
+            TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX,
+            language=language,
+            model=model,
+        )
+        if progress_callback:
+            progress_callback(100)
+        return {
+            "text_length": len(transcript_text),
+            "source": TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX,
+            "model": model,
+            "language": language,
+        }
+
+    if provider != TRANSCRIPTION_PROVIDER_ASSEMBLYAI:
+        raise ValueError(f"Unsupported transcription provider: {provider}")
+
+    if not _is_cloud_transcription_enabled():
+        raise RuntimeError(CLOUD_TRANSCRIPTION_DISABLED_MESSAGE)
 
     # 使用 AssemblyAI 直接转录音频URL
     audio_url = episode.get("audio_url")
@@ -252,6 +483,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
     # 配置转录
     config = aai.TranscriptionConfig(
+        speech_models=["universal-3-pro", "universal-2"],
         speaker_labels=True,      # 说话人分离
         auto_chapters=True,       # 自动章节
         entity_detection=True,    # 实体识别
@@ -392,45 +624,14 @@ def fetch_external_transcript(episode_id):
         return error_response("No transcript URL available for this episode", "NO_TRANSCRIPT_URL", 400)
 
     # 抓取转录
-    text, error = TranscriptFetcher.fetch_transcript(transcript_url)
+    result, error = TranscriptFetcher.fetch_transcript_result(transcript_url)
     if error:
         return error_response(error, "FETCH_FAILED", 400)
+    text = result.text if result else ""
+    segments = result.segments or _build_plain_text_segments(text)
 
-    # 保存转录
-    transcript_doc = Transcript.create(
-        episode_id=oid,
-        text=text,
-        segments=[],
-        language=episode.get("language", ""),
-        source="external",
-        model="fetched"
-    )
-
-    # 检查是否已存在
-    existing = db.transcripts.find_one({"episode_id": oid})
-    if existing:
-        db.transcripts.update_one(
-            {"episode_id": oid},
-            {"$set": {
-                "text": text,
-                "segments": [],
-                "source": "external",
-                "model": "fetched",
-                "updated_at": datetime.utcnow()
-            }}
-        )
-    else:
-        db.transcripts.insert_one(transcript_doc)
-
-    # 更新episode状态
-    db.episodes.update_one(
-        {"_id": oid},
-        {"$set": {
-            "status": Episode.STATUS_TRANSCRIBED,
-            "has_transcript": True,
-            "updated_at": datetime.utcnow()
-        }}
-    )
+    # 保存转录（复用统一入口）
+    _save_transcript(db, oid, episode, text, segments, source="external", model="fetched")
 
     return success_response({
         "text_length": len(text),
