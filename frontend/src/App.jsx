@@ -1,8 +1,8 @@
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Search, RefreshCw, LayoutGrid, List } from 'lucide-react';
-import { feedsApi, episodesApi, transcriptsApi, summariesApi, tasksApi } from './services/api';
+import { Search, RefreshCw, LayoutGrid, List } from 'lucide-react';
+import { feedsApi, episodesApi, tasksApi } from './services/api';
 // Layout components
 import Sidebar from './components/layout/Sidebar';
 // View components
@@ -16,15 +16,11 @@ import AIBriefingView from './components/views/AIBriefingView';
 import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
 // Common components
-import StatusBadge from './components/common/StatusBadge';
 import LanguageSwitcher from './components/common/LanguageSwitcher';
 // Player components
 import PlayerBar from './components/player/PlayerBar';
 // Task components
 import TaskPanel from './components/tasks/TaskPanel';
-// Utils
-import { decodeHtmlEntities } from './utils/helpers';
-
 export default function App() {
   const { t } = useTranslation();
   const [view, setView] = useState('workspace'); // list | feedDetail | detail | workspace
@@ -44,6 +40,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
+  const getPlayableAudioUrl = (episode) => episode?.local_audio_url || episode?.audio_url || '';
   const lastSavedPositionRef = useRef(0); // 上次保存的位置，避免频繁保存
   const feedRequestIdRef = useRef(0); // 用于取消过期的feed episodes请求
 
@@ -207,7 +204,10 @@ export default function App() {
       // 重置位置记录
       lastSavedPositionRef.current = episode.play_position || 0;
       // 播放新的episode
-      setCurrentPlaying(episode);
+      setCurrentPlaying({
+        ...episode,
+        playable_audio_url: getPlayableAudioUrl(episode)
+      });
       setIsPlaying(true);
       // 等待下一个渲染周期，audio元素更新后再播放
       setTimeout(() => {
@@ -241,6 +241,33 @@ export default function App() {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
     }
+  };
+
+  const handleAudioError = () => {
+    if (!currentPlaying) return;
+
+    const canFallbackToRemote =
+      currentPlaying.playable_audio_url &&
+      currentPlaying.audio_url &&
+      currentPlaying.playable_audio_url !== currentPlaying.audio_url;
+
+    if (!canFallbackToRemote) {
+      console.error('Audio playback failed:', currentPlaying.title || currentPlaying.id);
+      setIsPlaying(false);
+      return;
+    }
+
+    setCurrentPlaying(prev => prev ? {
+      ...prev,
+      playable_audio_url: prev.audio_url,
+      local_audio_failed: true
+    } : prev);
+
+    setTimeout(() => {
+      if (audioRef.current && isPlaying) {
+        audioRef.current.play().catch(err => console.error('Play failed:', err));
+      }
+    }, 100);
   };
 
   const filteredEpisodes = episodes.filter(ep => {
@@ -429,8 +456,9 @@ export default function App() {
       {/* 隐藏的audio元素 */}
       <audio
         ref={audioRef}
-        src={currentPlaying?.audio_url}
+        src={currentPlaying?.playable_audio_url || currentPlaying?.audio_url}
         preload="metadata"
+        onError={handleAudioError}
       />
 
       <PlayerBar
