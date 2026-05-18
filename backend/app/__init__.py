@@ -3,9 +3,12 @@
 Flask应用工厂
 """
 
-from flask import Flask
+import os
+
+from flask import Flask, abort, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
+from werkzeug.utils import safe_join
 
 from .config import get_config
 
@@ -43,6 +46,7 @@ def create_app():
     # 初始化任务队列的数据库连接
     from .services.task_queue import task_queue
 
+    task_queue.set_app(app)
     task_queue.set_db(app.db)
 
     # 启动自动刷新服务（每小时检查一次，超过6小时未更新的订阅源自动刷新）
@@ -51,6 +55,7 @@ def create_app():
     start_auto_refresher(app.db, interval_hours=1, stale_threshold_hours=6)
 
     # 注册蓝图
+    register_media_routes(app)
     register_blueprints(app)
 
     # 注册错误处理
@@ -65,6 +70,7 @@ def ensure_indexes(db):
     db.feeds.create_index("rss_url", unique=True)
     db.feeds.create_index("status")
     db.feeds.create_index("is_starred")
+    db.feeds.create_index("is_favorite")
     db.feeds.create_index("created_at")
 
     # episodes索引
@@ -74,6 +80,9 @@ def ensure_indexes(db):
     db.episodes.create_index("status")
     db.episodes.create_index("is_starred")
     db.episodes.create_index("published")
+    db.episodes.create_index("has_transcript")
+    db.episodes.create_index("has_summary")
+    db.episodes.create_index([("feed_id", 1), ("is_read", 1)])
 
     # transcripts索引
     db.transcripts.create_index("episode_id", unique=True)
@@ -90,7 +99,6 @@ def ensure_indexes(db):
         pass
     db.summaries.create_index("episode_id")
     db.summaries.create_index([("episode_id", 1), ("template_name", 1)])
-    db.summaries.create_index([("episode_id", 1), ("summary_type", 1)])
 
     # prompt_templates索引
     db.prompt_templates.create_index("name", unique=True)
@@ -100,10 +108,29 @@ def ensure_indexes(db):
     # tasks索引
     db.tasks.create_index("task_id", unique=True)
     db.tasks.create_index("status")
+    db.tasks.create_index("episode_id")
     db.tasks.create_index("created_at")
+    db.tasks.create_index(
+        "completed_at",
+        expireAfterSeconds=7 * 24 * 60 * 60,
+        name="tasks_completed_at_ttl",
+    )
 
     # briefings索引（AI简报）
     db.briefings.create_index("date", unique=True)
+
+
+def register_media_routes(app):
+    """Serve local media files through the API prefix for the Vite proxy."""
+    prefix = app.config.get("API_PREFIX", "/api")
+    media_root = app.config["MEDIA_ROOT"]
+
+    @app.route(f"{prefix}/media/<path:filename>", methods=["GET"])
+    def serve_media(filename):
+        resolved = safe_join(media_root, filename)
+        if not resolved or not os.path.isfile(resolved):
+            abort(404)
+        return send_from_directory(media_root, filename, conditional=True)
 
 
 def register_blueprints(app):
