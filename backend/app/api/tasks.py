@@ -35,7 +35,7 @@ def list_tasks():
 
     status = request.args.get("status")
     if status:
-        query["status"] = status
+        query["status"] = _task_status_query(status)
 
     task_type = request.args.get("type")
     if task_type:
@@ -60,10 +60,8 @@ def list_tasks():
         .limit(per_page)
     )
 
-    # 转换格式
-    data = []
-    for task in tasks:
-        data.append(_format_task(task))
+    target_maps = _build_task_target_maps(db, tasks)
+    data = [_format_task(task, target_maps) for task in tasks]
 
     return paginated_response(data, page, per_page, total)
 
@@ -71,20 +69,23 @@ def list_tasks():
 @tasks_bp.route("/<task_id>", methods=["GET"])
 def get_task(task_id):
     """获取任务状态"""
+    db = get_db()
+
     # 先从任务队列获取 (内存中的最新状态)
     task = task_queue.get_status(task_id)
 
     if task:
-        return success_response(_format_task(task))
+        target_maps = _build_task_target_maps(db, [task])
+        return success_response(_format_task(task, target_maps))
 
     # 从数据库获取
-    db = get_db()
     task = db.tasks.find_one({"task_id": task_id})
 
     if not task:
         return error_response("Task not found", "TASK_NOT_FOUND", 404)
 
-    return success_response(_format_task(task))
+    target_maps = _build_task_target_maps(db, [task])
+    return success_response(_format_task(task, target_maps))
 
 
 @tasks_bp.route("/<task_id>/cancel", methods=["POST"])
@@ -110,21 +111,106 @@ def cancel_task(task_id):
     return success_response(message="Task cancelled successfully")
 
 
-def _format_task(task: dict) -> dict:
+def _build_task_target_maps(db, tasks: list[dict]) -> dict:
+    """Fetch episode/feed display metadata for a page of tasks."""
+    episode_oids = set()
+    feed_oids = set()
+
+    for task in tasks:
+        episode_oid = _to_object_id(task.get("episode_id"))
+        feed_oid = _to_object_id(task.get("feed_id"))
+        if episode_oid:
+            episode_oids.add(episode_oid)
+        if feed_oid:
+            feed_oids.add(feed_oid)
+
+    episodes = {}
+    if episode_oids:
+        for episode in db.episodes.find(
+            {"_id": {"$in": list(episode_oids)}},
+            {"title": 1, "status": 1, "feed_id": 1},
+        ):
+            episodes[str(episode["_id"])] = episode
+            if episode.get("feed_id"):
+                feed_oids.add(episode["feed_id"])
+
+    feeds = {}
+    if feed_oids:
+        for feed in db.feeds.find(
+            {"_id": {"$in": list(feed_oids)}},
+            {"title": 1},
+        ):
+            feeds[str(feed["_id"])] = feed
+
+    return {"episodes": episodes, "feeds": feeds}
+
+
+def _format_task(task: dict, target_maps: dict = None) -> dict:
     """格式化任务响应"""
+    target_maps = target_maps or {"episodes": {}, "feeds": {}}
+    episode_id = _string_id(task.get("episode_id"))
+    feed_id = _string_id(task.get("feed_id"))
+    episode = target_maps["episodes"].get(episode_id) if episode_id else None
+    feed = None
+
+    if episode and episode.get("feed_id"):
+        feed_id = _string_id(episode.get("feed_id"))
+    if feed_id:
+        feed = target_maps["feeds"].get(feed_id)
+
+    target_type = None
+    target_id = None
+    target_exists = True
+    if episode_id:
+        target_type = "episode"
+        target_id = episode_id
+        target_exists = episode is not None
+    elif feed_id:
+        target_type = "feed"
+        target_id = feed_id
+        target_exists = feed is not None
+
     return {
         "id": task.get("task_id"),
         "type": task.get("task_type"),
         "status": task.get("status"),
         "progress": task.get("progress", 0),
-        "episode_id": task.get("episode_id"),
-        "feed_id": task.get("feed_id"),
+        "episode_id": episode_id,
+        "feed_id": feed_id,
+        "episode_title": episode.get("title") if episode else None,
+        "episode_status": episode.get("status") if episode else None,
+        "feed_title": feed.get("title") if feed else None,
+        "target_type": target_type,
+        "target_id": target_id,
+        "target_exists": target_exists,
         "result": task.get("result"),
         "error_message": task.get("error_message"),
         "created_at": _format_datetime(task.get("created_at")),
         "started_at": _format_datetime(task.get("started_at")),
         "completed_at": _format_datetime(task.get("completed_at"))
     }
+
+
+def _to_object_id(value):
+    if not value:
+        return None
+    if isinstance(value, ObjectId):
+        return value
+    try:
+        return ObjectId(str(value))
+    except (InvalidId, TypeError):
+        return None
+
+
+def _string_id(value):
+    return str(value) if value else None
+
+
+def _task_status_query(status: str):
+    statuses = [item.strip() for item in status.split(",") if item.strip()]
+    if len(statuses) > 1:
+        return {"$in": statuses}
+    return statuses[0] if statuses else status
 
 
 def _format_datetime(dt) -> str:

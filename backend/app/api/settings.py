@@ -111,40 +111,57 @@ def test_llm_connection():
         if not data:
             return jsonify({"error": "No config provided"}), 400
 
-        base_url = data.get("base_url")
+        base_url = data.get("base_url", "").rstrip("/")
         api_key = data.get("api_key", "")
         model = data.get("model")
 
         if not base_url or not model:
             return jsonify({"error": "base_url and model are required"}), 400
 
-        # 使用 OpenAI 兼容的客户端测试连接
         from openai import OpenAI
 
-        client = OpenAI(base_url=base_url, api_key=api_key or "sk-xxx")
+        client = OpenAI(base_url=base_url, api_key=api_key or "sk-placeholder")
 
         # 发送简单测试请求
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
             max_tokens=10,
-            timeout=10,
+            timeout=15,
         )
 
-        return jsonify(
-            {
-                "success": True,
-                "message": "Connection successful",
-                "response": response.choices[0].message.content
-                if response.choices
-                else "",
-            }
-        )
+        return jsonify({
+            "success": True,
+            "message": "Connection successful",
+            "base_url": base_url,
+            "model": model,
+            "response": response.choices[0].message.content if response.choices else "",
+        })
+
     except Exception as e:
+        error_str = str(e)
         current_app.logger.error(f"LLM test failed: {e}")
-        return jsonify(
-            {"success": False, "error": str(e)}
-        ), 200  # 返回200但success=false，便于前端处理
+
+        # 解析常见错误类型，给出可操作的提示
+        hint = ""
+        if "401" in error_str or "unauthorized" in error_str.lower() or "authentication" in error_str.lower():
+            hint = "认证失败：API Key 不正确或已过期。请检查 Key 是否完整复制（注意前后空格）。"
+        elif "404" in error_str or "not found" in error_str.lower():
+            hint = "模型不存在或 Base URL 路径不正确。请检查：1) Model 名称拼写 2) Base URL 是否需要包含 /v1"
+        elif "Connection" in error_str or "connect" in error_str.lower() or "timeout" in error_str.lower():
+            hint = "网络连接失败：无法连接到服务器。请检查 Base URL 是否正确，服务是否可达。"
+        elif "403" in error_str or "forbidden" in error_str.lower():
+            hint = "权限不足：该 API Key 没有访问此模型的权限。"
+        elif "429" in error_str or "rate" in error_str.lower():
+            hint = "请求频率过高，请稍后重试。"
+
+        return jsonify({
+            "success": False,
+            "error": error_str,
+            "hint": hint,
+            "base_url": base_url if 'base_url' in dir() else "",
+            "model": model if 'model' in dir() else "",
+        }), 200
 
 
 @settings_bp.route("/tavily", methods=["GET"])
