@@ -103,20 +103,33 @@ class BriefingService:
         if not feed_ids:
             return []
 
-        # 查询最近的单集
-        query = {"feed_id": {"$in": feed_ids}}
+        # 查询最近的单集，优先选有 AI 摘要的
+        base_query = {"feed_id": {"$in": feed_ids}}
 
-        # 优先按发布时间取最近的
-        recent_episodes = list(
-            self.db.episodes.find(query)
+        # 先取有 AI 摘要的单集（质量高）
+        summarized_episodes = list(
+            self.db.episodes.find({**base_query, "has_summary": True})
             .sort("published", -1)
             .limit(30)
         )
 
+        if len(summarized_episodes) >= 5:
+            # 有足够的高质量单集，只用这些
+            recent_episodes = summarized_episodes
+        else:
+            # 高质量单集不足，补充未摘要的单集
+            summarized_ids = {ep["_id"] for ep in summarized_episodes}
+            extra_episodes = list(
+                self.db.episodes.find({"$and": [base_query, {"_id": {"$nin": list(summarized_ids)}}]})
+                .sort("published", -1)
+                .limit(20 - len(summarized_episodes))
+            )
+            recent_episodes = summarized_episodes + extra_episodes
+
         if not recent_episodes:
-            # 没有最近发布的，取数据库中最新添加的
+            # 都没有，取数据库中最新添加的
             recent_episodes = list(
-                self.db.episodes.find(query)
+                self.db.episodes.find(base_query)
                 .sort("created_at", -1)
                 .limit(20)
             )
@@ -126,7 +139,7 @@ class BriefingService:
         summaries_map = {}
         for s in self.db.summaries.find(
             {"episode_id": {"$in": episode_ids}},
-            {"episode_id": 1, "content": 1, "tldr": 1, "summary_type": 1},
+            {"episode_id": 1, "content": 1, "tldr": 1},
         ):
             eid = s.get("episode_id")
             if eid:

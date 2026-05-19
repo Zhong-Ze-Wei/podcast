@@ -67,7 +67,7 @@ COMMON_PARAMETERS = {
             {"value": "en", "label": "English", "label_zh": "英文"},
             {"value": "zh", "label": "Chinese", "label_zh": "中文"}
         ],
-        "default": "en",
+        "default": "zh",
         "prompt_mapping": {
             "en": "Output all content in English.",
             "zh": "Output all content in Chinese (Simplified)."

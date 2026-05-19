@@ -2,19 +2,16 @@
 """
 Summarization Core Module
 
-Provides structured podcast summarization with:
-- Database-driven prompt templates
-- Dynamic prompt building
-- Output schema validation
-- Extensible architecture for future LangChain integration
+基于模板的播客摘要引擎。
 """
 from .engine import SummarizationEngine, get_summarization_engine
 from .prompt_builder import PromptBuilder
-from .schema_validator import SchemaValidator
+from .schema_validator import SchemaValidator, ValidationError
 
 __all__ = [
     "SummarizationEngine",
     "get_summarization_engine",
     "PromptBuilder",
-    "SchemaValidator"
+    "SchemaValidator",
+    "ValidationError",
 ]

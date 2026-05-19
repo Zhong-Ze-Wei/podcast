@@ -1,146 +1,111 @@
 # -*- coding: utf-8 -*-
 """
-Summary (摘要) 数据模型
-支持多种摘要类型：general, investment, learning
-"""
+Summary 数据模型
 
-from datetime import datetime
-from bson import ObjectId
-from typing import Dict, Any, Optional
+统一的 v3 摘要模型，动态 blocks 展开。
+"""
+from typing import Dict, Any, Optional, List
 
 
 class Summary:
     """摘要结果模型"""
 
-    # 支持的摘要类型
-    TYPE_GENERAL = "general"
-    TYPE_INVESTMENT = "investment"
-    TYPE_LEARNING = "learning"
-
-    VALID_TYPES = [TYPE_GENERAL, TYPE_INVESTMENT, TYPE_LEARNING]
-
     @staticmethod
-    def create(
-        episode_id: ObjectId,
-        summary_type: str,
-        content: Dict[str, Any],
-        model: str = "",
-        tokens_used: Dict[str, int] = None,
-        **kwargs,
-    ) -> dict:
-        """创建新的 Summary 文档"""
-        now = datetime.utcnow()
+    def to_response(doc: dict, template: dict = None) -> Optional[dict]:
+        """
+        转换为 API 响应格式。
 
-        return {
-            "episode_id": episode_id,
-            "summary_type": summary_type,
-            "version": "v2",
-            # 从 content 提取顶级字段
-            "tldr": content.get("tldr", ""),
-            "tags": content.get("tags", []),
-            # 完整内容 (类型特定)
-            "content": content,
-            # 中文翻译 (可选，后续填充)
-            "content_zh": kwargs.get("content_zh"),
-            # 元信息
-            "model": model,
-            "tokens_used": tokens_used or {},
-            "generation_time_seconds": kwargs.get("generation_time_seconds", 0),
-            # 时间戳
-            "created_at": now,
-            "updated_at": now,
-        }
-
-    @staticmethod
-    def to_response(doc: dict) -> Optional[dict]:
-        """转换为 API 响应格式"""
+        动态从 content 中展开 enabled_blocks 对应的字段，
+        不再硬编码每个 block 字段。
+        """
         if not doc:
             return None
 
         content = doc.get("content", {})
         content_zh = doc.get("content_zh", {})
-        summary_type = doc.get("summary_type", "general")
 
         response = {
             "id": str(doc["_id"]),
             "episode_id": str(doc["episode_id"]) if doc.get("episode_id") else None,
-            "summary_type": summary_type,
-            "version": doc.get("version", "v1"),
-            # 顶级字段
+            "template_name": doc.get("template_name", ""),
+            "version": doc.get("version", "v3"),
             "tldr": doc.get("tldr", ""),
-            "tldr_zh": content_zh.get("tldr_zh", ""),
+            "tldr_zh": content_zh.get("tldr", ""),
             "tags": doc.get("tags", []),
-            # 完整内容
             "content": content,
             "content_zh": content_zh,
-            # 是否有中文翻译
             "has_translation": bool(content_zh),
-            # 元信息
             "model": doc.get("model", ""),
             "tokens_used": doc.get("tokens_used", {}),
-            # 时间戳
             "created_at": doc.get("created_at").isoformat() + "Z"
-            if doc.get("created_at")
-            else None,
+            if doc.get("created_at") else None,
             "translated_at": doc.get("translated_at").isoformat() + "Z"
-            if doc.get("translated_at")
-            else None,
+            if doc.get("translated_at") else None,
         }
 
-        # 根据类型添加特定字段的快捷访问
-        if summary_type == Summary.TYPE_INVESTMENT:
-            response["investment_signals"] = content.get("investment_signals", [])
-            response["mentioned_tickers"] = content.get("mentioned_tickers", [])
-            response["market_insights"] = content.get("market_insights", [])
-            response["key_quotes"] = content.get("key_quotes", [])
-            response["risk_alerts"] = content.get("risk_alerts", [])
-            response["investment_thesis"] = content.get("investment_thesis", "")
+        # 动态展开 blocks 字段到顶层
+        enabled_blocks = doc.get("enabled_blocks", [])
+        if enabled_blocks and template:
+            optional_blocks = template.get("optional_blocks", [])
+            blocks_map = {b.get("id"): b for b in optional_blocks}
 
-        elif summary_type == Summary.TYPE_GENERAL:
-            response["key_points"] = content.get("key_points", [])
-            response["why_it_matters"] = content.get("why_it_matters", "")
+            blocks = []
+            for block_id in enabled_blocks:
+                block_def = blocks_map.get(block_id)
+                if not block_def:
+                    continue
 
-        # v3 template-based 摘要的通用字段（learning, tech, startup, interview等）
-        template_name = doc.get("template_name", "")
-        if template_name or doc.get("version") == "v3":
-            # 核心内容字段
-            response["core_content"] = content.get("core_content", "")
-            response["guest_background"] = content.get("guest_background", "")
-            response["unique_insights"] = content.get("unique_insights", [])
-            response["action_items"] = content.get("action_items", [])
-            response["key_quotes"] = content.get("key_quotes", [])
+                output_field = block_def.get("output_field", {})
+                key = output_field.get("key")
+                if not key:
+                    continue
 
-            # 学习相关
-            response["key_points"] = content.get("key_points", [])
-            response["key_concepts"] = content.get("key_concepts", [])
-            response["examples"] = content.get("examples", [])
-            response["resources"] = content.get("resources", [])
+                value = content.get(key)
+                if value is None:
+                    continue
 
-            # 投资相关（如果存在）
-            response["investment_signals"] = content.get("investment_signals", [])
-            response["mentioned_tickers"] = content.get("mentioned_tickers", [])
-            response["market_insights"] = content.get("market_insights", [])
-            response["risk_alerts"] = content.get("risk_alerts", [])
+                # 展开到顶层（兼容前端现有渲染）
+                response[key] = value
 
-            # 技术相关
-            response["technologies"] = content.get("technologies", [])
-            response["product_insights"] = content.get("product_insights", [])
-            response["tech_trends"] = content.get("tech_trends", [])
+                # 构建 blocks 数组（供新版前端使用）
+                blocks.append({
+                    "id": block_id,
+                    "title": block_def.get("name", ""),
+                    "title_zh": block_def.get("name_zh", ""),
+                    "type": _infer_block_type(output_field),
+                    "content": value,
+                })
 
-            # 创业相关
-            response["business_model"] = content.get("business_model", "")
-            response["growth_tactics"] = content.get("growth_tactics", [])
-            response["lessons_learned"] = content.get("lessons_learned", [])
-
-            # 访谈相关
-            response["life_lessons"] = content.get("life_lessons", [])
-            response["controversial_views"] = content.get("controversial_views", [])
+            response["blocks"] = blocks
+        elif enabled_blocks:
+            # 无 template 信息时，直接展开 content 中存在的字段
+            for key, value in content.items():
+                if key in ("tldr", "tags"):
+                    continue
+                if value is not None and value != "" and value != []:
+                    response[key] = value
 
         return response
 
-    @staticmethod
-    def validate_type(summary_type: str) -> str:
-        """验证摘要类型，返回有效类型"""
-        if summary_type in Summary.VALID_TYPES:
-            return summary_type
-        return Summary.TYPE_GENERAL
+
+def _infer_block_type(output_field: dict) -> str:
+    """从 output_field 定义推断前端渲染类型"""
+    field_type = output_field.get("type", "string")
+    items = output_field.get("items")
+
+    if field_type == "string":
+        return "text"
+    elif field_type == "array":
+        if isinstance(items, dict):
+            # 有子结构：投资信号、引用、概念等
+            if "type" in items and "target" in items:
+                return "signals"
+            elif "speaker" in items:
+                return "quotes"
+            elif "concept" in items:
+                return "concepts"
+            return "objects"
+        return "list"
+    elif field_type == "object":
+        return "object"
+    return "text"
