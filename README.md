@@ -1,93 +1,184 @@
 # Podcast Manager
 
-播客管理应用：RSS 订阅 → 音频转录 → AI 摘要生成
+Local-first podcast pipeline: RSS subscriptions, audio download, transcription, and AI-assisted summaries.
 
-## 技术栈
+## Stack
 
-| 层 | 技术 |
-|---|------|
-| 前端 | React 18 + Vite + TailwindCSS + i18next |
-| 后端 | Flask + MongoDB |
-| 转录 | AssemblyAI (云端，说话人分离) / 官方字幕抓取 |
-| 摘要 | LLM API (OpenAI 兼容) |
-| 异步任务 | ThreadPoolExecutor |
+| Layer | Technology |
+| --- | --- |
+| Frontend | React 18, Vite, TailwindCSS, i18next |
+| Backend | Flask, MongoDB |
+| Python environment | uv |
+| Transcription | Official transcripts, local faster-whisper, optional AssemblyAI |
+| Summaries | OpenAI-compatible LLM API |
+| Tasks | ThreadPoolExecutor |
 
-## 快速启动
+## Requirements
 
-### 环境要求
+- Python 3.10 to 3.13. The backend `.python-version` currently pins `3.13`.
+- uv 0.9+.
+- Node.js 18+.
+- MongoDB on port `27017`, or Docker Desktop if you want `backend/run.py` to auto-start MongoDB.
 
-- Python 3.10+ (推荐 3.13)
-- UV (Python 包管理器) - [安装指南](https://docs.astral.sh/uv/getting-started/installation/)
-- Node.js 18+
-- MongoDB (端口 27017)
+## Backend
 
-### 后端
+Use uv from the backend directory. Do not activate conda and a project `.venv` at the same time.
 
 ```powershell
 cd backend
 
-# 激活已有的 UV 虚拟环境
-.venv\Scripts\activate
+# Create or reuse backend/.venv from pyproject.toml
+uv sync
 
-# 安装/更新依赖（依赖变更时执行）
-uv pip install -r requirements.txt
+# Run tests
+uv run pytest
 
-# 启动服务
-python run.py                    # 默认 http://localhost:5000
+# Start Flask API on http://localhost:5000
+uv run python run.py
 ```
 
-### 前端
+If uv reports a cache permission error such as `failed to open file E:\uv\...`, use a project-local cache for the current shell:
 
-```bash
+```powershell
+cd backend
+$env:UV_CACHE_DIR = Join-Path (Get-Location) ".uv-cache"
+uv sync
+```
+
+Or set a user-level cache once:
+
+```powershell
+[Environment]::SetEnvironmentVariable("UV_CACHE_DIR", "E:\ZZ's_Code\AI\podcast\backend\.uv-cache", "User")
+```
+
+If you want to inspect which Python is active:
+
+```powershell
+uv run python -c "import sys; print(sys.executable)"
+```
+
+### Dependency Management
+
+The backend source of truth is:
+
+```text
+backend/pyproject.toml
+```
+
+`backend/requirements.txt` is only a compatibility export for older tools. Do not edit it first. Change `pyproject.toml`, then regenerate requirements when needed:
+
+```powershell
+cd backend
+uv export --frozen --all-groups --no-hashes --no-emit-project --format requirements.txt --output-file requirements.txt
+```
+
+Add a runtime dependency:
+
+```powershell
+cd backend
+uv add package-name
+```
+
+Add a dev dependency:
+
+```powershell
+cd backend
+uv add --dev package-name
+```
+
+## Frontend
+
+```powershell
 cd frontend
 npm install
-npm run dev                      # 默认 http://localhost:3000
+npm run dev
 ```
 
-## 核心功能
+The frontend development server is expected at:
 
-- RSS 订阅管理（支持 Podcasting 2.0：官方字幕、章节）
-- AssemblyAI 云端转录（说话人分离、实体识别、自动章节）
-- AI 摘要生成（支持多种模板：通用/投资/学习等）
-- 多 LLM 配置管理（可配置最多 5 个 LLM 并切换）
-- 异步任务队列（下载、转录、摘要）
-- 中英文界面切换
-
-## API 端点概览
-
-| 模块 | 端点 | 说明 |
-|------|------|------|
-| Feeds | `/api/feeds` | 订阅源 CRUD、刷新、标星、收藏 |
-| Episodes | `/api/episodes` | 单集列表、详情、下载、标星、已读 |
-| Transcripts | `/api/transcripts` | 转录 CRUD、抓取官方字幕 |
-| Summaries | `/api/summaries` | 摘要 CRUD、翻译、模板 |
-| Tasks | `/api/tasks` | 任务列表、状态查询、取消 |
-| Stats | `/api/stats` | 统计信息 |
-| Settings | `/api/settings` | LLM 配置管理 |
-| Prompt Templates | `/api/prompt-templates` | 摘要模板管理 |
-
-详细 API 文档见 [`api.md`](./api.md)
-
-## 数据库集合
-
-| 集合 | 说明 |
-|------|------|
-| feeds | 订阅源 |
-| episodes | 单集 |
-| transcripts | 转录文本 |
-| summaries | AI 摘要 |
-| tasks | 异步任务 |
-| settings | 应用设置 (LLM 配置) |
-| prompt_templates | 摘要模板 |
-
-## Episode 状态流转
-
-```
-new → downloading → downloaded → transcribing → transcribed → summarizing → summarized
-                              ↓
-                        官方字幕 (transcript_url)
+```text
+http://localhost:3000
 ```
 
-## 开发进度
+## Environment
 
-详见 [`plan.md`](./plan.md)
+Copy the backend example file before first run:
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+```
+
+Important backend flags:
+
+```env
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=podcast
+
+TRANSCRIPTION_DEFAULT_PROVIDER=official
+WHISPER_MODEL=base
+WHISPER_MODEL_DIR=E:\models\tts
+TORCH_HOME=E:\models\tts\torch
+WHISPER_DEVICE=cuda
+WHISPER_COMPUTE_TYPE=float16
+WHISPERX_BATCH_SIZE=16
+WHISPERX_VAD_METHOD=silero
+WHISPERX_DIARIZE=0
+WHISPERX_DIARIZATION_MODEL=pyannote/speaker-diarization-3.1
+WHISPERX_MIN_SPEAKERS=
+WHISPERX_MAX_SPEAKERS=
+HF_TOKEN=
+TRANSCRIPTION_CLOUD_ENABLED=0
+ASSEMBLYAI_API_KEY=
+
+AI_ANALYSIS_ENABLED=0
+LLM_BASE_URL=
+LLM_API_KEY=
+LLM_MODEL=
+```
+
+AssemblyAI is installed as a backend dependency because the provider exists, but cloud transcription is still disabled unless `TRANSCRIPTION_CLOUD_ENABLED=1`.
+
+## Core Workflow
+
+```text
+RSS feed -> episode -> optional download -> transcript -> optional AI summary
+```
+
+Transcription provider rules:
+
+- `official`: free, uses `transcript_url` when the feed exposes one.
+- `local_whisper`: free except local compute, requires downloaded local audio.
+- `local_whisperx`: advanced local WhisperX backend. Basic transcription runs locally. Speaker diarization can be enabled with `WHISPERX_DIARIZE=1` and a Hugging Face token accepted for the configured pyannote model; `WHISPERX_MIN_SPEAKERS` and `WHISPERX_MAX_SPEAKERS` can be left blank for automatic speaker count detection.
+- `assemblyai`: paid cloud provider, requires `TRANSCRIPTION_CLOUD_ENABLED=1` and `ASSEMBLYAI_API_KEY`.
+- `auto`: backend-only helper; uses official transcripts when available and does not silently fall back to paid cloud transcription.
+
+## Useful Commands
+
+```powershell
+# Backend
+cd backend
+uv sync
+uv run pytest
+uv run python run.py
+
+# Frontend
+cd frontend
+npm run build
+npm run dev
+```
+
+## API Overview
+
+Detailed API notes live in `api.md`.
+
+Main modules:
+
+- `/api/feeds`
+- `/api/episodes`
+- `/api/transcripts`
+- `/api/summaries`
+- `/api/tasks`
+- `/api/settings`
+- `/api/prompt-templates`
+- `/api/insights`
