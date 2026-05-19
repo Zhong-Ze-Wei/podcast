@@ -2,12 +2,11 @@
 """
 Prompt Builder
 
-Dynamically builds prompts from structured templates.
-Handles locked sections, optional blocks, and parameters.
+动态构建 prompt，从模板生成精确的 JSON Schema。
 """
 import json
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,6 @@ logger = logging.getLogger(__name__)
 class PromptBuilder:
     """Dynamic prompt builder for structured templates"""
 
-    # Default max chars for transcript truncation
     DEFAULT_MAX_CHARS = 100000
 
     def __init__(self, max_chars: int = None):
@@ -30,43 +28,31 @@ class PromptBuilder:
         **context
     ) -> List[Dict[str, str]]:
         """
-        Build messages list from template.
+        从模板构建 LLM messages。
 
         Args:
-            template: Template document from database
-            transcript: Podcast transcript text
-            enabled_blocks: List of block IDs to enable (None = use defaults)
-            params: Parameter values (e.g., {"length": "long"})
-            **context: Additional context (title, guest, etc.)
-
-        Returns:
-            Messages list for LLM API
+            template: 数据库中的模板文档
+            transcript: 播客转录文本
+            enabled_blocks: 启用的 block IDs
+            params: 参数 {"length": "long", "language": "zh"}
+            **context: title, guest 等
         """
         params = params or {}
         locked = template.get("locked", {})
         optional_blocks = template.get("optional_blocks", [])
         parameters = template.get("parameters", {})
 
-        # 1. Build system message
         system_prompt = locked.get("system_prompt", "You are a helpful assistant.")
 
-        # 2. Resolve enabled blocks
         active_blocks = self._resolve_enabled_blocks(optional_blocks, enabled_blocks)
-
-        # 3. Build instructions from active blocks
         blocks_instructions = self._build_blocks_instructions(active_blocks)
-
-        # 4. Build dynamic schema from active blocks
         dynamic_schema = self._build_dynamic_schema(locked, active_blocks)
 
-        # 5. Resolve parameter values and build instructions
         length_instruction = self._build_param_instruction(parameters, params, "length")
         language_instruction = self._build_param_instruction(parameters, params, "language")
 
-        # 6. Truncate transcript
         truncated_transcript = self._truncate_text(transcript)
 
-        # 7. Build user prompt from template
         user_prompt_template = template.get("user_prompt_template", "")
         output_format_instruction = locked.get("output_format_instruction", "")
 
@@ -91,16 +77,11 @@ class PromptBuilder:
         all_blocks: List[Dict],
         enabled_blocks: List[str] = None
     ) -> List[Dict]:
-        """Resolve which blocks are enabled"""
         if enabled_blocks is not None:
-            # User specified blocks
             return [b for b in all_blocks if b.get("id") in enabled_blocks]
-        else:
-            # Use defaults
-            return [b for b in all_blocks if b.get("enabled_by_default", False)]
+        return [b for b in all_blocks if b.get("enabled_by_default", False)]
 
     def _build_blocks_instructions(self, blocks: List[Dict]) -> str:
-        """Build instruction text from enabled blocks"""
         if not blocks:
             return ""
 
@@ -114,20 +95,24 @@ class PromptBuilder:
         return "\n".join(instructions)
 
     def _build_dynamic_schema(self, locked: Dict, blocks: List[Dict]) -> str:
-        """Build JSON schema string from locked fields and enabled blocks"""
-        schema = {}
+        """
+        生成精确的 JSON Schema 示例。
 
-        # Add required fields
+        关键改进：输出一个完整的 JSON 示例而非自然语言描述，
+        让 LLM 直接参照格式输出。
+        """
+        # 构建示例值
+        example = {}
+
         required_fields = locked.get("required_fields", ["tldr", "tags"])
         for field in required_fields:
             if field == "tldr":
-                schema["tldr"] = "string (1-2 sentence summary, required)"
+                example["tldr"] = "1-2 sentence summary of the episode"
             elif field == "tags":
-                schema["tags"] = "[string] (3-5 relevant tags, required)"
+                example["tags"] = ["tag1", "tag2", "tag3"]
             else:
-                schema[field] = "string (required)"
+                example[field] = f"(required) {field}"
 
-        # Add fields from enabled blocks
         for block in sorted(blocks, key=lambda x: x.get("order", 0)):
             output_field = block.get("output_field", {})
             key = output_field.get("key")
@@ -135,23 +120,32 @@ class PromptBuilder:
                 continue
 
             field_type = output_field.get("type", "string")
-            description = output_field.get("description", "")
             items = output_field.get("items")
 
             if field_type == "string":
-                schema[key] = f"string ({description})"
+                example[key] = f"(string) {output_field.get('description', '')}"
             elif field_type == "array":
-                if isinstance(items, str):
-                    schema[key] = f"[{items}] ({description})"
-                elif isinstance(items, dict):
-                    schema[key] = f"[{json.dumps(items)}] ({description})"
+                if isinstance(items, dict):
+                    # 结构化数组：生成带示例 key 的对象
+                    example_obj = {}
+                    for k, v in items.items():
+                        example_obj[k] = f"({v})"
+                    example[key] = [example_obj]
                 else:
-                    schema[key] = f"[...] ({description})"
+                    example[key] = [f"(string) item"]
             elif field_type == "object":
-                schema[key] = f"object ({description})"
+                example[key] = {"key": "value"}
 
-        # Format as JSON example
-        return "Expected JSON structure:\n```json\n" + json.dumps(schema, indent=2) + "\n```"
+        # 生成严格的格式说明 + 示例
+        field_list = ", ".join(list(example.keys()))
+        schema_text = (
+            f"CRITICAL: Output ONLY a valid JSON object with exactly these keys: [{field_list}]\n"
+            f"Do NOT add any keys not listed below.\n"
+            f"Do NOT wrap in markdown code blocks.\n\n"
+            f"Example structure:\n"
+            f"```json\n{json.dumps(example, indent=2, ensure_ascii=False)}\n```"
+        )
+        return schema_text
 
     def _build_param_instruction(
         self,
@@ -159,68 +153,67 @@ class PromptBuilder:
         user_params: Dict,
         param_name: str
     ) -> str:
-        """Build instruction string for a parameter"""
         param_def = parameters.get(param_name)
         if not param_def:
             return ""
 
-        # Get user value or default
         value = user_params.get(param_name, param_def.get("default"))
         if not value:
             return ""
 
-        # Get mapped instruction
         mapping = param_def.get("prompt_mapping", {})
         return mapping.get(value, "")
 
     def _truncate_text(self, text: str) -> str:
-        """Smart truncation preserving head and tail"""
+        """
+        智能截断：保留开头、中间抽样、结尾。
+        播客内容通常中间最核心（开头寒暄，结尾总结）。
+        """
         if len(text) <= self.max_chars:
             return text
 
-        # Keep 60% head, 30% tail
-        head_size = int(self.max_chars * 0.6)
+        # 40% 头部 + 20% 中间抽样 + 30% 尾部
+        head_size = int(self.max_chars * 0.4)
+        mid_size = int(self.max_chars * 0.2)
         tail_size = int(self.max_chars * 0.3)
 
         head = text[:head_size]
+
+        # 从中间区域抽取
+        mid_start = len(text) // 2 - mid_size // 2
+        mid = text[mid_start:mid_start + mid_size]
+
         tail = text[-tail_size:]
 
-        return f"{head}\n\n[... content truncated, total {len(text)} characters ...]\n\n{tail}"
+        return (
+            f"{head}\n\n"
+            f"[... beginning truncated ...]\n\n"
+            f"{mid}\n\n"
+            f"[... middle section sampled ...]\n\n"
+            f"{tail}"
+        )
 
     def get_max_tokens(self, template: Dict, params: Dict = None) -> int:
         """
-        Resolve max_tokens based on template and params.
+        解析 max_tokens。
 
-        Priority:
-        1. Explicit max_tokens in params
-        2. Token hint from length parameter
-        3. Default from template
-        4. Fallback to 4096
+        优先级：params.max_tokens > length token_hint > 默认 4096
         """
         params = params or {}
 
-        # Check explicit max_tokens
         if "max_tokens" in params:
             return int(params["max_tokens"])
 
-        # Check length parameter for token hint
         parameters = template.get("parameters", {})
         length_param = parameters.get("length")
         if length_param and "length" in params:
             length_value = params["length"]
-            options = length_param.get("options", [])
-            for opt in options:
+            for opt in length_param.get("options", []):
                 if opt.get("value") == length_value:
                     token_hint = opt.get("token_hint")
                     if token_hint:
                         return int(token_hint)
 
-        # Check default max_tokens in parameters
-        max_tokens_param = parameters.get("max_tokens")
-        if max_tokens_param:
-            return int(max_tokens_param.get("default", 4096))
-
-        # Fallback
         return 4096
 
     def get_enabled_block_ids(
@@ -228,7 +221,6 @@ class PromptBuilder:
         template: Dict,
         enabled_blocks: List[str] = None
     ) -> List[str]:
-        """Get list of enabled block IDs"""
         all_blocks = template.get("optional_blocks", [])
         active = self._resolve_enabled_blocks(all_blocks, enabled_blocks)
         return [b.get("id") for b in active]

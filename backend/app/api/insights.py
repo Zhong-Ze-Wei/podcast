@@ -5,6 +5,7 @@ AI 紞报 API 路由
 
 from flask import Blueprint, request, jsonify, current_app, Response
 from ..services.briefing_service import BriefingService
+from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 
 insights_bp = Blueprint("insights", __name__)
 
@@ -21,6 +22,21 @@ def get_briefing():
     """获取今日 AI 简报（有缓存则返回缓存）"""
     try:
         service = get_briefing_service()
+        if not is_ai_analysis_enabled():
+            cached = service.get_cached()
+            if cached:
+                return jsonify({
+                    "success": True,
+                    "briefing": cached,
+                    "cached": True,
+                    "ai_analysis_enabled": False,
+                })
+            return jsonify({
+                "success": True,
+                "briefing": None,
+                "message": AI_DISABLED_MESSAGE,
+                "ai_analysis_enabled": False,
+            })
         result = service.get_or_generate(force=False)
         return jsonify(result)
     except Exception as e:
@@ -32,6 +48,12 @@ def get_briefing():
 def regenerate_briefing():
     """强制重新生成今日 AI 简报"""
     try:
+        if not is_ai_analysis_enabled():
+            return jsonify({
+                "success": False,
+                "error_code": "AI_ANALYSIS_DISABLED",
+                "message": AI_DISABLED_MESSAGE,
+            }), 423
         service = get_briefing_service()
         result = service.get_or_generate(force=True)
         return jsonify(result)
