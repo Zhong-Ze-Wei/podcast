@@ -36,6 +36,8 @@ class Config:
     WHISPER_NUM_WORKERS = int(os.getenv("WHISPER_NUM_WORKERS", "1"))
     TRANSCRIPTION_DEFAULT_PROVIDER = os.getenv("TRANSCRIPTION_DEFAULT_PROVIDER", "official").lower()
     TRANSCRIPTION_CLOUD_ENABLED = os.getenv("TRANSCRIPTION_CLOUD_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+    TRANSCRIPTION_DEFAULT_LANGUAGE = os.getenv("TRANSCRIPTION_DEFAULT_LANGUAGE", "auto").lower()
+    TRANSCRIPTION_AI_NORMALIZE_ENABLED = os.getenv("TRANSCRIPTION_AI_NORMALIZE_ENABLED", "0").lower() in ("1", "true", "yes", "on")
 
     # LLM配置 (摘要生成) - 从环境变量读取，无默认值
     AI_ANALYSIS_ENABLED = os.getenv("AI_ANALYSIS_ENABLED", "0").lower() in ("1", "true", "yes", "on")

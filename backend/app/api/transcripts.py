@@ -15,6 +15,7 @@ from ..models.episode import Episode
 from ..models.transcript import Transcript, to_bson_safe
 from ..services.task_queue import task_queue
 from ..services.transcript_fetcher import TranscriptFetcher
+from ..services.transcript_postprocessor import normalize_transcript
 from .utils import success_response, error_response
 
 transcripts_bp = Blueprint("transcripts", __name__)
@@ -33,6 +34,19 @@ SUPPORTED_TRANSCRIPTION_PROVIDERS = {
     TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX,
     TRANSCRIPTION_PROVIDER_ASSEMBLYAI,
     TRANSCRIPTION_PROVIDER_MANUAL,
+}
+
+SUPPORTED_TRANSCRIPTION_LANGUAGES = {
+    "auto",
+    "zh",
+    "en",
+    "en_us",
+    "en_uk",
+    "ja",
+    "ko",
+    "es",
+    "fr",
+    "de",
 }
 
 CLOUD_TRANSCRIPTION_DISABLED_MESSAGE = (
@@ -55,6 +69,20 @@ def _get_requested_provider(payload=None):
     if provider not in SUPPORTED_TRANSCRIPTION_PROVIDERS:
         return None
     return provider
+
+
+def _get_requested_language(payload=None):
+    payload = payload or {}
+    language = payload.get("language") or current_app.config.get(
+        "TRANSCRIPTION_DEFAULT_LANGUAGE",
+        "auto",
+    )
+    language = str(language or "auto").strip().lower().replace("-", "_")
+    if not language:
+        language = "auto"
+    if language not in SUPPORTED_TRANSCRIPTION_LANGUAGES:
+        return None
+    return None if language == "auto" else language
 
 
 def _resolve_transcription_provider(provider, episode):
@@ -135,6 +163,14 @@ def create_transcript(episode_id):
             400
         )
 
+    requested_language = _get_requested_language(payload)
+    if requested_language is None and str(payload.get("language", "auto")).strip().lower() not in {"", "auto"}:
+        return error_response(
+            "Unsupported transcription language",
+            "UNSUPPORTED_TRANSCRIPTION_LANGUAGE",
+            400
+        )
+
     provider = _resolve_transcription_provider(requested_provider, episode)
     if not provider:
         return error_response(
@@ -204,7 +240,12 @@ def create_transcript(episode_id):
 
     # 提交转录任务
     def do_transcribe(progress_callback=None):
-        return _transcribe_sync(str(oid), provider=provider, progress_callback=progress_callback)
+        return _transcribe_sync(
+            str(oid),
+            provider=provider,
+            language=requested_language,
+            progress_callback=progress_callback,
+        )
 
     previous_status = episode_status
 
@@ -237,7 +278,8 @@ def create_transcript(episode_id):
     return success_response({
         "task_id": task_id,
         "status": "queued",
-        "provider": provider
+        "provider": provider,
+        "language": requested_language or "auto"
     })
 
 
@@ -294,8 +336,19 @@ def _build_plain_text_segments(text: str):
     return [{"text": " ".join(text.split()), "time": ""}] if text.strip() else []
 
 
+def _should_ai_normalize_transcript():
+    return bool(current_app.config.get("TRANSCRIPTION_AI_NORMALIZE_ENABLED", False))
+
+
 def _save_transcript(db, episode_oid, episode, text, segments, source, language=None, model=None):
     """保存转录到数据库"""
+    text, segments, postprocess = normalize_transcript(
+        text=text,
+        segments=segments,
+        language=language or episode.get("language", ""),
+        use_ai=_should_ai_normalize_transcript(),
+    )
+
     transcript_doc = Transcript.create(
         episode_id=episode_oid,
         text=text,
@@ -304,6 +357,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
         source=source,
         model=model or source
     )
+    transcript_doc["postprocess"] = to_bson_safe(postprocess)
 
     existing = db.transcripts.find_one({"episode_id": episode_oid})
     if existing:
@@ -315,6 +369,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
                 "source": source,
                 "model": model or source,
                 "language": language or episode.get("language", ""),
+                "postprocess": to_bson_safe(postprocess),
                 "updated_at": datetime.utcnow()
             }}
         )
@@ -333,7 +388,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
     )
 
 
-def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, progress_callback=None):
+def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, language=None, progress_callback=None):
     """同步执行指定 provider 的转录。"""
     db = get_db()
     oid = ObjectId(episode_id)
@@ -377,6 +432,7 @@ def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, prog
         transcript_text, segments, language = transcribe_audio(
             local_audio_path,
             model_name=model_name,
+            language=language,
             progress_callback=progress_callback,
         )
         device = current_app.config.get("WHISPER_DEVICE", "cpu")
@@ -415,6 +471,7 @@ def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, prog
         transcript_text, segments, language = transcribe_audio(
             local_audio_path,
             model_name=model_name,
+            language=language,
             progress_callback=progress_callback,
         )
         device = current_app.config.get("WHISPER_DEVICE", "cpu")
@@ -454,7 +511,7 @@ def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, prog
         progress_callback(20)
 
     # 调用 AssemblyAI
-    result = _transcribe_with_assemblyai(audio_url, oid, episode, progress_callback)
+    result = _transcribe_with_assemblyai(audio_url, oid, episode, progress_callback, language=language)
 
     if progress_callback:
         progress_callback(100)
@@ -462,7 +519,7 @@ def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, prog
     return result
 
 
-def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, progress_callback=None):
+def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, progress_callback=None, language=None):
     """使用 AssemblyAI 进行转录（带说话人分离）"""
     import os
     import assemblyai as aai
@@ -481,13 +538,21 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
     if progress_callback:
         progress_callback(30)
 
-    # 配置转录
-    config = aai.TranscriptionConfig(
-        speech_models=["universal-3-pro", "universal-2"],
-        speaker_labels=True,      # 说话人分离
-        auto_chapters=True,       # 自动章节
-        entity_detection=True,    # 实体识别
-    )
+    config_kwargs = {
+        "speech_models": ["universal-3-pro", "universal-2"],
+        "speaker_labels": True,
+    }
+    if language:
+        config_kwargs["language_code"] = language
+        if language.startswith("en"):
+            config_kwargs["auto_chapters"] = True
+            config_kwargs["entity_detection"] = True
+    else:
+        config_kwargs["language_detection"] = True
+        config_kwargs["auto_chapters"] = True
+        config_kwargs["entity_detection"] = True
+
+    config = aai.TranscriptionConfig(**config_kwargs)
 
     # 执行转录
     transcriber = aai.Transcriber()
@@ -540,12 +605,20 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
         "chapters": chapters,
         "entities": list({e["text"]: e for e in entities}.values())[:50],  # 去重，最多50个
         "speakers": speakers,
-        "language": getattr(transcript, 'language_code', None) or getattr(transcript, 'language', 'en'),
+        "language": getattr(transcript, 'language_code', None) or getattr(transcript, 'language', language or 'en'),
         "duration": transcript.audio_duration,
         "source": "assemblyai",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     })
+
+    transcript_doc["text"], transcript_doc["segments"], postprocess = normalize_transcript(
+        text=transcript_doc.get("text", ""),
+        segments=transcript_doc.get("segments", []),
+        language=transcript_doc.get("language", ""),
+        use_ai=_should_ai_normalize_transcript(),
+    )
+    transcript_doc["postprocess"] = to_bson_safe(postprocess)
 
     # 检查是否已存在
     existing = db.transcripts.find_one({"episode_id": episode_oid})
