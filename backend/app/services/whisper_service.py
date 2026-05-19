@@ -6,6 +6,7 @@ Whisper转录服务
 """
 import logging
 import os
+import shutil
 from typing import Optional, List, Dict, Tuple, Callable
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,35 @@ def _parse_int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError as exc:
         raise RuntimeError(f"{name} must be an integer, got {value!r}") from exc
+
+
+def _ensure_ffmpeg_available() -> None:
+    if shutil.which("ffmpeg"):
+        return
+
+    try:
+        import imageio_ffmpeg
+
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:
+        raise RuntimeError(
+            "FFmpeg is required for local transcription but was not found in PATH. "
+            "Install FFmpeg and restart the backend, or use official/cloud transcription."
+        ) from exc
+
+    if os.path.basename(ffmpeg_exe).lower() != "ffmpeg.exe":
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        ffmpeg_dir = os.path.join(backend_dir, ".runtime", "ffmpeg")
+        os.makedirs(ffmpeg_dir, exist_ok=True)
+        shim_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        if not os.path.exists(shim_path):
+            shutil.copy2(ffmpeg_exe, shim_path)
+        ffmpeg_exe = shim_path
+
+    ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+    current_path = os.environ.get("PATH", "")
+    if ffmpeg_dir and ffmpeg_dir not in current_path.split(os.pathsep):
+        os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
 
 
 def get_model(model_name: str = "small"):
@@ -107,6 +137,8 @@ def transcribe_audio(
     """
     if progress_callback:
         progress_callback(10)
+
+    _ensure_ffmpeg_available()
 
     model = get_model(model_name)
 

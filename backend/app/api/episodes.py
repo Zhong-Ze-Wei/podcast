@@ -5,7 +5,9 @@ Episodes API
 单集管理接口
 """
 
-from flask import Blueprint, request
+import os
+
+from flask import Blueprint, request, current_app
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -28,6 +30,24 @@ def get_db():
     from .. import get_db as _get_db
 
     return _get_db()
+
+
+def _local_audio_file_exists(episode):
+    local_path = episode.get("local_path") or episode.get("audio_path")
+    if not local_path:
+        return False
+
+    media_root = os.path.abspath(current_app.config.get("MEDIA_ROOT", "."))
+    candidate = local_path if os.path.isabs(local_path) else os.path.join(media_root, local_path)
+    candidate = os.path.abspath(candidate)
+
+    try:
+        if os.path.commonpath([media_root, candidate]) != media_root:
+            return False
+    except ValueError:
+        return False
+
+    return os.path.isfile(candidate)
 
 
 @episodes_bp.route("", methods=["GET"])
@@ -234,7 +254,15 @@ def download_episode(episode_id):
 
     # 检查是否可以下载
     episode_status = episode.get("status", "new")
-    if not Episode.can_download(episode_status):
+    can_redownload_missing_file = (
+        episode_status in [
+            Episode.STATUS_DOWNLOADED,
+            Episode.STATUS_TRANSCRIBED,
+            Episode.STATUS_SUMMARIZED,
+        ]
+        and not _local_audio_file_exists(episode)
+    )
+    if not Episode.can_download(episode_status) and not can_redownload_missing_file:
         # 如果已经下载过，返回更友好的提示
         if episode_status in [
             Episode.STATUS_DOWNLOADED,
@@ -325,7 +353,15 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
     filepath = os.path.join(save_dir, filename)
 
     # 下载文件
-    response = requests.get(audio_url, stream=True, timeout=300)
+    # 部分 CDN（如 Acast sphinx）会拒绝 python-requests 默认 User-Agent，
+    # 需要模拟标准播客客户端
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (compatible; PodcastManager/1.0; "
+            "+https://github.com/podcast-manager)"
+        )
+    }
+    response = requests.get(audio_url, stream=True, timeout=300, headers=headers)
     response.raise_for_status()
 
     total_size = int(response.headers.get("content-length", 0))
