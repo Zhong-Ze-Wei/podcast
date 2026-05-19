@@ -46,6 +46,7 @@ class Transcript:
             "word_count": doc.get("word_count", 0),
             "source": doc.get("source", ""),
             "model": doc.get("model", ""),
+            "postprocess": doc.get("postprocess", {}),
             "created_at": doc.get("created_at").isoformat() + "Z" if doc.get("created_at") else None
         }
 
