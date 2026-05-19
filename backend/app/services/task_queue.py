@@ -5,11 +5,14 @@
 使用 ThreadPoolExecutor 实现轻量级异步任务队列
 MVP阶段使用内存存储，后续可替换为 Redis + Celery
 """
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Callable, Any, Optional
 import uuid
 import logging
+from bson import ObjectId
+from bson.errors import InvalidId
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +24,91 @@ class TaskQueue:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.tasks = {}  # 内存存储，task_id -> task_info
         self._db = None
+        self._app = None
 
     def set_db(self, db):
         """设置数据库连接 (用于持久化任务状态)"""
         self._db = db
+
+    def set_app(self, app):
+        """Set Flask app so worker threads can use current_app/get_db."""
+        self._app = app
+
+    def recover_interrupted_tasks(self) -> int:
+        """Mark persisted in-progress tasks missing from memory as failed.
+
+        Worker threads are process-local. After a backend restart, MongoDB may
+        still contain pending/processing tasks even though their threads no
+        longer exist. Recovering them keeps the UI from showing fake progress
+        and returns episodes to a retryable state.
+        """
+        if self._db is None:
+            return 0
+
+        stale_tasks = list(self._db.tasks.find({
+            "status": {"$in": ["pending", "processing"]},
+        }))
+        recovered = 0
+        now = datetime.utcnow()
+        message = "Backend restarted before this task completed. Please retry the operation."
+
+        for task in stale_tasks:
+            task_id = task.get("task_id")
+            if task_id in self.tasks:
+                continue
+
+            self._db.tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {
+                    "status": "failed",
+                    "error_message": message,
+                    "completed_at": now,
+                }},
+            )
+            self._rollback_episode_for_interrupted_task(task, message, now)
+            recovered += 1
+
+        if recovered:
+            logger.warning("Recovered %s interrupted task(s) after backend startup", recovered)
+        return recovered
+
+    def _rollback_episode_for_interrupted_task(self, task: dict, message: str, now: datetime) -> None:
+        episode_id = task.get("episode_id")
+        if not episode_id:
+            return
+
+        try:
+            episode_oid = ObjectId(episode_id)
+        except (InvalidId, TypeError):
+            return
+
+        episode = self._db.episodes.find_one({"_id": episode_oid})
+        if not episode:
+            return
+
+        task_type = task.get("task_type")
+        status = episode.get("status")
+        next_status = None
+        updates = {"updated_at": now}
+
+        if task_type == "download" and status == "downloading":
+            next_status = "new"
+            updates["last_download_error"] = message
+        elif task_type == "transcribe" and status == "transcribing":
+            next_status = "downloaded" if episode.get("local_path") or episode.get("audio_path") else "new"
+            updates["last_transcript_error"] = message
+        elif task_type == "summarize" and status == "summarizing":
+            if episode.get("has_transcript"):
+                next_status = "transcribed"
+            elif episode.get("local_path") or episode.get("audio_path"):
+                next_status = "downloaded"
+            else:
+                next_status = "new"
+            updates["last_summary_error"] = message
+
+        if next_status:
+            updates["status"] = next_status
+            self._db.episodes.update_one({"_id": episode_oid}, {"$set": updates})
 
     def submit(
         self,
@@ -32,6 +116,7 @@ class TaskQueue:
         func: Callable,
         episode_id: str = None,
         feed_id: str = None,
+        on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
         **kwargs
     ) -> str:
@@ -77,11 +162,18 @@ class TaskQueue:
             self._update_status(task_id, "processing", started_at=datetime.utcnow())
             try:
                 # 执行任务，传入 progress_callback
-                result = func(
-                    *args,
-                    progress_callback=lambda p: self._update_progress(task_id, p),
-                    **kwargs
-                )
+                def run_func():
+                    return func(
+                        *args,
+                        progress_callback=lambda p: self._update_progress(task_id, p),
+                        **kwargs
+                    )
+
+                if self._app is not None:
+                    with self._app.app_context():
+                        result = run_func()
+                else:
+                    result = run_func()
                 self._update_status(
                     task_id,
                     "completed",
@@ -92,6 +184,15 @@ class TaskQueue:
                 return result
             except Exception as e:
                 logger.exception(f"Task {task_id} failed: {e}")
+                if on_failure is not None:
+                    try:
+                        if self._app is not None:
+                            with self._app.app_context():
+                                on_failure(e)
+                        else:
+                            on_failure(e)
+                    except Exception:
+                        logger.exception(f"Failure callback for task {task_id} failed")
                 self._update_status(
                     task_id,
                     "failed",
@@ -108,6 +209,7 @@ class TaskQueue:
 
     def _update_status(self, task_id: str, status: str, **kwargs):
         """更新任务状态"""
+        kwargs = {key: _to_mongo_safe(value) for key, value in kwargs.items()}
         if task_id in self.tasks:
             self.tasks[task_id]["status"] = status
             for key, value in kwargs.items():
@@ -214,4 +316,26 @@ class TaskQueue:
 
 
 # 全局任务队列实例
+def _to_mongo_safe(value):
+    if value is None or isinstance(value, (str, int, float, bool, datetime, ObjectId)):
+        return value
+
+    if isinstance(value, dict):
+        return {str(key): _to_mongo_safe(item) for key, item in value.items()}
+
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", errors="replace")
+
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return _to_mongo_safe(value.item())
+        except Exception:
+            pass
+
+    if isinstance(value, Iterable):
+        return [_to_mongo_safe(item) for item in value]
+
+    return str(value)
+
+
 task_queue = TaskQueue()

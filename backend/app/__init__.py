@@ -48,6 +48,7 @@ def create_app():
 
     task_queue.set_app(app)
     task_queue.set_db(app.db)
+    task_queue.recover_interrupted_tasks()
 
     # 启动自动刷新服务（每小时检查一次，超过6小时未更新的订阅源自动刷新）
     from .services.auto_refresher import start_auto_refresher
