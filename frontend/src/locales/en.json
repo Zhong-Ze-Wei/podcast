@@ -147,11 +147,30 @@
     "grid": "Grid View",
     "list": "List View"
   },
+  "viewToolbar": {
+    "subscriptionsDescription": "Manage subscribed podcast sources and switch between card and list views.",
+    "feedDescription": "Browse every episode in this subscription; list view is better for quick scanning.",
+    "favoritesDescription": "Review starred episodes you saved for revisit or follow-up work.",
+    "workspaceDescription": "Downloaded, transcribed, and summarized episodes are collected here."
+  },
   "tasks": {
     "title": "Tasks",
     "clearCompleted": "Clear",
     "cancel": "Cancel",
     "dismiss": "Dismiss",
+    "openPanel": "Open tasks",
+    "closePanel": "Close tasks",
+    "resizePanel": "Resize task panel",
+    "openTarget": "Open related episode or feed",
+    "targetDeleted": "Related content is no longer available",
+    "unknownEpisode": "Episode",
+    "unknownFeed": "Feed",
+    "activeCount": "{{count}} active",
+    "recentCount": "{{count}} recent",
+    "emptyActive": "No active tasks",
+    "emptyHistory": "No task history",
+    "emptyActiveHint": "Downloads, transcription, and summaries appear here while running.",
+    "emptyHistoryHint": "Completed and failed tasks appear here within your selected history window.",
     "empty": "No tasks",
     "elapsed": "Elapsed",
     "lastUpdate": "Updated",
@@ -159,6 +178,16 @@
     "secondsAgo": "s ago",
     "minutesAgo": "m ago",
     "maybeStuck": "Task may be stuck, check backend logs",
+    "tabs": {
+      "active": "Active",
+      "history": "History"
+    },
+    "time": {
+      "secondsAgo": "{{count}}s ago",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
+    },
     "types": {
       "download": "Download Audio",
       "transcribe": "AI Transcribe",
@@ -176,6 +205,7 @@
     "title": "Settings",
     "llmTab": "LLM Configuration",
     "templatesTab": "Summary Templates",
+    "appTab": "App Settings",
     "templates": "Templates",
     "templatesCount": "templates",
     "llmTitle": "LLM Configuration",
@@ -192,6 +222,38 @@
     "addConfig": "Add Configuration",
     "testSuccess": "Connection successful",
     "testFailed": "Connection test failed",
-    "testRequiredFields": "Base URL and Model are required"
+    "testRequiredFields": "Base URL and Model are required",
+    "app": {
+      "description": "App behavior and task panel preferences are saved in this browser.",
+      "autoRefreshTitle": "Auto-refresh subscriptions",
+      "autoRefreshDescription": "Refresh feeds and episode status on a schedule so downloads, transcriptions, and summaries stay in sync.",
+      "taskPollTitle": "Task polling interval",
+      "taskPollDescription": "Controls how often the bottom-right task dial and task center check progress. Smaller values feel more live; larger values use fewer resources.",
+      "taskHistoryTitle": "Task history window",
+      "taskHistoryDescription": "The backend keeps task records for up to 7 days; this controls how much completed and failed history the task center shows by default.",
+      "taskPanelDefaultOpenTitle": "Open task center by default",
+      "taskPanelDefaultOpenDescription": "The bottom-right task dial is always visible. Enable this to expand the task center when you enter the app.",
+      "taskPanelDefaultOpenLabel": "Expand task center when entering the app",
+      "refreshOptions": {
+        "0": "Off",
+        "1": "1 minute",
+        "5": "5 minutes",
+        "10": "10 minutes",
+        "30": "30 minutes",
+        "60": "1 hour"
+      },
+      "pollOptions": {
+        "2": "2 seconds",
+        "3": "3 seconds",
+        "5": "5 seconds",
+        "10": "10 seconds"
+      },
+      "historyOptions": {
+        "5": "Last 5 minutes",
+        "60": "Last 1 hour",
+        "1440": "Last 24 hours",
+        "10080": "Last 7 days"
+      }
+    }
   }
 }

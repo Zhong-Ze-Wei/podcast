@@ -43,6 +43,7 @@ api.interceptors.response.use(
 // Feeds API
 export const feedsApi = {
   list: (params = {}) => api.get('/feeds', { params }),
+  get: (id) => api.get(`/feeds/${id}`),
   create: (data) => api.post('/feeds', data),
   update: (id, data) => api.put(`/feeds/${id}`, data),
   delete: (id) => api.delete(`/feeds/${id}`),
@@ -54,7 +55,8 @@ export const feedsApi = {
 // Episodes API
 export const episodesApi = {
   list: (params = {}) => api.get('/episodes', { params }),
-  listTranscribed: () => api.get('/episodes', { params: { status: 'downloaded,transcribing,transcribed,summarizing,summarized', per_page: 1000 } }),
+  listTranscribed: () => api.get('/episodes', { params: { status: 'downloading,downloaded,transcribing,transcribed,summarizing,summarized', per_page: 1000 } }),
+  get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),
   download: (id) => api.post(`/episodes/${id}/download`)
@@ -90,6 +92,7 @@ export const promptTemplatesApi = {
 // Tasks API
 export const tasksApi = {
   list: (params = {}) => api.get('/tasks', { params }),
+  get: (id) => api.get(`/tasks/${id}`),
   cancel: (id) => api.post(`/tasks/${id}/cancel`)
 };
 

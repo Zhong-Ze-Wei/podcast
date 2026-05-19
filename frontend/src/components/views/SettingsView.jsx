@@ -1,31 +1,30 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, ChevronLeft, Server, FileText } from 'lucide-react';
+import { Settings, ChevronLeft, Server, FileText, Sliders } from 'lucide-react';
 import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
+import AppSettingsPanel from './settings/AppSettingsPanel';
 
-/**
- * SettingsView - Settings page with tabs
- *
- * Tabs:
- * - LLM Configuration
- * - Summary Templates
- */
 const SettingsView = ({ onBack }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('llm'); // llm | templates
+  const [activeTab, setActiveTab] = useState('llm'); // llm | templates | app
 
   const tabs = [
     {
       id: 'llm',
-      label: t('settings.llmTab') || 'LLM Configuration',
+      label: t('settings.llmTab') || 'LLM 配置',
       icon: Server
     },
     {
       id: 'templates',
-      label: t('settings.templatesTab') || 'Summary Templates',
+      label: t('settings.templatesTab') || '摘要模板',
       icon: FileText
+    },
+    {
+      id: 'app',
+      label: t('settings.appTab') || '应用设置',
+      icon: Sliders
     }
   ];
 
@@ -71,6 +70,7 @@ const SettingsView = ({ onBack }) => {
       <div className="flex-1 overflow-hidden">
         {activeTab === 'llm' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
+        {activeTab === 'app' && <AppSettingsPanel />}
       </div>
     </div>
   );

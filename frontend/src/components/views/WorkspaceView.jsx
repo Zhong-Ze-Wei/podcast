@@ -1,8 +1,9 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Briefcase, LayoutGrid, List } from 'lucide-react';
+import { Briefcase } from 'lucide-react';
 import EpisodeCard from '../cards/EpisodeCard';
+import ViewToolbar from '../common/ViewToolbar';
 
 /**
  * WorkspaceView - 工作台页面
@@ -19,7 +20,8 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
 
   // 所有处理过的节目
   const allProcessed = episodes.filter(ep =>
-    ['transcribing', 'transcribed', 'summarizing', 'summarized'].includes(ep.status) ||
+    ['downloaded', 'transcribing', 'transcribed', 'summarizing', 'summarized'].includes(ep.status) ||
+    ep.local_audio_url ||
     ep.has_transcript ||
     ep.has_summary
   );
@@ -27,6 +29,8 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
   // 根据Tab筛选
   const getFilteredEpisodes = () => {
     switch (activeTab) {
+      case 'downloaded':
+        return allProcessed.filter(ep => ep.status === 'downloaded' || ep.local_audio_url);
       case 'transcript':
         return allProcessed.filter(ep =>
           ep.has_transcript || ep.status === 'transcribing' || ep.status === 'transcribed'
@@ -45,6 +49,7 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
   // Tab配置
   const tabs = [
     { key: 'all', label: t('workspace.tabAll') },
+    { key: 'downloaded', label: t('status.downloaded') },
     { key: 'transcript', label: t('workspace.tabTranscript') },
     { key: 'summary', label: t('workspace.tabSummary') },
   ];
@@ -64,23 +69,6 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
                 {filteredEpisodes.length} {t('workspace.episodes')}
               </p>
             </div>
-          </div>
-          {/* 视图切换按钮 */}
-          <div className="flex bg-zinc-800 rounded-xl p-1">
-            <button
-              onClick={() => onViewModeChange && onViewModeChange('grid')}
-              className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-              title={t('view.grid')}
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              onClick={() => onViewModeChange && onViewModeChange('list')}
-              className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-              title={t('view.list')}
-            >
-              <List size={16} />
-            </button>
           </div>
         </div>
 
@@ -103,9 +91,15 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
       </div>
 
       {/* 列表 */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <ViewToolbar
+          count={`${filteredEpisodes.length} ${t('workspace.episodes')}`}
+          description={t('viewToolbar.workspaceDescription')}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+        />
         {filteredEpisodes.length > 0 ? (
-          <div className={`grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {filteredEpisodes.map(ep => (
               <EpisodeCard
                 key={ep.id}

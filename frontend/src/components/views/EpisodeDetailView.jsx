@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Play, Mic2, AlertCircle, ChevronLeft,
@@ -37,6 +37,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [localDownloading, setLocalDownloading] = useState(false);
   const [localSummarizing, setLocalSummarizing] = useState(false);
   const [transcriptionProvider, setTranscriptionProvider] = useState('official');
+  const [transcriptionLanguage, setTranscriptionLanguage] = useState('auto');
+  const pendingTranscriptionProviderRef = useRef(null);
 
   // Summary states
   const [templates, setTemplates] = useState([]);
@@ -94,6 +96,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const hasOfficialTranscript = Boolean(episode?.transcript_url);
   const hasLocalAudio = Boolean(episode?.local_audio_url || episode?.local_path || episode?.audio_path);
   const hasRemoteAudio = Boolean(episode?.audio_url);
+  const isLocalTranscriptionProvider = (provider) => provider === 'local_whisper' || provider === 'local_whisperx';
+  const episodeHasLocalAudio = (targetEpisode) => Boolean(
+    targetEpisode?.local_audio_url || targetEpisode?.local_path || targetEpisode?.audio_path
+  );
   const transcriptionOptions = [
     {
       value: 'official',
@@ -149,6 +155,15 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
   const transcriptSourceLabel =
     transcriptSourceLabels[transcript?.source] || transcript?.source || episode?.transcript_source || '未知来源';
+  const transcriptionLanguageOptions = [
+    { value: 'auto', label: '自动检测', description: '适合不确定语言的节目；中文播客建议手动选择中文。' },
+    { value: 'zh', label: '中文（简体输出）', description: '适合普通话、中文访谈和中英混合但以中文为主的节目。' },
+    { value: 'en', label: 'English', description: '适合英文为主的节目。' },
+    { value: 'ja', label: '日本語', description: '适合日文节目。' },
+    { value: 'ko', label: '한국어', description: '适合韩文节目。' },
+  ];
+  const selectedLanguageOption =
+    transcriptionLanguageOptions.find(option => option.value === transcriptionLanguage) || transcriptionLanguageOptions[0];
 
   useEffect(() => {
     if (hasOfficialTranscript) {
@@ -164,27 +179,58 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const handleTranscribeComplete = async () => {
     setLocalTranscribing(false);
     await loadTranscript();
+    await refreshEpisode();
     if (onRefresh) onRefresh();
   };
 
   const handleDownloadComplete = async () => {
+    const providerToContinue = pendingTranscriptionProviderRef.current;
+    if (providerToContinue) {
+      pendingTranscriptionProviderRef.current = null;
+    }
     setLocalDownloading(false);
+    const refreshedEpisode = await refreshEpisode();
     if (onRefresh) {
       await onRefresh();
+    }
+
+    if (!providerToContinue) return;
+
+    if (episodeHasLocalAudio(refreshedEpisode)) {
+      await startTranscriptionTask(providerToContinue);
+    } else {
+      setError('Download completed, but the local audio file was not found. Please try downloading again.');
     }
   };
 
   const handleSummarizeComplete = async () => {
     setLocalSummarizing(false);
     await loadSummary();
+    await refreshEpisode();
     if (onRefresh) onRefresh();
   };
 
-  const handleTaskError = (errorMsg) => {
+  const handleTaskError = async (errorMsg) => {
     setError(errorMsg);
+    pendingTranscriptionProviderRef.current = null;
     setLocalDownloading(false);
     setLocalTranscribing(false);
     setLocalSummarizing(false);
+    await refreshEpisode();
+    if (onRefresh) onRefresh();
+  };
+
+  const refreshEpisode = async () => {
+    if (!episode?.id) return null;
+    try {
+      const response = await episodesApi.get(episode.id);
+      const refreshedEpisode = response.data || response;
+      setEpisode(refreshedEpisode);
+      return refreshedEpisode;
+    } catch (err) {
+      console.error('Failed to refresh episode:', err);
+      return null;
+    }
   };
 
   useEffect(() => {
@@ -194,7 +240,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       loadTranscriptWithAutoFetch();
       loadSummary();
     }
-  }, [episode]);
+  }, [episode?.id]);
 
   const loadTranscriptWithAutoFetch = async () => {
     setTranscriptLoading(true);
@@ -254,35 +300,23 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
-  const generateTranscript = async () => {
-    if (selectedTranscriptionOption?.disabled) {
-      setError(selectedTranscriptionOption.description);
-      return;
-    }
-    if ((transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio) {
-      const downloadResult = await downloadAudio();
-      if (downloadResult === 'already_downloaded') {
-        try {
-          await transcriptsApi.create(episode.id, { provider: transcriptionProvider });
-          if (onRefresh) onRefresh();
-        } catch (err) {
-          setError(err?.message || 'Failed to generate transcript');
-        }
-      }
-      return;
-    }
+  const startTranscriptionTask = async (provider) => {
     setLoading(true);
     setLocalTranscribing(true);
     setError(null);
     try {
-      await transcriptsApi.create(episode.id, { provider: transcriptionProvider });
+      await transcriptsApi.create(episode.id, {
+        provider,
+        language: transcriptionLanguage
+      });
       // 任务已提交，TaskProgress 组件会轮询状态
       if (onRefresh) onRefresh();
+      return true;
     } catch (err) {
       console.error('Failed to generate transcript:', err);
       const errorCode = err?.code || '';
       const errorMsg = err?.message || 'Failed to generate transcript';
-      if (errorCode === 'ALREADY_TRANSCRIBING') {
+      if (errorCode === 'ALREADY_TRANSCRIBING' || errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.alreadyTranscribing') || 'Transcription is already in progress');
       } else if (errorCode === 'ALREADY_TRANSCRIBED') {
         setError(t('detail.alreadyTranscribed') || 'Episode already has a transcript');
@@ -292,9 +326,39 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         setError(errorMsg);
         setLocalTranscribing(false);
       }
+      return false;
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateTranscript = async () => {
+    if (selectedTranscriptionOption?.disabled) {
+      setError(selectedTranscriptionOption.description);
+      return;
+    }
+
+    if (isLocalTranscriptionProvider(transcriptionProvider) && !hasLocalAudio) {
+      pendingTranscriptionProviderRef.current = transcriptionProvider;
+      const downloadResult = await downloadAudio();
+
+      if (downloadResult === 'already_downloaded') {
+        const refreshedEpisode = await refreshEpisode();
+        if (episodeHasLocalAudio(refreshedEpisode)) {
+          pendingTranscriptionProviderRef.current = null;
+          await startTranscriptionTask(transcriptionProvider);
+        } else {
+          pendingTranscriptionProviderRef.current = null;
+          setError('Episode is marked as downloaded, but the local audio file was not found. Please try downloading again.');
+        }
+      } else if (downloadResult === 'failed') {
+        pendingTranscriptionProviderRef.current = null;
+      }
+      return;
+    }
+
+    pendingTranscriptionProviderRef.current = null;
+    await startTranscriptionTask(transcriptionProvider);
   };
 
   const downloadAudio = async () => {
@@ -313,10 +377,12 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       const errorCode = err?.code || '';
       if (errorCode === 'ALREADY_DOWNLOADED') {
         setLocalDownloading(false);
-        if (onRefresh) onRefresh();
+        await refreshEpisode();
+        if (onRefresh) await onRefresh();
         return 'already_downloaded';
       } else if (errorCode === 'ALREADY_DOWNLOADING') {
         setError(t('detail.downloadInProgress') || 'Download already in progress');
+        return 'queued';
       } else {
         setError(err?.message || 'Failed to download audio');
         setLocalDownloading(false);
@@ -636,6 +702,34 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                           </select>
                           <p className="mt-2 text-xs leading-relaxed text-zinc-500">
                             {selectedTranscriptionOption?.description}
+                          </p>
+                        </div>
+                        <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <label htmlFor="transcription-language" className="text-xs font-medium text-zinc-300">
+                              转录语言
+                            </label>
+                            {transcriptionLanguage === 'zh' && (
+                              <span className="text-[11px] text-emerald-400">自动清理中文空格和繁简</span>
+                            )}
+                          </div>
+                          <select
+                            id="transcription-language"
+                            value={transcriptionLanguage}
+                            onChange={(event) => {
+                              setTranscriptionLanguage(event.target.value);
+                              setError(null);
+                            }}
+                            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+                          >
+                            {transcriptionLanguageOptions.map(option => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                            {selectedLanguageOption.description}
                           </p>
                         </div>
                         {/* 预估费用和时间 */}

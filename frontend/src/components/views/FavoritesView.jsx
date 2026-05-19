@@ -1,8 +1,9 @@
 // -*- coding: utf-8 -*-
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Star, LayoutGrid, List } from 'lucide-react';
+import { Star } from 'lucide-react';
 import EpisodeCard from '../cards/EpisodeCard';
+import ViewToolbar from '../common/ViewToolbar';
 
 /**
  * FavoritesView - 我的喜欢页面
@@ -33,30 +34,19 @@ const FavoritesView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
               </p>
             </div>
           </div>
-          {/* 视图切换按钮 */}
-          <div className="flex bg-zinc-800 rounded-xl p-1">
-            <button
-              onClick={() => onViewModeChange && onViewModeChange('grid')}
-              className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-              title={t('view.grid')}
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              onClick={() => onViewModeChange && onViewModeChange('list')}
-              className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-              title={t('view.list')}
-            >
-              <List size={16} />
-            </button>
-          </div>
         </div>
       </div>
 
       {/* 列表 */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <ViewToolbar
+          count={`${starredEpisodes.length} ${t('favorites.episodes')}`}
+          description={t('viewToolbar.favoritesDescription')}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+        />
         {starredEpisodes.length > 0 ? (
-          <div className={`grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {starredEpisodes.map(ep => (
               <EpisodeCard
                 key={ep.id}
