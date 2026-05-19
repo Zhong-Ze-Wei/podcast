@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-05-20 状态更新
+
+这份 backlog 保留了早期调研记录，但其中一部分“未实现/待做”的判断已经过时。当前已完成：
+
+- 本地 `faster-whisper` 转录。
+- 可选 `WhisperX` 转录入口。
+- 转录 provider 统一入口：`official` / `local_whisper` / `local_whisperx` / `assemblyai` / `auto`。
+- 转录请求支持 `language` 参数，中文可传 `zh`。
+- 转录保存前统一后处理：中文空格清理、中文标点清理、可选 OpenCC/AI 规范化。
+- 进入单集详情不再自动抓取外部字幕或自动触发转录。
+- 前端已有删除转录按钮。
+- 右下角任务中心支持历史记录、任务说明、点击跳转到对应单集/订阅。
+- 前端支持 `/episodes/:id`、`/feeds/:id` 等深链接。
+- tasks 集合已有 `completed_at` TTL 索引，默认 7 天清理完成/失败任务。
+- LLM 设置已有 Provider 预设和连接测试；UI 方案 demo 在 `docs/llm-config-ui-demos.html`。
+
+当前仍建议优先处理：
+
+1. LLM API Key 仍是 MongoDB 明文保存；上线前应迁移为环境变量、加密存储或 secret manager。
+2. AssemblyAI Key 仍主要通过 `.env` 管理，没有独立设置 UI。
+3. 公开分享链接和多用户数据隔离尚未实现。
+4. TranscriptFetcher 仍应继续增强 Content-Type 嗅探和更多站点字幕规则。
+5. 摘要/转录的导出入口仍可完善。
+
+---
+
 ## Q1：官方字幕获取策略 & 其他可获取的内容维度
 
 ### 当前实现现状

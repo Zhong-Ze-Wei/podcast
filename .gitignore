@@ -62,10 +62,6 @@ audio/
 # Debug / temp scripts
 frontend/debug-summary.js
 
-# Dev notes (not project docs)
-api.md
-plan.md
-
 # Sisyphus temp files
 .sisyphus/
 
@@ -105,5 +101,3 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
-# Documentation
-docs/

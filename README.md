@@ -9,7 +9,7 @@ Local-first podcast pipeline: RSS subscriptions, audio download, transcription, 
 | Frontend | React 18, Vite, TailwindCSS, i18next |
 | Backend | Flask, MongoDB |
 | Python environment | uv |
-| Transcription | Official transcripts, local faster-whisper, optional AssemblyAI |
+| Transcription | Official transcripts, local faster-whisper, optional WhisperX, optional AssemblyAI |
 | Summaries | OpenAI-compatible LLM API |
 | Tasks | ThreadPoolExecutor |
 
@@ -116,6 +116,8 @@ MONGO_URI=mongodb://localhost:27017
 MONGO_DB=podcast
 
 TRANSCRIPTION_DEFAULT_PROVIDER=official
+TRANSCRIPTION_DEFAULT_LANGUAGE=auto
+TRANSCRIPTION_AI_NORMALIZE_ENABLED=0
 WHISPER_MODEL=base
 WHISPER_MODEL_DIR=E:\models\tts
 TORCH_HOME=E:\models\tts\torch
@@ -139,6 +141,10 @@ LLM_MODEL=
 
 AssemblyAI is installed as a backend dependency because the provider exists, but cloud transcription is still disabled unless `TRANSCRIPTION_CLOUD_ENABLED=1`.
 
+`TRANSCRIPTION_DEFAULT_LANGUAGE=auto` keeps provider language detection enabled. For Chinese podcasts, choose `zh` in the frontend transcription panel or set the env var to `zh` to reduce language misdetection.
+
+`TRANSCRIPTION_AI_NORMALIZE_ENABLED=0` keeps transcript post-processing local and rule-based. Set it to `1` only if you want the active LLM configuration to clean transcripts further; this consumes tokens from the configured OpenAI-compatible LLM endpoint.
+
 ## Core Workflow
 
 ```text
@@ -152,6 +158,32 @@ Transcription provider rules:
 - `local_whisperx`: advanced local WhisperX backend. Basic transcription runs locally. Speaker diarization can be enabled with `WHISPERX_DIARIZE=1` and a Hugging Face token accepted for the configured pyannote model; `WHISPERX_MIN_SPEAKERS` and `WHISPERX_MAX_SPEAKERS` can be left blank for automatic speaker count detection.
 - `assemblyai`: paid cloud provider, requires `TRANSCRIPTION_CLOUD_ENABLED=1` and `ASSEMBLYAI_API_KEY`.
 - `auto`: backend-only helper; uses official transcripts when available and does not silently fall back to paid cloud transcription.
+
+Transcript creation accepts a provider and optional language:
+
+```json
+{
+  "provider": "local_whisper",
+  "language": "zh"
+}
+```
+
+All transcript sources are normalized before saving. The default local rules remove unnatural spaces between Chinese characters and punctuation. If OpenCC is installed, Traditional Chinese can be converted to Simplified Chinese locally. Optional AI normalization uses the active LLM configuration and is disabled by default.
+
+Opening an episode detail page does not automatically fetch external transcripts or start local/cloud transcription. Users must explicitly click the transcript action.
+
+## Frontend Routes
+
+The app supports stable browser paths for refresh, back navigation, and sharing within the same local data set:
+
+```text
+/workspace
+/episodes
+/episodes/<episode_id>
+/feeds/<feed_id>
+/favorites
+/settings
+```
 
 ## Useful Commands
 
@@ -170,7 +202,9 @@ npm run dev
 
 ## API Overview
 
-Detailed API notes live in `api.md`.
+Detailed API notes live in `docs/api.md`.
+
+Current implementation status lives in `docs/implementation-status.md`.
 
 Main modules:
 
