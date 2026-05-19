@@ -251,28 +251,12 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       setHasExternalTranscript(false);
       setTranscriptLoading(false);
     } catch (err) {
-      // 2. 数据库没有，检查是否有外部转录URL
+      // 2. 数据库没有时只检查是否有外部转录URL，不自动抓取/创建转录。
       setTranscript(null);
       try {
         const extResponse = await transcriptsApi.checkExternal(episode.id);
         const hasExternal = extResponse.data?.has_external_transcript || false;
         setHasExternalTranscript(hasExternal);
-
-        // 3. 如果有外部转录URL，自动获取
-        if (hasExternal) {
-          setLoading(true);
-          try {
-            await transcriptsApi.fetch(episode.id);
-            const fetchedResponse = await transcriptsApi.get(episode.id);
-            setTranscript(fetchedResponse.data);
-            setHasExternalTranscript(false);
-            if (onRefresh) onRefresh();
-          } catch (fetchErr) {
-            console.error('Auto-fetch external transcript failed:', fetchErr);
-          } finally {
-            setLoading(false);
-          }
-        }
       } catch (extErr) {
         setHasExternalTranscript(false);
       }
