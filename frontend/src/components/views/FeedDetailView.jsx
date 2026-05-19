@@ -1,9 +1,10 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, LayoutGrid, List, Loader2 } from 'lucide-react';
+import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, Loader2 } from 'lucide-react';
 import { decodeHtmlEntities } from '../../utils/helpers';
 import EpisodeCard from '../cards/EpisodeCard';
+import ViewToolbar from '../common/ViewToolbar';
 
 /**
  * FeedDetailView - 订阅源详情页
@@ -125,31 +126,12 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
 
       {/* 节目列表区域 */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {/* 置顶工具栏 */}
-        <div className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm px-8 py-4 border-b border-zinc-800/50">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-zinc-400">
-              {loading ? t('common.loading') : `${episodes.length} ${t('episode.episodes')}`}
-            </p>
-            {/* 视图切换按钮 */}
-            <div className="flex bg-zinc-800 rounded-xl p-1">
-              <button
-                onClick={() => onViewModeChange && onViewModeChange('grid')}
-                className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-                title={t('view.grid')}
-              >
-                <LayoutGrid size={16} />
-              </button>
-              <button
-                onClick={() => onViewModeChange && onViewModeChange('list')}
-                className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-                title={t('view.list')}
-              >
-                <List size={16} />
-              </button>
-            </div>
-          </div>
-        </div>
+        <ViewToolbar
+          count={loading ? t('common.loading') : `${episodes.length} ${t('episode.episodes')}`}
+          description={t('viewToolbar.feedDescription')}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+        />
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="animate-spin text-indigo-500" size={32} />

@@ -1,8 +1,14 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, RefreshCw, LayoutGrid, List } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 import { feedsApi, episodesApi, tasksApi } from './services/api';
+import {
+  AUTO_REFRESH_KEY,
+  TASK_POLL_KEY,
+  TASK_HISTORY_WINDOW_KEY,
+  TASK_PANEL_DEFAULT_OPEN_KEY
+} from './components/views/settings/AppSettingsPanel';
 // Layout components
 import Sidebar from './components/layout/Sidebar';
 // View components
@@ -17,10 +23,41 @@ import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
 // Common components
 import LanguageSwitcher from './components/common/LanguageSwitcher';
+import ViewToolbar from './components/common/ViewToolbar';
 // Player components
 import PlayerBar from './components/player/PlayerBar';
 // Task components
 import TaskPanel from './components/tasks/TaskPanel';
+
+const SIMPLE_VIEW_PATHS = {
+  list: '/episodes',
+  workspace: '/workspace',
+  favorites: '/favorites',
+  settings: '/settings'
+};
+
+function parseAppPath(pathname) {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] === 'episodes' && parts[1]) {
+    return { type: 'episode', id: parts[1] };
+  }
+  if (parts[0] === 'feeds' && parts[1]) {
+    return { type: 'feed', id: parts[1] };
+  }
+  if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
+  if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
+  if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
+  return { type: 'view', view: 'workspace' };
+}
+
+function episodePath(id) {
+  return `/episodes/${id}`;
+}
+
+function feedPath(id) {
+  return `/feeds/${id}`;
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [view, setView] = useState('workspace'); // list | feedDetail | detail | workspace
@@ -43,6 +80,12 @@ export default function App() {
   const getPlayableAudioUrl = (episode) => episode?.local_audio_url || episode?.audio_url || '';
   const lastSavedPositionRef = useRef(0); // 上次保存的位置，避免频繁保存
   const feedRequestIdRef = useRef(0); // 用于取消过期的feed episodes请求
+  const hasInAppNavigationRef = useRef(false);
+  const latestViewRef = useRef(view);
+
+  useEffect(() => {
+    latestViewRef.current = view;
+  }, [view]);
 
   // 保存播放位置到后端
   const savePlayPosition = async (episodeId, position) => {
@@ -90,6 +133,40 @@ export default function App() {
     loadData();
   }, []);
 
+  // 自动刷新间隔（分钟，来自 localStorage）
+  const [autoRefreshMinutes, setAutoRefreshMinutes] = useState(
+    () => parseInt(localStorage.getItem(AUTO_REFRESH_KEY) ?? '5', 10)
+  );
+  const [taskPollSeconds, setTaskPollSeconds] = useState(
+    () => parseInt(localStorage.getItem(TASK_POLL_KEY) ?? '3', 10)
+  );
+  const [taskHistoryWindowMinutes, setTaskHistoryWindowMinutes] = useState(
+    () => parseInt(localStorage.getItem(TASK_HISTORY_WINDOW_KEY) ?? '60', 10)
+  );
+  const [taskPanelDefaultOpen, setTaskPanelDefaultOpen] = useState(
+    () => localStorage.getItem(TASK_PANEL_DEFAULT_OPEN_KEY) === 'true'
+  );
+
+  // 监听设置变更（同一窗口内通过 dispatchEvent 传递）
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === AUTO_REFRESH_KEY) setAutoRefreshMinutes(parseInt(e.newValue ?? '5', 10));
+      if (e.key === TASK_POLL_KEY)    setTaskPollSeconds(parseInt(e.newValue ?? '3', 10));
+      if (e.key === TASK_HISTORY_WINDOW_KEY) setTaskHistoryWindowMinutes(parseInt(e.newValue ?? '60', 10));
+      if (e.key === TASK_PANEL_DEFAULT_OPEN_KEY) setTaskPanelDefaultOpen(e.newValue === 'true');
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // 定时自动刷新订阅内容（0 = 关闭）
+  useEffect(() => {
+    if (!autoRefreshMinutes) return;
+    const timer = setInterval(loadData, autoRefreshMinutes * 60 * 1000);
+    return () => clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefreshMinutes]);
+
   const handleAddFeed = () => {
     loadData();
   };
@@ -104,21 +181,80 @@ export default function App() {
     loadData();
   };
 
-  // 点击订阅源卡片，进入详情页
-  const handleFeedClick = async (feed) => {
-    setSelectedFeed(feed);
-    setActiveFeed(feed.id);
+  const updateBrowserPath = useCallback((path, { replace = false, state = {} } = {}) => {
+    if (!path || window.location.pathname === path) return;
+    if (!replace) hasInAppNavigationRef.current = true;
+    const method = replace ? 'replaceState' : 'pushState';
+    window.history[method]({ appRoute: true, ...state }, '', path);
+  }, []);
+
+  const navigateToView = useCallback((nextView, { replace = false } = {}) => {
+    setActiveFeed(null);
+    setSelectedFeed(null);
+    setSelectedEpisode(null);
+    setFeedEpisodes([]);
+    setView(nextView);
+    updateBrowserPath(SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace, {
+      replace,
+      state: { view: nextView }
+    });
+  }, [updateBrowserPath]);
+
+  const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true } = {}) => {
+    const episodeId = typeof episodeOrId === 'string' ? episodeOrId : episodeOrId?.id;
+    if (!episodeId) return;
+
+    if (push) {
+      updateBrowserPath(episodePath(episodeId), {
+        replace,
+        state: { view: 'detail', episodeId }
+      });
+    }
+
+    setPreviousView(latestViewRef.current === 'detail' ? previousView : latestViewRef.current);
+    if (typeof episodeOrId !== 'string') {
+      setSelectedEpisode(episodeOrId);
+    }
+    setView('detail');
+
+    try {
+      const response = await episodesApi.get(episodeId);
+      const episode = response.data || response;
+      setSelectedEpisode(episode);
+      if (episode?.feed_id) setActiveFeed(episode.feed_id);
+    } catch (err) {
+      console.error('Failed to open episode route:', err);
+      navigateToView('workspace', { replace: true });
+    }
+  }, [navigateToView, previousView, updateBrowserPath]);
+
+  const openFeed = useCallback(async (feedOrId, { replace = false, push = true } = {}) => {
+    const feedId = typeof feedOrId === 'string' ? feedOrId : feedOrId?.id;
+    if (!feedId) return;
+
+    if (push) {
+      updateBrowserPath(feedPath(feedId), {
+        replace,
+        state: { view: 'feedDetail', feedId }
+      });
+    }
+
+    setActiveFeed(feedId);
     setView('feedDetail');
-    // 清空旧数据，开始加载新数据
     setFeedEpisodes([]);
     setFeedEpisodesLoading(true);
 
-    // 使用请求ID来处理竞态条件
     const requestId = ++feedRequestIdRef.current;
 
     try {
-      const response = await feedsApi.getEpisodes(feed.id, { per_page: 500 });
-      // 只有当这是最新的请求时才更新状态
+      let feed = typeof feedOrId === 'string' ? feeds.find(item => item.id === feedId) : feedOrId;
+      if (!feed) {
+        const feedResponse = await feedsApi.get(feedId);
+        feed = feedResponse.data || feedResponse;
+      }
+      setSelectedFeed(feed);
+
+      const response = await feedsApi.getEpisodes(feedId, { per_page: 500 });
       if (requestId === feedRequestIdRef.current) {
         const episodeData = response.data || response;
         setFeedEpisodes(Array.isArray(episodeData) ? episodeData : []);
@@ -126,17 +262,51 @@ export default function App() {
       }
     } catch (err) {
       if (requestId === feedRequestIdRef.current) {
-        console.error('Failed to load feed episodes:', err);
+        console.error('Failed to open feed route:', err);
         setFeedEpisodes([]);
         setFeedEpisodesLoading(false);
       }
+      navigateToView('workspace', { replace: true });
     }
+  }, [feeds, navigateToView, updateBrowserPath]);
+
+  const applyCurrentPath = useCallback((replace = true) => {
+    const route = parseAppPath(window.location.pathname);
+    if (route.type === 'episode') {
+      openEpisode(route.id, { replace, push: false });
+      return;
+    }
+    if (route.type === 'feed') {
+      openFeed(route.id, { replace, push: false });
+      return;
+    }
+    navigateToView(route.view, { replace });
+  }, [navigateToView, openEpisode, openFeed]);
+
+  useEffect(() => {
+    window.history.replaceState(
+      { ...(window.history.state || {}), appRoute: true },
+      '',
+      window.location.pathname
+    );
+    applyCurrentPath(true);
+
+    const handlePopState = () => {
+      applyCurrentPath(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 点击订阅源卡片，进入详情页
+  const handleFeedClick = async (feed) => {
+    openFeed(feed);
   };
 
   const handleEpisodeClick = async (episode) => {
-    setPreviousView(view); // 记录当前视图，用于返回
-    setSelectedEpisode(episode);
-    setView('detail');
+    openEpisode(episode);
   };
 
   const handleStar = async (episode) => {
@@ -296,7 +466,7 @@ export default function App() {
         activeFeed={activeFeed}
         setActiveFeed={setActiveFeed}
         setSelectedFeed={setSelectedFeed}
-        setView={setView}
+        setView={navigateToView}
         onAddFeed={handleAddFeed}
         onRefreshFeed={handleRefreshFeed}
         onDeleteFeed={handleDeleteFeed}
@@ -324,11 +494,10 @@ export default function App() {
           />
         ) : view === 'list' ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar z-10">
-            {/* 置顶工具栏 */}
-            <div className="sticky top-0 z-10 bg-black/95 backdrop-blur-sm px-8 py-4 border-b border-zinc-800/50">
+            <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">
+                  <h2 className="text-3xl font-bold text-white">
                     {activeFeed ? feeds.find(f => f.id === activeFeed)?.title : t('sidebar.subscriptions')}
                   </h2>
                   <p className="text-zinc-500 text-sm mt-1">
@@ -351,23 +520,6 @@ export default function App() {
                       />
                     </div>
                   )}
-                  {/* 视图切换按钮 */}
-                  <div className="flex bg-zinc-800 rounded-xl p-1">
-                    <button
-                      onClick={() => setEpisodeViewMode('grid')}
-                      className={`p-2 rounded-lg transition-colors ${episodeViewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-                      title={t('view.grid')}
-                    >
-                      <LayoutGrid size={16} />
-                    </button>
-                    <button
-                      onClick={() => setEpisodeViewMode('list')}
-                      className={`p-2 rounded-lg transition-colors ${episodeViewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
-                      title={t('view.list')}
-                    >
-                      <List size={16} />
-                    </button>
-                  </div>
                   <button
                     onClick={() => loadData()}
                     className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-sm font-medium transition-colors"
@@ -377,6 +529,15 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <ViewToolbar
+              count={activeFeed
+                ? `${filteredEpisodes.length} ${t('episode.episodes')}`
+                : `${feeds.length} ${t('feed.subscriptions')}`}
+              description={activeFeed ? t('viewToolbar.feedDescription') : t('viewToolbar.subscriptionsDescription')}
+              viewMode={episodeViewMode}
+              onViewModeChange={setEpisodeViewMode}
+            />
 
             <div className={`p-8 grid ${episodeViewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'} ${currentPlaying ? 'pb-24' : ''}`}>
               {activeFeed ? (
@@ -411,7 +572,7 @@ export default function App() {
             feed={selectedFeed}
             episodes={feedEpisodes}
             loading={feedEpisodesLoading}
-            onBack={() => { setView('list'); setActiveFeed(null); setSelectedFeed(null); setFeedEpisodes([]); }}
+            onBack={() => navigateToView('list')}
             onRefresh={handleRefreshFeed}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
@@ -441,12 +602,18 @@ export default function App() {
           />
         ) : view === 'settings' ? (
           <SettingsView
-            onBack={() => setView('list')}
+            onBack={() => navigateToView('list')}
           />
         ) : (
           <EpisodeDetailView
             episode={selectedEpisode}
-            onBack={() => { setView(previousView); setSelectedEpisode(null); }}
+            onBack={() => {
+              if (hasInAppNavigationRef.current) {
+                window.history.back();
+              } else {
+                navigateToView(previousView || 'workspace');
+              }
+            }}
             onRefresh={loadData}
             onPlay={handlePlay}
           />
@@ -470,7 +637,16 @@ export default function App() {
       />
 
       {/* 任务进度面板 */}
-      <TaskPanel onTaskComplete={loadData} />
+      <TaskPanel
+        onTaskComplete={loadData}
+        onNavigate={({ type, id }) => {
+          if (type === 'episode') openEpisode(id);
+          if (type === 'feed') openFeed(id);
+        }}
+        pollIntervalMs={taskPollSeconds * 1000}
+        historyWindowMinutes={taskHistoryWindowMinutes}
+        defaultOpen={taskPanelDefaultOpen}
+      />
     </div>
   );
 }

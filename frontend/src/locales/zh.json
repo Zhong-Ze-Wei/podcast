@@ -147,11 +147,30 @@
     "grid": "网格视图",
     "list": "列表视图"
   },
+  "viewToolbar": {
+    "subscriptionsDescription": "管理已订阅的播客源，可在卡片和列表视图之间切换。",
+    "feedDescription": "浏览这个订阅下的全部节目，列表视图更适合快速扫描。",
+    "favoritesDescription": "集中查看你标星保存的节目，便于回访和继续处理。",
+    "workspaceDescription": "下载、转录和摘要相关的节目会汇集在这里。"
+  },
   "tasks": {
     "title": "任务",
     "clearCompleted": "清除已完成",
     "cancel": "取消",
     "dismiss": "关闭",
+    "openPanel": "打开任务",
+    "closePanel": "关闭任务",
+    "resizePanel": "调整任务面板大小",
+    "openTarget": "打开关联的节目或订阅",
+    "targetDeleted": "关联内容已不存在",
+    "unknownEpisode": "节目",
+    "unknownFeed": "订阅",
+    "activeCount": "{{count}} 个进行中",
+    "recentCount": "{{count}} 条最近记录",
+    "emptyActive": "暂无进行中的任务",
+    "emptyHistory": "暂无任务历史",
+    "emptyActiveHint": "下载、转录和摘要任务运行时会显示在这里。",
+    "emptyHistoryHint": "已完成和失败的任务会按你设置的历史范围显示在这里。",
     "empty": "暂无任务",
     "elapsed": "已运行",
     "lastUpdate": "更新于",
@@ -159,6 +178,16 @@
     "secondsAgo": "秒前",
     "minutesAgo": "分钟前",
     "maybeStuck": "任务可能卡住了，请检查后端日志",
+    "tabs": {
+      "active": "进行中",
+      "history": "历史"
+    },
+    "time": {
+      "secondsAgo": "{{count}} 秒前",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前"
+    },
     "types": {
       "download": "下载音频",
       "transcribe": "AI转录",
@@ -176,6 +205,7 @@
     "title": "设置",
     "llmTab": "LLM 配置",
     "templatesTab": "摘要模板",
+    "appTab": "应用设置",
     "templates": "模板",
     "templatesCount": "个模板",
     "llmTitle": "LLM 配置",
@@ -192,6 +222,38 @@
     "addConfig": "添加配置",
     "testSuccess": "连接成功",
     "testFailed": "连接测试失败",
-    "testRequiredFields": "Base URL 和 Model 为必填项"
+    "testRequiredFields": "Base URL 和 Model 为必填项",
+    "app": {
+      "description": "应用行为和任务面板偏好会保存在当前浏览器。",
+      "autoRefreshTitle": "自动刷新订阅内容",
+      "autoRefreshDescription": "定时刷新订阅源和单集状态，适合下载、转录和摘要任务运行时保持页面同步。",
+      "taskPollTitle": "任务状态轮询",
+      "taskPollDescription": "控制右下角任务旋钮和任务中心检查进度的频率。值越小越实时，值越大越省资源。",
+      "taskHistoryTitle": "任务历史范围",
+      "taskHistoryDescription": "任务记录后端最多保留 7 天；这里控制任务中心历史页默认显示多久以内的完成和失败任务。",
+      "taskPanelDefaultOpenTitle": "任务中心默认打开",
+      "taskPanelDefaultOpenDescription": "右下角任务旋钮会始终显示；开启后进入应用时自动展开任务中心。",
+      "taskPanelDefaultOpenLabel": "进入应用时展开任务中心",
+      "refreshOptions": {
+        "0": "关闭",
+        "1": "1 分钟",
+        "5": "5 分钟",
+        "10": "10 分钟",
+        "30": "30 分钟",
+        "60": "1 小时"
+      },
+      "pollOptions": {
+        "2": "2 秒",
+        "3": "3 秒",
+        "5": "5 秒",
+        "10": "10 秒"
+      },
+      "historyOptions": {
+        "5": "最近 5 分钟",
+        "60": "最近 1 小时",
+        "1440": "最近 24 小时",
+        "10080": "最近 7 天"
+      }
+    }
   }
 }
