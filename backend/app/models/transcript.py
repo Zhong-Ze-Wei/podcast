@@ -2,6 +2,7 @@
 """
 Transcript (转录) 数据模型
 """
+from collections.abc import Iterable
 from datetime import datetime
 from bson import ObjectId
 
@@ -23,7 +24,7 @@ class Transcript:
         return {
             "episode_id": episode_id,
             "text": text,
-            "segments": segments or [],
+            "segments": to_bson_safe(segments or []),
             "language": kwargs.get("language", "en"),
             "word_count": word_count,
             "source": kwargs.get("source", Transcript.SOURCE_WHISPER),
@@ -47,3 +48,26 @@ class Transcript:
             "model": doc.get("model", ""),
             "created_at": doc.get("created_at").isoformat() + "Z" if doc.get("created_at") else None
         }
+
+
+def to_bson_safe(value):
+    """Convert nested transcript payloads into MongoDB-safe primitives."""
+    if value is None or isinstance(value, (str, int, float, bool, datetime, ObjectId)):
+        return value
+
+    if isinstance(value, dict):
+        return {str(key): to_bson_safe(item) for key, item in value.items()}
+
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", errors="replace")
+
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return to_bson_safe(value.item())
+        except Exception:
+            pass
+
+    if isinstance(value, Iterable):
+        return [to_bson_safe(item) for item in value]
+
+    return str(value)

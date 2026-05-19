@@ -12,7 +12,7 @@ from bson.errors import InvalidId
 from datetime import datetime
 
 from ..models.episode import Episode
-from ..models.transcript import Transcript
+from ..models.transcript import Transcript, to_bson_safe
 from ..services.task_queue import task_queue
 from ..services.transcript_fetcher import TranscriptFetcher
 from .utils import success_response, error_response
@@ -311,7 +311,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
             {"episode_id": episode_oid},
             {"$set": {
                 "text": text,
-                "segments": segments,
+                "segments": to_bson_safe(segments),
                 "source": source,
                 "model": model or source,
                 "language": language or episode.get("language", ""),
@@ -533,7 +533,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
     # 保存到数据库
     db = get_db()
-    transcript_doc = {
+    transcript_doc = to_bson_safe({
         "episode_id": episode_oid,
         "text": transcript.text,
         "segments": segments,
@@ -545,7 +545,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
         "source": "assemblyai",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
-    }
+    })
 
     # 检查是否已存在
     existing = db.transcripts.find_one({"episode_id": episode_oid})

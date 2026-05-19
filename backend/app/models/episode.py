@@ -4,6 +4,10 @@ Episode (单集) 数据模型
 """
 from datetime import datetime
 from bson import ObjectId
+import os
+from urllib.parse import quote
+
+from ..config import Config
 
 
 class Episode:
@@ -71,6 +75,7 @@ class Episode:
             return None
 
         duration = doc.get("duration", 0)
+        local_path = doc.get("local_path") or doc.get("audio_path")
 
         # 兼容旧数据: description字段映射到summary
         summary = doc.get("summary", "") or doc.get("description", "")
@@ -89,6 +94,7 @@ class Episode:
             "audio_url": doc.get("audio_url", ""),
             "audio_type": doc.get("audio_type", ""),
             "audio_size": doc.get("audio_size", 0),
+            "local_audio_url": Episode._local_audio_url(local_path),
             "duration": duration,
             "duration_formatted": Episode.format_duration(duration),
             "image": doc.get("image", ""),
@@ -111,6 +117,29 @@ class Episode:
             result["feed_title"] = doc["feed_title"]
 
         return result
+
+    @staticmethod
+    def _local_audio_url(local_path: str) -> str:
+        """Return an API-served local media URL only when the file exists."""
+        if not local_path:
+            return None
+
+        media_root = os.path.abspath(Config.MEDIA_ROOT)
+        candidate = local_path if os.path.isabs(local_path) else os.path.join(media_root, local_path)
+        candidate = os.path.abspath(candidate)
+
+        try:
+            if os.path.commonpath([media_root, candidate]) != media_root:
+                return None
+        except ValueError:
+            return None
+
+        if not os.path.isfile(candidate):
+            return None
+
+        rel_path = os.path.relpath(candidate, media_root)
+        url_path = "/".join(quote(part) for part in rel_path.split(os.sep))
+        return f"/api/media/{url_path}"
 
     @staticmethod
     def can_download(status: str) -> bool:
