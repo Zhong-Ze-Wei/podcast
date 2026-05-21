@@ -1,12 +1,13 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, ChevronLeft, Server, FileText, Sliders } from 'lucide-react';
+import { Settings, ChevronLeft, Server, FileText, Sliders, UserCircle } from 'lucide-react';
 import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
+import AccountPanel from './settings/AccountPanel';
 
-const SettingsView = ({ onBack }) => {
+const SettingsView = ({ onBack, currentUser, onLogout }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('llm'); // llm | templates | app
 
@@ -25,6 +26,11 @@ const SettingsView = ({ onBack }) => {
       id: 'app',
       label: t('settings.appTab') || '应用设置',
       icon: Sliders
+    },
+    {
+      id: 'account',
+      label: '账号',
+      icon: UserCircle
     }
   ];
 
@@ -71,6 +77,7 @@ const SettingsView = ({ onBack }) => {
         {activeTab === 'llm' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}
+        {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
       </div>
     </div>
   );

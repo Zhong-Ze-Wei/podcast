@@ -15,6 +15,26 @@ const api = axios.create({
   }
 });
 
+const TOKEN_KEY = 'podcast_auth_token';
+
+export const getAuthToken = () => localStorage.getItem(TOKEN_KEY);
+
+export const setAuthToken = (token) => {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+};
+
+api.interceptors.request.use(config => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // 响应拦截器
 api.interceptors.response.use(
   response => response.data,
@@ -33,6 +53,8 @@ api.interceptors.response.use(
         resourceType = 'Summary';
       }
       console.info(`${resourceType} not yet available (will be created when generated)`);
+    } else if (status === 401) {
+      setAuthToken(null);
     } else {
       console.error('API Error:', data.message || data);
     }
@@ -50,6 +72,21 @@ export const feedsApi = {
   refresh: (id) => api.post(`/feeds/${id}/refresh`),
   favorite: (id, favorite) => api.post(`/feeds/${id}/favorite`, { favorite }),
   getEpisodes: (id, params = {}) => api.get(`/feeds/${id}/episodes`, { params })
+};
+
+// Auth API
+export const authApi = {
+  register: (data) => api.post('/auth/register', data),
+  login: (data) => api.post('/auth/login', data),
+  me: () => api.get('/auth/me')
+};
+
+// Admin API
+export const adminApi = {
+  users: () => api.get('/admin/users'),
+  updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  tasks: () => api.get('/admin/tasks'),
+  health: () => api.get('/admin/health')
 };
 
 // Episodes API
