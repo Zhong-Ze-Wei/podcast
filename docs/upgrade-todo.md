@@ -59,7 +59,7 @@ npm run build
 TODO:
 
 - [ ] `test_feeds_api.py`
-- [ ] `test_episodes_api.py`
+- [x] `test_episodes_api.py`
 - [ ] `test_transcripts_api.py`
 - [ ] `test_summaries_api.py`
 - [ ] `test_settings_api.py`
