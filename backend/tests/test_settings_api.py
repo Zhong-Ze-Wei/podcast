@@ -97,7 +97,115 @@ def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs()
     assert payload["configs"][0]["api_key"] == ""
     assert payload["configs"][0]["has_api_key"] is True
     assert payload["task_routes"] == {
-        "summary": "modelscope",
+        "summary": "default",
         "transcript_normalize": "default",
         "briefing": "default",
     }
+
+
+def test_llm_settings_split_providers_models_and_routes_without_returning_keys():
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "user@example.com")
+    client = app.test_client()
+
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "providers": [{
+                "id": "modelscope",
+                "name": "ModelScope",
+                "provider": "modelscope",
+                "api_format": "openai_compatible",
+                "base_url": "https://api-inference.modelscope.cn/v1",
+                "api_key": "secret",
+                "enabled": True,
+            }],
+            "models": [
+                {
+                    "id": "modelscope-deepseek-v4-flash",
+                    "provider_id": "modelscope",
+                    "name": "DeepSeek V4 Flash",
+                    "model": "deepseek-ai/DeepSeek-V4-Flash",
+                    "enabled": True,
+                    "supports_streaming": True,
+                },
+                {
+                    "id": "bad-model",
+                    "provider_id": "missing",
+                    "name": "Bad",
+                    "model": "bad",
+                    "enabled": True,
+                },
+            ],
+            "default_model_id": "modelscope-deepseek-v4-flash",
+            "task_routes": {
+                "summary": "modelscope-deepseek-v4-flash",
+                "transcript_normalize": "bad-model",
+                "briefing": "default",
+            },
+        },
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 200
+
+    payload = client.get("/api/settings/llm", headers=auth_headers(user)).get_json()
+    assert payload["providers"] == [{
+        "id": "modelscope",
+        "name": "ModelScope",
+        "provider": "modelscope",
+        "api_format": "openai_compatible",
+        "base_url": "https://api-inference.modelscope.cn/v1",
+        "api_key": "",
+        "enabled": True,
+        "has_api_key": True,
+    }]
+    assert payload["models"] == [{
+        "id": "modelscope-deepseek-v4-flash",
+        "provider_id": "modelscope",
+        "name": "DeepSeek V4 Flash",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "enabled": True,
+        "supports_streaming": True,
+    }]
+    assert payload["default_model_id"] == "modelscope-deepseek-v4-flash"
+    assert payload["task_routes"] == {
+        "summary": "modelscope-deepseek-v4-flash",
+        "transcript_normalize": "default",
+        "briefing": "default",
+    }
+
+
+def test_active_llm_config_is_composed_from_default_provider_and_model():
+    app = make_auth_app((settings_bp, "/api/settings"))
+    model = SettingModel(app.db, owner_id="owner")
+    model.save_llm_settings(
+        providers=[{
+            "id": "modelscope",
+            "name": "ModelScope",
+            "provider": "modelscope",
+            "api_format": "openai_compatible",
+            "base_url": "https://api-inference.modelscope.cn/v1",
+            "api_key": "secret",
+            "enabled": True,
+        }],
+        models=[{
+            "id": "flash",
+            "provider_id": "modelscope",
+            "name": "Flash",
+            "model": "deepseek-ai/DeepSeek-V4-Flash",
+            "enabled": True,
+            "supports_streaming": True,
+        }],
+        default_model_id="flash",
+        task_routes={},
+    )
+
+    active = model.get_active_llm_config()
+
+    assert active["id"] == "flash"
+    assert active["provider_id"] == "modelscope"
+    assert active["base_url"] == "https://api-inference.modelscope.cn/v1"
+    assert active["api_key"] == "secret"
+    assert active["model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert active["api_format"] == "openai_compatible"
