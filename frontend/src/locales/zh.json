@@ -238,6 +238,42 @@
     "testSuccess": "连接成功",
     "testFailed": "连接测试失败",
     "testRequiredFields": "Base URL 和 Model 为必填项",
+    "ai": {
+      "providerFirst": "服务商优先配置",
+      "providerFirstDesc": "先选择可用服务商，再把任务分配给已启用的服务商模型。真实 API Key 只保存在本地配置或数据库中。",
+      "presets": "服务商预设",
+      "configuredProviders": "已配置",
+      "customModel": "自定义模型",
+      "endpointTitle": "API 端点",
+      "endpointDesc": "ModelScope 已作为默认预设；也可以切换到 OpenAI 兼容或 Anthropic Messages 格式。",
+      "configName": "配置名称",
+      "apiFormat": "API 格式",
+      "setDefault": "设为默认",
+      "savedKey": "已保存",
+      "keepExistingKey": "留空保持当前密钥",
+      "enabled": "启用此服务商",
+      "streaming": "支持流式响应",
+      "advanced": "高级参数",
+      "maxTokens": "Max Tokens",
+      "maxTokensHint": "多数任务会按模板决定输出长度；这里作为兜底上限。",
+      "taskRouting": "任务分配",
+      "taskRoutingDesc": "只能选择已启用且配置完整的服务商模型；未指定时使用默认模型。",
+      "defaultModel": "默认模型",
+      "tasks": {
+        "summary": {
+          "title": "摘要生成",
+          "description": "结构化播客摘要和模板输出。"
+        },
+        "transcript_normalize": {
+          "title": "转录规范化",
+          "description": "简繁转换、中文空格清理和文本润色。"
+        },
+        "briefing": {
+          "title": "每日简报",
+          "description": "聚合多集内容生成趋势和推荐。"
+        }
+      }
+    },
     "account": {
       "title": "账号",
       "description": "查看当前登录身份、退出登录，以及管理员视角的用户和系统概况。",
