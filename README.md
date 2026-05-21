@@ -2,6 +2,38 @@
 
 Local-first podcast pipeline: RSS subscriptions, audio download, transcription, and AI-assisted summaries.
 
+> 中文说明见 [README_CN.md](./README_CN.md)。
+
+## Quick Start
+
+Start the backend first, then the frontend.
+
+```powershell
+git clone <repo-url>
+cd podcast
+
+cd backend
+Copy-Item .env.example .env
+uv sync
+uv run python run.py
+```
+
+`backend/run.py` checks whether MongoDB is listening on `localhost:27017`. If not, it tries to create or start a Docker container named `podcast-mongodb` with a persistent Docker volume.
+
+Open another terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
 ## Stack
 
 | Layer | Technology |
@@ -19,6 +51,25 @@ Local-first podcast pipeline: RSS subscriptions, audio download, transcription, 
 - uv 0.9+.
 - Node.js 18+.
 - MongoDB on port `27017`, or Docker Desktop if you want `backend/run.py` to auto-start MongoDB.
+
+## Database
+
+The fastest local path is to let `backend/run.py` manage MongoDB through Docker. For deployment or explicit database management, start MongoDB yourself and point the backend at it.
+
+Manual Docker:
+
+```powershell
+docker run -d --name podcast-mongodb -p 27017:27017 -v podcast-mongodb-data:/data/db mongo:latest
+```
+
+External MongoDB:
+
+```env
+MONGO_URI=mongodb://your-mongodb-host:27017
+MONGO_DB=podcast
+```
+
+For a shared or deployed instance, prefer explicit MongoDB management over relying on the backend process to create infrastructure implicitly.
 
 ## Backend
 
@@ -115,14 +166,17 @@ Important backend flags:
 MONGO_URI=mongodb://localhost:27017
 MONGO_DB=podcast
 
+AUTH_REQUIRED=0
+JWT_SECRET=change-this-before-sharing
+
 TRANSCRIPTION_DEFAULT_PROVIDER=official
 TRANSCRIPTION_DEFAULT_LANGUAGE=auto
 TRANSCRIPTION_AI_NORMALIZE_ENABLED=0
 WHISPER_MODEL=base
 WHISPER_MODEL_DIR=E:\models\tts
 TORCH_HOME=E:\models\tts\torch
-WHISPER_DEVICE=cuda
-WHISPER_COMPUTE_TYPE=float16
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
 WHISPERX_BATCH_SIZE=16
 WHISPERX_VAD_METHOD=silero
 WHISPERX_DIARIZE=0
@@ -171,6 +225,41 @@ Transcript creation accepts a provider and optional language:
 All transcript sources are normalized before saving. The default local rules remove unnatural spaces between Chinese characters and punctuation. If OpenCC is installed, Traditional Chinese can be converted to Simplified Chinese locally. Optional AI normalization uses the active LLM configuration and is disabled by default.
 
 Opening an episode detail page does not automatically fetch external transcripts or start local/cloud transcription. Users must explicitly click the transcript action.
+
+## Auth And Users
+
+The backend supports JWT Bearer authentication. Local development keeps `AUTH_REQUIRED=0` so existing single-user workflows still run quickly. Set this when serving multiple users:
+
+```env
+AUTH_REQUIRED=1
+JWT_SECRET=<strong-random-secret>
+```
+
+Existing local data can be assigned to a default admin:
+
+```powershell
+cd backend
+uv run python scripts/backfill_default_owner.py
+```
+
+First registered user becomes an admin. Later users are normal users. Normal users can only access their own feeds, episodes, transcripts, summaries, tasks, and settings.
+
+For local permission testing:
+
+```powershell
+cd backend
+uv run python scripts/seed_test_users.py
+```
+
+This creates `admin@example.com`, `user1@example.com`, and `user2@example.com` with password `password123` unless `TEST_USER_PASSWORD` is set.
+
+## Troubleshooting
+
+- If MongoDB does not start, make sure Docker Desktop is running or start MongoDB manually.
+- If port `27017` is occupied, change `MONGO_URI` to an available MongoDB instance.
+- If the frontend cannot call the API, confirm the backend is running on `http://localhost:5000`; Vite proxies `/api` there.
+- If `uv` reports cache permission errors, set `UV_CACHE_DIR` to a project-local directory as shown above.
+- Local Whisper may download model files on first use; CPU mode is slower but has the fewest setup assumptions.
 
 ## Frontend Routes
 

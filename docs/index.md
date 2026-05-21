@@ -1,6 +1,6 @@
 # Podcast Manager - 项目文档索引
 
-> 文档更新日期：2026-05-20
+> 文档更新日期：2026-05-21
 
 ## 文档目录
 
@@ -13,6 +13,8 @@
 | [数据流转报告](./data-flow.md) | 核心业务流程、数据生命周期、时序图 |
 | [API 接口文档](./api.md) | 当前后端 API、请求体、错误码、任务返回字段 |
 | [当前实现状态](./implementation-status.md) | 当前模块、组件、路由、仍需关注的问题 |
+| [短期路线图](./roadmap.md) | 账号权限、设置中心、全流程稳定性和近期不做事项 |
+| [升级 TODO](./upgrade-todo.md) | 基于升级计划整理的 TDD 与原子提交执行清单 |
 | [LLM 配置 UI Demo](./llm-config-ui-demos.html) | LLM API 端点设置页的 6 种 UI 策略 |
 
 ## 快速入门
