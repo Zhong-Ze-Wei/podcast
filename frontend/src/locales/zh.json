@@ -2,6 +2,19 @@
   "app": {
     "title": "PodMaster"
   },
+  "auth": {
+    "subtitle": "登录后管理自己的订阅、转录、摘要和任务。",
+    "login": "登录",
+    "register": "注册",
+    "email": "邮箱",
+    "password": "密码",
+    "passwordPlaceholder": "至少 8 位",
+    "processing": "处理中...",
+    "createAccount": "创建账号",
+    "failed": "认证失败，请检查账号信息",
+    "firstUserAdminHint": "如果数据库里还没有用户，第一个注册账号会自动成为管理员。",
+    "noAccountHint": "没有账号时可以直接注册；本地测试也可以运行 seed_test_users.py 创建固定账号。"
+  },
   "sidebar": {
     "allEpisodes": "所有节目",
     "subscriptions": "订阅",
@@ -203,13 +216,15 @@
   },
   "settings": {
     "title": "设置",
-    "llmTab": "LLM 配置",
+    "accountTab": "账号",
+    "llmTab": "AI 配置",
     "templatesTab": "摘要模板",
     "appTab": "应用设置",
+    "templatesDesc": "管理摘要生成时使用的提示词模板。",
     "templates": "模板",
     "templatesCount": "个模板",
-    "llmTitle": "LLM 配置",
-    "llmDesc": "配置 AI 功能的 LLM API 端点",
+    "llmTitle": "AI 配置",
+    "llmDesc": "配置摘要、规范化等 AI 功能使用的 OpenAI 兼容接口。",
     "save": "保存",
     "saved": "设置已保存",
     "loadError": "加载设置失败",
@@ -223,6 +238,17 @@
     "testSuccess": "连接成功",
     "testFailed": "连接测试失败",
     "testRequiredFields": "Base URL 和 Model 为必填项",
+    "account": {
+      "title": "账号",
+      "description": "查看当前登录身份、退出登录，以及管理员视角的用户和系统概况。",
+      "localUser": "本地默认用户",
+      "role": "角色",
+      "logout": "退出",
+      "adminTitle": "管理员",
+      "userList": "用户列表",
+      "adminLoadError": "管理员信息加载失败",
+      "firstAdminHint": "当前账号拥有管理员权限。空数据库的第一个注册用户会自动成为管理员。"
+    },
     "app": {
       "description": "应用行为和任务面板偏好会保存在当前浏览器。",
       "autoRefreshTitle": "自动刷新订阅内容",

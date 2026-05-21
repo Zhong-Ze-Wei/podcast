@@ -2,6 +2,19 @@
   "app": {
     "title": "PodMaster"
   },
+  "auth": {
+    "subtitle": "Sign in to manage your subscriptions, transcripts, summaries, and tasks.",
+    "login": "Log in",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "passwordPlaceholder": "At least 8 characters",
+    "processing": "Processing...",
+    "createAccount": "Create account",
+    "failed": "Authentication failed. Check your account details.",
+    "firstUserAdminHint": "If the database has no users yet, the first registered account becomes the administrator.",
+    "noAccountHint": "No account yet? Register directly, or seed fixed local users with seed_test_users.py."
+  },
   "sidebar": {
     "allEpisodes": "All Episodes",
     "subscriptions": "Subscriptions",
@@ -203,13 +216,15 @@
   },
   "settings": {
     "title": "Settings",
-    "llmTab": "LLM Configuration",
+    "accountTab": "Account",
+    "llmTab": "AI Configuration",
     "templatesTab": "Summary Templates",
     "appTab": "App Settings",
+    "templatesDesc": "Manage prompt templates used by summary generation.",
     "templates": "Templates",
     "templatesCount": "templates",
-    "llmTitle": "LLM Configuration",
-    "llmDesc": "Configure LLM API endpoints for AI features",
+    "llmTitle": "AI Configuration",
+    "llmDesc": "Configure OpenAI-compatible endpoints for summaries, normalization, and other AI features.",
     "save": "Save",
     "saved": "Settings saved",
     "loadError": "Failed to load settings",
@@ -223,6 +238,17 @@
     "testSuccess": "Connection successful",
     "testFailed": "Connection test failed",
     "testRequiredFields": "Base URL and Model are required",
+    "account": {
+      "title": "Account",
+      "description": "Review the signed-in identity, log out, and inspect users and system health as an administrator.",
+      "localUser": "Local default user",
+      "role": "Role",
+      "logout": "Log out",
+      "adminTitle": "Administrator",
+      "userList": "Users",
+      "adminLoadError": "Failed to load administrator data",
+      "firstAdminHint": "This account has administrator access. The first registered user in an empty database becomes the administrator."
+    },
     "app": {
       "description": "App behavior and task panel preferences are saved in this browser.",
       "autoRefreshTitle": "Auto-refresh subscriptions",

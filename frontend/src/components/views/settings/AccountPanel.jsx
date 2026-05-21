@@ -1,9 +1,11 @@
 // -*- coding: utf-8 -*-
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Shield, User, Activity, Power } from 'lucide-react';
 import { adminApi } from '../../../services/api';
 
 const AccountPanel = ({ currentUser, onLogout }) => {
+  const { t } = useTranslation();
   const [health, setHealth] = useState(null);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
@@ -18,22 +20,29 @@ const AccountPanel = ({ currentUser, onLogout }) => {
         setHealth(healthResponse.data || healthResponse);
         setUsers(usersResponse.data || usersResponse);
       })
-      .catch((err) => setError(err.message || '管理员信息加载失败'));
+      .catch((err) => setError(err.message || t('settings.account.adminLoadError')));
     return () => { mounted = false; };
-  }, [isAdmin]);
+  }, [isAdmin, t]);
 
   return (
     <div className="h-full overflow-y-auto p-8 space-y-6">
       <section className="max-w-4xl">
-        <h2 className="text-lg font-semibold text-white mb-4">账号</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">{t('settings.account.title')}</h2>
         <div className="border border-zinc-800 bg-zinc-900/40 rounded-lg p-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 rounded-lg bg-zinc-800 flex items-center justify-center">
               <User size={20} className="text-zinc-300" />
             </div>
             <div>
-              <div className="text-white font-medium">{currentUser?.email || '本地默认用户'}</div>
-              <div className="text-xs text-zinc-500">角色：{currentUser?.role || 'user'}</div>
+              <div className="text-white font-medium">{currentUser?.email || t('settings.account.localUser')}</div>
+              <div className="text-xs text-zinc-500">
+                {t('settings.account.role')}: {currentUser?.role || 'user'}
+              </div>
+              {isAdmin && (
+                <div className="mt-1 text-xs text-emerald-300">
+                  {t('settings.account.firstAdminHint')}
+                </div>
+              )}
             </div>
           </div>
           <button
@@ -41,7 +50,7 @@ const AccountPanel = ({ currentUser, onLogout }) => {
             className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm text-zinc-300 hover:text-white hover:bg-zinc-800"
           >
             <Power size={16} />
-            退出
+            {t('settings.account.logout')}
           </button>
         </div>
       </section>
@@ -50,7 +59,7 @@ const AccountPanel = ({ currentUser, onLogout }) => {
         <section className="max-w-4xl space-y-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield size={18} className="text-indigo-300" />
-            管理员
+            {t('settings.account.adminTitle')}
           </h2>
           {error && <div className="text-sm text-red-300">{error}</div>}
           {health && (
@@ -66,7 +75,7 @@ const AccountPanel = ({ currentUser, onLogout }) => {
           <div className="border border-zinc-800 bg-zinc-900/40 rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-800 text-sm text-zinc-400 flex items-center gap-2">
               <Activity size={16} />
-              用户列表
+              {t('settings.account.userList')}
             </div>
             {users.map(user => (
               <div key={user.id} className="px-4 py-3 border-b border-zinc-800/70 last:border-0 flex items-center justify-between">
