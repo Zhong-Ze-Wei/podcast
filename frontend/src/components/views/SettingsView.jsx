@@ -9,30 +9,35 @@ import AccountPanel from './settings/AccountPanel';
 
 const SettingsView = ({ onBack, currentUser, onLogout }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('llm'); // llm | templates | app
+  const [activeTab, setActiveTab] = useState('account');
 
   const tabs = [
     {
+      id: 'account',
+      label: t('settings.accountTab'),
+      description: t('settings.account.description'),
+      icon: UserCircle
+    },
+    {
+      id: 'app',
+      label: t('settings.appTab'),
+      description: t('settings.app.description'),
+      icon: Sliders
+    },
+    {
       id: 'llm',
-      label: t('settings.llmTab') || 'LLM 配置',
+      label: t('settings.llmTab'),
+      description: t('settings.llmDesc'),
       icon: Server
     },
     {
       id: 'templates',
-      label: t('settings.templatesTab') || '摘要模板',
+      label: t('settings.templatesTab'),
+      description: t('settings.templatesDesc'),
       icon: FileText
-    },
-    {
-      id: 'app',
-      label: t('settings.appTab') || '应用设置',
-      icon: Sliders
-    },
-    {
-      id: 'account',
-      label: '账号',
-      icon: UserCircle
     }
   ];
+  const activeTabMeta = tabs.find(tab => tab.id === activeTab);
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -48,8 +53,9 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-white flex items-center gap-3">
               <Settings size={24} className="text-indigo-400" />
-              {t('settings.title') || 'Settings'}
+              {t('settings.title')}
             </h1>
+            <p className="mt-1 text-sm text-zinc-500">{activeTabMeta?.description}</p>
           </div>
         </div>
 
@@ -74,10 +80,10 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
+        {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
+        {activeTab === 'app' && <AppSettingsPanel />}
         {activeTab === 'llm' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
-        {activeTab === 'app' && <AppSettingsPanel />}
-        {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
       </div>
     </div>
   );

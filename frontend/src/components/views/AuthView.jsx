@@ -1,9 +1,11 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LockKeyhole, Mail, Podcast, UserPlus } from 'lucide-react';
 import { authApi, setAuthToken } from '../../services/api';
 
 const AuthView = ({ onAuthenticated }) => {
+  const { t } = useTranslation();
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +24,7 @@ const AuthView = ({ onAuthenticated }) => {
       setAuthToken(payload.token);
       onAuthenticated(payload.user);
     } catch (err) {
-      setError(err.message || err.error || '认证失败，请检查账号信息');
+      setError(err.message || err.error || t('auth.failed'));
     } finally {
       setLoading(false);
     }
@@ -36,7 +38,7 @@ const AuthView = ({ onAuthenticated }) => {
             <Podcast className="text-indigo-300" size={24} />
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-white">Podcast Manager</h1>
-          <p className="mt-2 text-sm text-zinc-400">登录后管理自己的订阅、转录、摘要和任务。</p>
+          <p className="mt-2 text-sm text-zinc-400">{t('auth.subtitle')}</p>
         </div>
 
         <form onSubmit={submit} className="border border-zinc-800 bg-zinc-900/60 rounded-lg p-6 shadow-2xl shadow-black/30">
@@ -46,18 +48,18 @@ const AuthView = ({ onAuthenticated }) => {
               onClick={() => setMode('login')}
               className={`flex-1 px-3 py-2 rounded-md text-sm transition-colors ${mode === 'login' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              登录
+              {t('auth.login')}
             </button>
             <button
               type="button"
               onClick={() => setMode('register')}
               className={`flex-1 px-3 py-2 rounded-md text-sm transition-colors ${mode === 'register' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              注册
+              {t('auth.register')}
             </button>
           </div>
 
-          <label className="block text-xs font-medium text-zinc-500 mb-2">邮箱</label>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">{t('auth.email')}</label>
           <div className="relative mb-4">
             <Mail size={16} className="absolute left-3 top-3 text-zinc-500" />
             <input
@@ -71,7 +73,7 @@ const AuthView = ({ onAuthenticated }) => {
             />
           </div>
 
-          <label className="block text-xs font-medium text-zinc-500 mb-2">密码</label>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">{t('auth.password')}</label>
           <div className="relative mb-4">
             <LockKeyhole size={16} className="absolute left-3 top-3 text-zinc-500" />
             <input
@@ -82,9 +84,13 @@ const AuthView = ({ onAuthenticated }) => {
               minLength={8}
               required
               className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-10 pr-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-              placeholder="至少 8 位"
+              placeholder={t('auth.passwordPlaceholder')}
             />
           </div>
+
+          <p className="mb-4 text-xs leading-5 text-zinc-500">
+            {mode === 'register' ? t('auth.firstUserAdminHint') : t('auth.noAccountHint')}
+          </p>
 
           {error && (
             <div className="mb-4 text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-md px-3 py-2">
@@ -98,7 +104,7 @@ const AuthView = ({ onAuthenticated }) => {
             className="w-full inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-md px-4 py-2.5 text-sm font-medium transition-colors"
           >
             {mode === 'register' ? <UserPlus size={16} /> : <LockKeyhole size={16} />}
-            {loading ? '处理中...' : mode === 'register' ? '创建账号' : '登录'}
+            {loading ? t('auth.processing') : mode === 'register' ? t('auth.createAccount') : t('auth.login')}
           </button>
         </form>
       </div>
