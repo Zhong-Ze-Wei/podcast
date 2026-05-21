@@ -10,6 +10,7 @@ from typing import Optional
 from datetime import datetime
 
 import openai
+import requests
 
 from app.config import get_config
 
@@ -20,12 +21,27 @@ config = get_config()
 class LLMClient:
     """LLM 调用客户端"""
 
-    def __init__(self, base_url: str = None, api_key: str = None, model: str = None):
-        self.base_url = base_url or config.LLM_BASE_URL
+    API_FORMAT_OPENAI = "openai_compatible"
+    API_FORMAT_ANTHROPIC = "anthropic_messages"
+
+    def __init__(
+        self,
+        base_url: str = None,
+        api_key: str = None,
+        model: str = None,
+        api_format: str = None,
+        supports_streaming: bool = True,
+    ):
+        self.base_url = (base_url or config.LLM_BASE_URL).rstrip("/")
         self.api_key = api_key or config.LLM_API_KEY
         self.model = model or config.LLM_MODEL
+        default_api_format = getattr(config, "LLM_API_FORMAT", self.API_FORMAT_OPENAI)
+        self.api_format = api_format or default_api_format
+        self.supports_streaming = supports_streaming
 
-        self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.client = None
+        if self.api_format == self.API_FORMAT_OPENAI:
+            self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def chat(
         self,
@@ -56,6 +72,14 @@ class LLMClient:
         model = model or self.model
         max_tokens = max_tokens or config.LLM_MAX_TOKENS
         temperature = temperature if temperature is not None else config.LLM_TEMPERATURE
+
+        if self.api_format == self.API_FORMAT_ANTHROPIC:
+            return self._chat_anthropic(
+                messages=messages,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
 
         kwargs = {
             "model": model,
@@ -106,6 +130,70 @@ class LLMClient:
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             raise
+
+    def _chat_anthropic(
+        self,
+        messages: list,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> dict:
+        """Call Anthropic Messages API using the same return shape as chat()."""
+        system_parts = []
+        anthropic_messages = []
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content", "")
+            if role == "system":
+                system_parts.append(content)
+            elif role in ("user", "assistant"):
+                anthropic_messages.append({"role": role, "content": content})
+
+        payload = {
+            "model": model,
+            "messages": anthropic_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+
+        start_time = datetime.now()
+        response = requests.post(
+            f"{self.base_url}/messages",
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        body = response.json()
+        elapsed = (datetime.now() - start_time).total_seconds()
+
+        content = "".join(
+            item.get("text", "")
+            for item in body.get("content", [])
+            if item.get("type") == "text"
+        ).strip()
+        if not content:
+            raise ValueError("LLM returned empty content")
+
+        raw_usage = body.get("usage", {}) or {}
+        usage = {
+            "prompt": raw_usage.get("input_tokens", 0),
+            "completion": raw_usage.get("output_tokens", 0),
+            "total": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
+        }
+
+        return {
+            "content": content,
+            "usage": usage,
+            "model": body.get("model", model),
+            "elapsed_seconds": elapsed,
+        }
 
     def chat_json(
         self,
@@ -212,6 +300,8 @@ def get_llm_client() -> LLMClient:
             base_url=active_config.get("base_url"),
             api_key=active_config.get("api_key"),
             model=active_config.get("model"),
+            api_format=active_config.get("api_format"),
+            supports_streaming=active_config.get("supports_streaming", True),
         )
 
     # 回退到环境变量配置
