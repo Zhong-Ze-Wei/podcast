@@ -22,6 +22,7 @@ from .utils import (
     get_pagination_params,
     get_bool_param,
 )
+from .decorators import current_owner_id, owner_filter, require_auth
 
 episodes_bp = Blueprint("episodes", __name__)
 
@@ -51,13 +52,14 @@ def _local_audio_file_exists(episode):
 
 
 @episodes_bp.route("", methods=["GET"])
+@require_auth
 def list_episodes():
     """获取单集列表 (全局)"""
     db = get_db()
     page, per_page = get_pagination_params()
 
     # 构建查询条件
-    query = {}
+    query = owner_filter()
 
     # 支持多个状态值 (用逗号分隔: status=transcribing,transcribed)
     status = request.args.get("status")
@@ -102,7 +104,7 @@ def list_episodes():
 
     # 获取feed标题映射
     feed_ids = list(set(ep.get("feed_id") for ep in episodes if ep.get("feed_id")))
-    feeds = {f["_id"]: f for f in db.feeds.find({"_id": {"$in": feed_ids}})}
+    feeds = {f["_id"]: f for f in db.feeds.find(owner_filter({"_id": {"$in": feed_ids}}))}
 
     # 添加feed_title
     for ep in episodes:
@@ -115,6 +117,7 @@ def list_episodes():
 
 
 @episodes_bp.route("/<episode_id>", methods=["GET"])
+@require_auth
 def get_episode(episode_id):
     """获取单集详情"""
     db = get_db()
@@ -124,18 +127,19 @@ def get_episode(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
     # 获取feed标题
-    feed = db.feeds.find_one({"_id": episode.get("feed_id")})
+    feed = db.feeds.find_one(owner_filter({"_id": episode.get("feed_id")}))
     episode["feed_title"] = feed.get("title", "") if feed else ""
 
     return success_response(Episode.to_response(episode, include_feed_title=True))
 
 
 @episodes_bp.route("/<episode_id>", methods=["PUT"])
+@require_auth
 def update_episode(episode_id):
     """更新单集"""
     db = get_db()
@@ -145,7 +149,7 @@ def update_episode(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -161,28 +165,29 @@ def update_episode(episode_id):
 
     if update_fields:
         update_fields["updated_at"] = datetime.utcnow()
-        db.episodes.update_one({"_id": oid}, {"$set": update_fields})
+        db.episodes.update_one(owner_filter({"_id": oid}), {"$set": update_fields})
 
         # 如果更新了is_read，同步更新feed的未读计数
         if "is_read" in update_fields:
             feed_id = episode.get("feed_id")
             if feed_id:
                 unread_count = db.episodes.count_documents(
-                    {"feed_id": feed_id, "is_read": False}
+                    owner_filter({"feed_id": feed_id, "is_read": False})
                 )
                 db.feeds.update_one(
-                    {"_id": feed_id}, {"$set": {"unread_count": unread_count}}
+                    owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}}
                 )
 
     # 返回更新后的episode
-    updated = db.episodes.find_one({"_id": oid})
-    feed = db.feeds.find_one({"_id": updated.get("feed_id")})
+    updated = db.episodes.find_one(owner_filter({"_id": oid}))
+    feed = db.feeds.find_one(owner_filter({"_id": updated.get("feed_id")}))
     updated["feed_title"] = feed.get("title", "") if feed else ""
 
     return success_response(Episode.to_response(updated, include_feed_title=True))
 
 
 @episodes_bp.route("/<episode_id>/star", methods=["POST"])
+@require_auth
 def star_episode(episode_id):
     """标星/取消标星"""
     db = get_db()
@@ -192,7 +197,7 @@ def star_episode(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -200,13 +205,14 @@ def star_episode(episode_id):
     starred = data.get("starred", not episode.get("is_starred", False))
 
     db.episodes.update_one(
-        {"_id": oid}, {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
+        owner_filter({"_id": oid}), {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
     )
 
     return success_response({"id": episode_id, "is_starred": starred})
 
 
 @episodes_bp.route("/<episode_id>/read", methods=["POST"])
+@require_auth
 def mark_read(episode_id):
     """标记已读/未读"""
     db = get_db()
@@ -216,7 +222,7 @@ def mark_read(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -224,21 +230,22 @@ def mark_read(episode_id):
     is_read = data.get("is_read", not episode.get("is_read", False))
 
     db.episodes.update_one(
-        {"_id": oid}, {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
+        owner_filter({"_id": oid}), {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
     )
 
     # 更新feed未读计数
     feed_id = episode.get("feed_id")
     if feed_id:
         unread_count = db.episodes.count_documents(
-            {"feed_id": feed_id, "is_read": False}
+            owner_filter({"feed_id": feed_id, "is_read": False})
         )
-        db.feeds.update_one({"_id": feed_id}, {"$set": {"unread_count": unread_count}})
+        db.feeds.update_one(owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}})
 
     return success_response({"id": episode_id, "is_read": is_read})
 
 
 @episodes_bp.route("/<episode_id>/download", methods=["POST"])
+@require_auth
 def download_episode(episode_id):
     """下载单集音频 (异步)"""
     db = get_db()
@@ -248,7 +255,7 @@ def download_episode(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -287,6 +294,7 @@ def download_episode(episode_id):
     existing_task = db.tasks.find_one(
         {
             "episode_id": str(oid),
+            "owner_id": current_owner_id(),
             "task_type": "download",
             "status": {"$in": ["pending", "processing"]},
         }
@@ -301,12 +309,12 @@ def download_episode(episode_id):
         return _download_episode_sync(str(oid), progress_callback)
 
     task_id = task_queue.submit(
-        task_type="download", func=do_download, episode_id=str(oid)
+        task_type="download", func=do_download, episode_id=str(oid), owner_id=current_owner_id()
     )
 
     # 更新状态为下载中
     db.episodes.update_one(
-        {"_id": oid}, {"$set": {"status": Episode.STATUS_DOWNLOADING}}
+        owner_filter({"_id": oid}), {"$set": {"status": Episode.STATUS_DOWNLOADING}}
     )
 
     return success_response({"task_id": task_id, "status": "queued"})

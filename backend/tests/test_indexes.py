@@ -18,6 +18,7 @@ class RecordingCollection:
 class RecordingDB:
     def __init__(self):
         self.feeds = RecordingCollection()
+        self.users = RecordingCollection()
         self.episodes = RecordingCollection()
         self.transcripts = RecordingCollection()
         self.summaries = RecordingCollection()

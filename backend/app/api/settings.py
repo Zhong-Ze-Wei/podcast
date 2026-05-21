@@ -5,6 +5,7 @@
 
 from flask import Blueprint, request, jsonify, current_app
 from ..models.setting import SettingModel
+from .decorators import current_owner_id, require_auth
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -13,10 +14,11 @@ def get_setting_model():
     """获取设置模型实例"""
     from .. import get_db
 
-    return SettingModel(get_db())
+    return SettingModel(get_db(), owner_id=current_owner_id())
 
 
 @settings_bp.route("/llm", methods=["GET"])
+@require_auth
 def get_llm_configs():
     """获取LLM配置列表"""
     try:
@@ -42,6 +44,7 @@ def get_llm_configs():
 
 
 @settings_bp.route("/llm", methods=["PUT"])
+@require_auth
 def save_llm_configs():
     """保存LLM配置列表"""
     try:
@@ -84,6 +87,7 @@ def save_llm_configs():
 
 
 @settings_bp.route("/llm/active", methods=["PUT"])
+@require_auth
 def set_active_llm():
     """设置激活的LLM配置"""
     try:
@@ -104,6 +108,7 @@ def set_active_llm():
 
 
 @settings_bp.route("/llm/test", methods=["POST"])
+@require_auth
 def test_llm_connection():
     """测试LLM连接"""
     try:
@@ -165,6 +170,7 @@ def test_llm_connection():
 
 
 @settings_bp.route("/tavily", methods=["GET"])
+@require_auth
 def get_tavily_config():
     """获取Tavily配置"""
     try:
@@ -187,6 +193,7 @@ def get_tavily_config():
 
 
 @settings_bp.route("/tavily", methods=["PUT"])
+@require_auth
 def save_tavily_config():
     """保存Tavily配置"""
     try:
@@ -243,6 +250,7 @@ def save_tavily_config():
 
 
 @settings_bp.route("/tavily/test", methods=["POST"])
+@require_auth
 def test_tavily_connection():
     """测试Tavily API连接"""
     data = request.get_json()
@@ -266,6 +274,7 @@ def test_tavily_connection():
 
 
 @settings_bp.route("/prompts/search-query", methods=["GET"])
+@require_auth
 def get_search_query_fragment():
     """获取搜索查询片段"""
     try:
@@ -280,6 +289,7 @@ def get_search_query_fragment():
 
 
 @settings_bp.route("/prompts/search-query", methods=["PUT"])
+@require_auth
 def save_search_query_fragment():
     """保存搜索查询片段"""
     try:

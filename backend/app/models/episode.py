@@ -32,6 +32,7 @@ class Episode:
         now = datetime.utcnow()
         return {
             "feed_id": feed_id,
+            "owner_id": kwargs.get("owner_id"),
             "guid": guid,
             "title": title,
             "summary": kwargs.get("summary", ""),

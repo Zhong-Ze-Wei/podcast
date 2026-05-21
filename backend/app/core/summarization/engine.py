@@ -143,9 +143,16 @@ class SummarizationEngine:
         Returns:
             Summary document
         """
-        # 1. Check existing
+        # 1. Load episode
+        episode = self.db.episodes.find_one({"_id": episode_id})
+        if not episode:
+            raise ValueError(f"Episode not found: {episode_id}")
+        owner_id = episode.get("owner_id")
+
+        # 2. Check existing
         if not force:
             existing = self.db.summaries.find_one({
+                "owner_id": owner_id,
                 "episode_id": episode_id,
                 "template_name": template_name
             })
@@ -153,13 +160,8 @@ class SummarizationEngine:
                 logger.info(f"Summary already exists for episode {episode_id}")
                 return existing
 
-        # 2. Load episode
-        episode = self.db.episodes.find_one({"_id": episode_id})
-        if not episode:
-            raise ValueError(f"Episode not found: {episode_id}")
-
         # 3. Load transcript
-        transcript = self.db.transcripts.find_one({"episode_id": episode_id})
+        transcript = self.db.transcripts.find_one({"owner_id": owner_id, "episode_id": episode_id})
         if not transcript or not transcript.get("text"):
             raise ValueError(f"Transcript not found for episode: {episode_id}")
 
@@ -182,6 +184,7 @@ class SummarizationEngine:
         # 5. Create and save document
         summary_doc = self._create_summary_document(
             episode_id=episode_id,
+            owner_id=owner_id,
             template_name=template_name,
             enabled_blocks=result["enabled_blocks"],
             params=params or {},
@@ -193,20 +196,25 @@ class SummarizationEngine:
 
         # Upsert to database
         self.db.summaries.update_one(
-            {"episode_id": episode_id, "template_name": template_name},
+            {
+                "owner_id": owner_id,
+                "episode_id": episode_id,
+                "template_name": template_name,
+            },
             {"$set": summary_doc},
             upsert=True
         )
 
         # Get saved document
         saved_doc = self.db.summaries.find_one({
+            "owner_id": owner_id,
             "episode_id": episode_id,
             "template_name": template_name
         })
 
         # 6. Update episode status
         self.db.episodes.update_one(
-            {"_id": episode_id},
+            {"_id": episode_id, "owner_id": owner_id},
             {"$set": {
                 "has_summary": True,
                 "status": "summarized",
@@ -294,6 +302,7 @@ class SummarizationEngine:
     def _create_summary_document(
         self,
         episode_id: ObjectId,
+        owner_id: str,
         template_name: str,
         enabled_blocks: List[str],
         params: Dict,
@@ -307,6 +316,7 @@ class SummarizationEngine:
 
         return {
             "episode_id": episode_id,
+            "owner_id": owner_id,
             "template_name": template_name,
             "enabled_blocks": enabled_blocks,
             "params": params,

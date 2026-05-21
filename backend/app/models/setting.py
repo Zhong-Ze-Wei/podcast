@@ -18,13 +18,20 @@ class SettingModel:
     KEY_LLM_ACTIVE = "llm_active_index"  # 当前激活的LLM配置索引
     KEY_TAVILY_CONFIG = "tavily_config"  # Tavily配置
 
-    def __init__(self, db):
+    def __init__(self, db, owner_id=None):
         self.db = db
         self.collection = db[self.COLLECTION]
+        self.owner_id = owner_id
+
+    def _query(self, key):
+        query = {"key": key}
+        if self.owner_id is not None:
+            query["owner_id"] = self.owner_id
+        return query
 
     def get(self, key, default=None):
         """获取设置值"""
-        doc = self.collection.find_one({"key": key})
+        doc = self.collection.find_one(self._query(key))
         if doc:
             return doc.get("value", default)
         return default
@@ -32,9 +39,9 @@ class SettingModel:
     def set(self, key, value):
         """设置值"""
         self.collection.update_one(
-            {"key": key},
+            self._query(key),
             {
-                "$set": {"value": value, "updated_at": datetime.utcnow()},
+                "$set": {"value": value, "owner_id": self.owner_id, "updated_at": datetime.utcnow()},
                 "$setOnInsert": {"created_at": datetime.utcnow()},
             },
             upsert=True,
