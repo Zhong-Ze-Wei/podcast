@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, RefreshCw } from 'lucide-react';
-import { feedsApi, episodesApi, tasksApi } from './services/api';
+import { authApi, feedsApi, episodesApi, tasksApi, setAuthToken } from './services/api';
 import {
   AUTO_REFRESH_KEY,
   TASK_POLL_KEY,
@@ -18,6 +18,7 @@ import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
 import AIBriefingView from './components/views/AIBriefingView';
+import AuthView from './components/views/AuthView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
 import EpisodeCard from './components/cards/EpisodeCard';
@@ -74,6 +75,8 @@ export default function App() {
   const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
   const [feedEpisodesLoading, setFeedEpisodesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
@@ -130,8 +133,43 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadData();
+    let mounted = true;
+    authApi.me()
+      .then((response) => {
+        if (!mounted) return;
+        const payload = response.data || response;
+        setCurrentUser(payload.user);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setCurrentUser(null);
+      })
+      .finally(() => {
+        if (mounted) setAuthLoading(false);
+      });
+    return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      loadData();
+    }
+  }, [authLoading, currentUser]);
+
+  const handleAuthenticated = (user) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    setAuthToken(null);
+    setCurrentUser(null);
+    setFeeds([]);
+    setEpisodes([]);
+    setWorkspaceEpisodes([]);
+    setSelectedEpisode(null);
+    setSelectedFeed(null);
+    setActiveFeed(null);
+  };
 
   // 自动刷新间隔（分钟，来自 localStorage）
   const [autoRefreshMinutes, setAutoRefreshMinutes] = useState(
@@ -448,6 +486,21 @@ export default function App() {
     return matchesFeed && matchesSearch;
   });
 
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-black text-zinc-100">
+        <div className="text-center">
+          <RefreshCw className="animate-spin mx-auto mb-4 text-indigo-500" size={32} />
+          <p className="text-zinc-400">{t('common.loading')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthView onAuthenticated={handleAuthenticated} />;
+  }
+
   if (loading && feeds.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center bg-black text-zinc-100">
@@ -603,6 +656,8 @@ export default function App() {
         ) : view === 'settings' ? (
           <SettingsView
             onBack={() => navigateToView('list')}
+            currentUser={currentUser}
+            onLogout={handleLogout}
           />
         ) : (
           <EpisodeDetailView
