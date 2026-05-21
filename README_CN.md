@@ -145,9 +145,12 @@ TRANSCRIPTION_CLOUD_ENABLED=0
 ASSEMBLYAI_API_KEY=
 
 AI_ANALYSIS_ENABLED=0
-LLM_BASE_URL=
+LLM_DEFAULT_NAME=ModelScope
+LLM_PROVIDER=modelscope
+LLM_API_FORMAT=openai_compatible
+LLM_BASE_URL=https://api-inference.modelscope.cn/v1
 LLM_API_KEY=
-LLM_MODEL=
+LLM_MODEL=deepseek-ai/DeepSeek-V4-Flash
 ```
 
 默认配置尽量保持低门槛：
@@ -157,6 +160,24 @@ LLM_MODEL=
 - AI 摘要关闭：`AI_ANALYSIS_ENABLED=0`
 
 需要 CUDA、WhisperX、AssemblyAI 或 LLM 摘要时，再单独开启相关配置。
+
+### AI API 密钥
+
+真实 API Key 不要写进 Git。项目根目录的 `.gitignore` 已经忽略：
+
+```text
+.env
+.env.*
+*.env
+```
+
+本地可以把 ModelScope 或其他服务商密钥写入 `backend/.env`：
+
+```env
+LLM_API_KEY=<your-modelscope-api-key>
+```
+
+也可以在前端 `设置 -> AI 配置` 中填写并保存。后端会存入 MongoDB，前端再次读取时只显示“已保存”，不会把完整 Key 返回到页面。可提交到仓库的 `backend/.env.example` 只保留默认服务商、Base URL 和模型名，不包含真实密钥。
 
 ## 核心流程
 

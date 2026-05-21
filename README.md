@@ -188,9 +188,12 @@ TRANSCRIPTION_CLOUD_ENABLED=0
 ASSEMBLYAI_API_KEY=
 
 AI_ANALYSIS_ENABLED=0
-LLM_BASE_URL=
+LLM_DEFAULT_NAME=ModelScope
+LLM_PROVIDER=modelscope
+LLM_API_FORMAT=openai_compatible
+LLM_BASE_URL=https://api-inference.modelscope.cn/v1
 LLM_API_KEY=
-LLM_MODEL=
+LLM_MODEL=deepseek-ai/DeepSeek-V4-Flash
 ```
 
 AssemblyAI is installed as a backend dependency because the provider exists, but cloud transcription is still disabled unless `TRANSCRIPTION_CLOUD_ENABLED=1`.
@@ -198,6 +201,14 @@ AssemblyAI is installed as a backend dependency because the provider exists, but
 `TRANSCRIPTION_DEFAULT_LANGUAGE=auto` keeps provider language detection enabled. For Chinese podcasts, choose `zh` in the frontend transcription panel or set the env var to `zh` to reduce language misdetection.
 
 `TRANSCRIPTION_AI_NORMALIZE_ENABLED=0` keeps transcript post-processing local and rule-based. Set it to `1` only if you want the active LLM configuration to clean transcripts further; this consumes tokens from the configured OpenAI-compatible LLM endpoint.
+
+Real AI API keys must stay out of Git. `.env`, `.env.*`, and `*.env` are ignored by `.gitignore`, so put local secrets in `backend/.env`:
+
+```env
+LLM_API_KEY=<your-provider-api-key>
+```
+
+You can also save provider keys from `Settings -> AI Configuration`; the backend stores them in MongoDB and the frontend only receives a masked `has_api_key` flag later. The committed `backend/.env.example` contains ModelScope defaults and no real key.
 
 ## Core Workflow
 
