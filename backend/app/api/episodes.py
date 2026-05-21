@@ -64,11 +64,9 @@ def list_episodes():
     # 支持多个状态值 (用逗号分隔: status=transcribing,transcribed)
     status = request.args.get("status")
     if status:
-        status_values = [s.strip() for s in status.split(",")]
-        if len(status_values) > 1:
-            query["status"] = {"$in": status_values}
-        else:
-            query["status"] = status_values[0]
+        status_query = _episode_status_query(status)
+        if status_query is not None:
+            query["status"] = status_query
 
     is_read = get_bool_param("is_read")
     if is_read is not None:
@@ -419,3 +417,12 @@ def _download_episode_sync(episode_id: str, progress_callback=None):
         progress_callback(100)
 
     return {"local_path": relative_path}
+
+
+def _episode_status_query(status: str):
+    statuses = [item.strip() for item in status.split(",") if item.strip()]
+    if not statuses:
+        return None
+    if len(statuses) > 1:
+        return {"$in": statuses}
+    return statuses[0]
