@@ -17,6 +17,7 @@ from ..services.task_queue import task_queue
 from ..services.transcript_fetcher import TranscriptFetcher
 from ..services.transcript_postprocessor import normalize_transcript
 from .utils import success_response, error_response
+from .decorators import current_owner_id, owner_filter, require_auth
 
 transcripts_bp = Blueprint("transcripts", __name__)
 
@@ -120,6 +121,7 @@ def _get_local_audio_path(episode):
 
 
 @transcripts_bp.route("/<episode_id>", methods=["GET"])
+@require_auth
 def get_transcript(episode_id):
     """获取单集转录"""
     db = get_db()
@@ -129,11 +131,11 @@ def get_transcript(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    transcript = db.transcripts.find_one({"episode_id": oid})
+    transcript = db.transcripts.find_one(owner_filter({"episode_id": oid}))
     if not transcript:
         return error_response("Transcript not found", "TRANSCRIPT_NOT_FOUND", 404)
 
@@ -141,6 +143,7 @@ def get_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>", methods=["POST"])
+@require_auth
 def create_transcript(episode_id):
     """创建转录任务 (异步) - 使用AssemblyAI直接转录音频URL"""
     db = get_db()
@@ -150,7 +153,7 @@ def create_transcript(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -228,6 +231,7 @@ def create_transcript(episode_id):
     # 检查是否有进行中的任务
     existing_task = db.tasks.find_one({
         "episode_id": str(oid),
+        "owner_id": current_owner_id(),
         "task_type": "transcribe",
         "status": {"$in": ["pending", "processing"]}
     })
@@ -260,7 +264,7 @@ def create_transcript(episode_id):
         )
 
     db.episodes.update_one(
-        {"_id": oid},
+        owner_filter({"_id": oid}),
         {"$set": {
             "status": Episode.STATUS_TRANSCRIBING,
             "last_transcript_error": None,
@@ -272,6 +276,7 @@ def create_transcript(episode_id):
         task_type="transcribe",
         func=do_transcribe,
         episode_id=str(oid),
+        owner_id=current_owner_id(),
         on_failure=rollback_episode_status
     )
 
@@ -351,6 +356,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
 
     transcript_doc = Transcript.create(
         episode_id=episode_oid,
+        owner_id=episode.get("owner_id"),
         text=text,
         segments=segments,
         language=language or episode.get("language", ""),
@@ -359,10 +365,11 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
     )
     transcript_doc["postprocess"] = to_bson_safe(postprocess)
 
-    existing = db.transcripts.find_one({"episode_id": episode_oid})
+    owner_id = episode.get("owner_id")
+    existing = db.transcripts.find_one({"owner_id": owner_id, "episode_id": episode_oid})
     if existing:
         db.transcripts.update_one(
-            {"episode_id": episode_oid},
+            {"owner_id": owner_id, "episode_id": episode_oid},
             {"$set": {
                 "text": text,
                 "segments": to_bson_safe(segments),
@@ -378,7 +385,7 @@ def _save_transcript(db, episode_oid, episode, text, segments, source, language=
 
     # 更新 episode 状态
     db.episodes.update_one(
-        {"_id": episode_oid},
+        {"_id": episode_oid, "owner_id": owner_id},
         {"$set": {
             "status": Episode.STATUS_TRANSCRIBED,
             "has_transcript": True,
@@ -600,6 +607,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
     db = get_db()
     transcript_doc = to_bson_safe({
         "episode_id": episode_oid,
+        "owner_id": episode.get("owner_id"),
         "text": transcript.text,
         "segments": segments,
         "chapters": chapters,
@@ -621,10 +629,10 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
     transcript_doc["postprocess"] = to_bson_safe(postprocess)
 
     # 检查是否已存在
-    existing = db.transcripts.find_one({"episode_id": episode_oid})
+    existing = db.transcripts.find_one({"owner_id": episode.get("owner_id"), "episode_id": episode_oid})
     if existing:
         db.transcripts.update_one(
-            {"episode_id": episode_oid},
+            {"owner_id": episode.get("owner_id"), "episode_id": episode_oid},
             {"$set": transcript_doc}
         )
     else:
@@ -632,7 +640,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
     # 更新 episode 状态
     db.episodes.update_one(
-        {"_id": episode_oid},
+        {"_id": episode_oid, "owner_id": episode.get("owner_id")},
         {"$set": {
             "status": Episode.STATUS_TRANSCRIBED,
             "has_transcript": True,
@@ -650,6 +658,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
 
 @transcripts_bp.route("/<episode_id>", methods=["DELETE"])
+@require_auth
 def delete_transcript(episode_id):
     """删除转录"""
     db = get_db()
@@ -659,18 +668,18 @@ def delete_transcript(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    result = db.transcripts.delete_one({"episode_id": oid})
+    result = db.transcripts.delete_one(owner_filter({"episode_id": oid}))
     if result.deleted_count == 0:
         return error_response("Transcript not found", "TRANSCRIPT_NOT_FOUND", 404)
 
     # 如果状态是transcribed，回退到downloaded
     if episode.get("status") == Episode.STATUS_TRANSCRIBED:
         db.episodes.update_one(
-            {"_id": oid},
+            owner_filter({"_id": oid}),
             {"$set": {"status": Episode.STATUS_DOWNLOADED}}
         )
 
@@ -678,6 +687,7 @@ def delete_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>/fetch", methods=["POST"])
+@require_auth
 def fetch_external_transcript(episode_id):
     """从外部URL获取转录"""
     db = get_db()
@@ -687,7 +697,7 @@ def fetch_external_transcript(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -714,6 +724,7 @@ def fetch_external_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>/check-external", methods=["GET"])
+@require_auth
 def check_external_transcript(episode_id):
     """检查是否有可用的外部转录"""
     db = get_db()
@@ -723,7 +734,7 @@ def check_external_transcript(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 

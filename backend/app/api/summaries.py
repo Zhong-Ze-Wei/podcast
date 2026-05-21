@@ -15,6 +15,7 @@ from ..services.task_queue import task_queue
 from ..services.summary_service import get_summary_service
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from .utils import success_response, error_response
+from .decorators import current_owner_id, owner_filter, require_auth
 
 logger = logging.getLogger(__name__)
 summaries_bp = Blueprint("summaries", __name__)
@@ -31,6 +32,7 @@ def _get_template(db, template_name: str):
 
 
 @summaries_bp.route("/<episode_id>", methods=["GET"])
+@require_auth
 def get_summary(episode_id):
     """
     获取摘要。
@@ -47,7 +49,7 @@ def get_summary(episode_id):
 
     template_name = request.args.get("template_name")
 
-    query = {"episode_id": oid}
+    query = owner_filter({"episode_id": oid})
     if template_name:
         query["template_name"] = template_name
 
@@ -64,6 +66,7 @@ def get_summary(episode_id):
 
 
 @summaries_bp.route("/<episode_id>", methods=["POST"])
+@require_auth
 def create_summary(episode_id):
     """
     创建摘要任务（异步）。
@@ -84,7 +87,7 @@ def create_summary(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -95,7 +98,7 @@ def create_summary(episode_id):
     force = data.get("force", False)
 
     # 检查转录
-    transcript = db.transcripts.find_one({"episode_id": oid})
+    transcript = db.transcripts.find_one(owner_filter({"episode_id": oid}))
     if not transcript or not transcript.get("text"):
         return error_response(
             "Transcript not found. Please generate transcript first.",
@@ -104,10 +107,10 @@ def create_summary(episode_id):
 
     # 检查已有摘要
     if not force:
-        existing = db.summaries.find_one({
+        existing = db.summaries.find_one(owner_filter({
             "episode_id": oid,
             "template_name": template_name
-        })
+        }))
         if existing:
             return error_response(
                 f"Summary with template '{template_name}' already exists. Use force=true to regenerate.",
@@ -117,6 +120,7 @@ def create_summary(episode_id):
     # 检查进行中的任务
     existing_task = db.tasks.find_one({
         "episode_id": str(oid),
+        "owner_id": current_owner_id(),
         "task_type": "summarize",
         "status": {"$in": ["pending", "processing"]}
     })
@@ -137,11 +141,12 @@ def create_summary(episode_id):
     task_id = task_queue.submit(
         task_type="summarize",
         func=do_summarize,
-        episode_id=str(oid)
+        episode_id=str(oid),
+        owner_id=current_owner_id()
     )
 
     db.episodes.update_one(
-        {"_id": oid},
+        owner_filter({"_id": oid}),
         {"$set": {"status": Episode.STATUS_SUMMARIZING}}
     )
 
@@ -221,6 +226,7 @@ def _summarize_sync(
 
 
 @summaries_bp.route("/<episode_id>/translate", methods=["POST"])
+@require_auth
 def translate_summary(episode_id):
     """
     翻译摘要为中文。
@@ -241,7 +247,7 @@ def translate_summary(episode_id):
     data = request.get_json() or {}
     template_name = data.get("template_name")
 
-    query = {"episode_id": oid}
+    query = owner_filter({"episode_id": oid})
     if template_name:
         query["template_name"] = template_name
 
@@ -266,7 +272,8 @@ def translate_summary(episode_id):
     task_id = task_queue.submit(
         task_type="translate",
         func=do_translate,
-        episode_id=str(oid)
+        episode_id=str(oid),
+        owner_id=current_owner_id()
     )
 
     return success_response({
@@ -306,6 +313,7 @@ def _translate_sync(episode_id: str, template_name: str = None, progress_callbac
 
 
 @summaries_bp.route("/<episode_id>", methods=["DELETE"])
+@require_auth
 def delete_summary(episode_id):
     """
     删除摘要。
@@ -320,7 +328,7 @@ def delete_summary(episode_id):
     except InvalidId:
         return error_response("Invalid episode ID", "INVALID_ID", 400)
 
-    episode = db.episodes.find_one({"_id": oid})
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
@@ -328,21 +336,22 @@ def delete_summary(episode_id):
 
     if template_name:
         result = db.summaries.delete_one({
+            **owner_filter(),
             "episode_id": oid,
             "template_name": template_name
         })
     else:
-        result = db.summaries.delete_many({"episode_id": oid})
+        result = db.summaries.delete_many(owner_filter({"episode_id": oid}))
 
     if result.deleted_count == 0:
         return error_response("Summary not found", "SUMMARY_NOT_FOUND", 404)
 
     # 检查剩余摘要
-    remaining = db.summaries.count_documents({"episode_id": oid})
+    remaining = db.summaries.count_documents(owner_filter({"episode_id": oid}))
     if remaining == 0:
         if episode.get("status") == Episode.STATUS_SUMMARIZED:
             db.episodes.update_one(
-                {"_id": oid},
+                owner_filter({"_id": oid}),
                 {"$set": {
                     "status": Episode.STATUS_TRANSCRIBED,
                     "has_summary": False
@@ -353,6 +362,7 @@ def delete_summary(episode_id):
 
 
 @summaries_bp.route("/templates", methods=["GET"])
+@require_auth
 def get_available_templates():
     """获取可用摘要模板"""
     db = get_db()

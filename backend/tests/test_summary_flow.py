@@ -12,6 +12,7 @@ import os
 import sys
 import json
 from datetime import datetime
+import pytest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,6 +22,11 @@ load_dotenv()
 
 from pymongo import MongoClient
 from bson import ObjectId
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_MONGO_TESTS", "0").lower() not in ("1", "true", "yes", "on"),
+    reason="Requires a real MongoDB with initialized prompt templates. Set RUN_MONGO_TESTS=1 to run.",
+)
 
 
 def get_db():

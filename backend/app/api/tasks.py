@@ -15,6 +15,7 @@ from .utils import (
     paginated_response,
     get_pagination_params
 )
+from .decorators import current_owner_id, owner_filter, require_auth
 
 tasks_bp = Blueprint("tasks", __name__)
 
@@ -25,13 +26,14 @@ def get_db():
 
 
 @tasks_bp.route("", methods=["GET"])
+@require_auth
 def list_tasks():
     """获取任务列表"""
     db = get_db()
     page, per_page = get_pagination_params()
 
     # 构建查询条件
-    query = {}
+    query = owner_filter()
 
     status = request.args.get("status")
     if status:
@@ -67,6 +69,7 @@ def list_tasks():
 
 
 @tasks_bp.route("/<task_id>", methods=["GET"])
+@require_auth
 def get_task(task_id):
     """获取任务状态"""
     db = get_db()
@@ -74,12 +77,13 @@ def get_task(task_id):
     # 先从任务队列获取 (内存中的最新状态)
     task = task_queue.get_status(task_id)
 
-    if task:
+    owner_id = current_owner_id()
+    if task and (owner_id is None or task.get("owner_id") == owner_id):
         target_maps = _build_task_target_maps(db, [task])
         return success_response(_format_task(task, target_maps))
 
     # 从数据库获取
-    task = db.tasks.find_one({"task_id": task_id})
+    task = db.tasks.find_one(owner_filter({"task_id": task_id}))
 
     if not task:
         return error_response("Task not found", "TASK_NOT_FOUND", 404)
@@ -89,8 +93,14 @@ def get_task(task_id):
 
 
 @tasks_bp.route("/<task_id>/cancel", methods=["POST"])
+@require_auth
 def cancel_task(task_id):
     """取消任务"""
+    owner_id = current_owner_id()
+    task = task_queue.get_status(task_id)
+    if task and owner_id is not None and task.get("owner_id") != owner_id:
+        return error_response("Task not found", "TASK_NOT_FOUND", 404)
+
     success = task_queue.cancel(task_id)
 
     if not success:
@@ -98,7 +108,7 @@ def cancel_task(task_id):
         task = task_queue.get_status(task_id)
         if not task:
             db = get_db()
-            task = db.tasks.find_one({"task_id": task_id})
+            task = db.tasks.find_one(owner_filter({"task_id": task_id}))
             if not task:
                 return error_response("Task not found", "TASK_NOT_FOUND", 404)
 
@@ -127,7 +137,7 @@ def _build_task_target_maps(db, tasks: list[dict]) -> dict:
     episodes = {}
     if episode_oids:
         for episode in db.episodes.find(
-            {"_id": {"$in": list(episode_oids)}},
+            owner_filter({"_id": {"$in": list(episode_oids)}}),
             {"title": 1, "status": 1, "feed_id": 1},
         ):
             episodes[str(episode["_id"])] = episode
@@ -137,7 +147,7 @@ def _build_task_target_maps(db, tasks: list[dict]) -> dict:
     feeds = {}
     if feed_oids:
         for feed in db.feeds.find(
-            {"_id": {"$in": list(feed_oids)}},
+            owner_filter({"_id": {"$in": list(feed_oids)}}),
             {"title": 1},
         ):
             feeds[str(feed["_id"])] = feed

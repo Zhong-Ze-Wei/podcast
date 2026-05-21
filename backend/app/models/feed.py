@@ -21,6 +21,7 @@ class Feed:
         now = datetime.utcnow()
         return {
             "rss_url": rss_url,
+            "owner_id": kwargs.get("owner_id"),
             "title": title or "",
             "website": kwargs.get("website", ""),
             "image": kwargs.get("image", ""),

@@ -22,14 +22,17 @@ from .utils import (
     get_bool_param,
 )
 from .decorators import validate_object_id
+from .decorators import current_owner_id, owner_filter, require_auth
 
 feeds_bp = Blueprint("feeds", __name__)
 
 
-def _build_episode_doc(feed_id, ep_info):
+def _build_episode_doc(feed_id, ep_info, owner_id=None):
     """从 RSS 解析结果构造 Episode 文档"""
+    owner_id = owner_id or current_owner_id()
     return Episode.create(
         feed_id=feed_id,
+        owner_id=owner_id,
         guid=ep_info["guid"],
         title=ep_info["title"],
         summary=ep_info.get("summary"),
@@ -53,13 +56,14 @@ def get_db():
 
 
 @feeds_bp.route("", methods=["GET"])
+@require_auth
 def list_feeds():
     """获取订阅列表"""
     db = get_db()
     page, per_page = get_pagination_params()
 
     # 构建查询条件
-    query = {}
+    query = owner_filter()
 
     status = request.args.get("status")
     if status:
@@ -87,11 +91,12 @@ def list_feeds():
 
 @feeds_bp.route("/<feed_id>", methods=["GET"])
 @validate_object_id("feed_id")
+@require_auth
 def get_feed(feed_id):
     """获取单个订阅详情"""
     db = get_db()
 
-    feed = db.feeds.find_one({"_id": feed_id})
+    feed = db.feeds.find_one(owner_filter({"_id": feed_id}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -99,6 +104,7 @@ def get_feed(feed_id):
 
 
 @feeds_bp.route("", methods=["POST"])
+@require_auth
 def create_feed():
     """添加新订阅"""
     db = get_db()
@@ -112,7 +118,8 @@ def create_feed():
         return error_response("Invalid RSS URL", "INVALID_RSS_URL", 400)
 
     # 检查是否已存在
-    existing = db.feeds.find_one({"rss_url": rss_url})
+    owner_id = current_owner_id()
+    existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": rss_url})
     if existing:
         return error_response("Feed already exists", "FEED_EXISTS", 409)
 
@@ -127,6 +134,7 @@ def create_feed():
 
     feed_doc = Feed.create(
         rss_url=rss_url,
+        owner_id=owner_id,
         title=feed_info.get("title"),
         website=feed_info.get("website"),
         image=feed_info.get("image"),
@@ -145,7 +153,7 @@ def create_feed():
 
     # 插入Episodes
     if episodes:
-        episode_docs = [_build_episode_doc(feed_id, ep) for ep in episodes]
+        episode_docs = [_build_episode_doc(feed_id, ep, owner_id=owner_id) for ep in episodes]
         if episode_docs:
             db.episodes.insert_many(episode_docs)
 
@@ -155,6 +163,7 @@ def create_feed():
 
 
 @feeds_bp.route("/<feed_id>", methods=["PUT"])
+@require_auth
 def update_feed(feed_id):
     """更新订阅"""
     db = get_db()
@@ -164,7 +173,7 @@ def update_feed(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -180,14 +189,15 @@ def update_feed(feed_id):
 
     if update_fields:
         update_fields["updated_at"] = datetime.utcnow()
-        db.feeds.update_one({"_id": oid}, {"$set": update_fields})
+        db.feeds.update_one(owner_filter({"_id": oid}), {"$set": update_fields})
 
     # 返回更新后的Feed
-    updated_feed = db.feeds.find_one({"_id": oid})
+    updated_feed = db.feeds.find_one(owner_filter({"_id": oid}))
     return success_response(Feed.to_response(updated_feed))
 
 
 @feeds_bp.route("/<feed_id>", methods=["DELETE"])
+@require_auth
 def delete_feed(feed_id):
     """删除订阅"""
     db = get_db()
@@ -197,25 +207,27 @@ def delete_feed(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
     # 删除相关的episodes, transcripts, summaries
-    episode_ids = [ep["_id"] for ep in db.episodes.find({"feed_id": oid}, {"_id": 1})]
+    owner_id = current_owner_id()
+    episode_ids = [ep["_id"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": oid}, {"_id": 1})]
 
     if episode_ids:
-        db.transcripts.delete_many({"episode_id": {"$in": episode_ids}})
-        db.summaries.delete_many({"episode_id": {"$in": episode_ids}})
-        db.episodes.delete_many({"feed_id": oid})
+        db.transcripts.delete_many({"owner_id": owner_id, "episode_id": {"$in": episode_ids}})
+        db.summaries.delete_many({"owner_id": owner_id, "episode_id": {"$in": episode_ids}})
+        db.episodes.delete_many({"owner_id": owner_id, "feed_id": oid})
 
     # 删除Feed
-    db.feeds.delete_one({"_id": oid})
+    db.feeds.delete_one(owner_filter({"_id": oid}))
 
     return success_response(message="Feed deleted successfully")
 
 
 @feeds_bp.route("/<feed_id>/refresh", methods=["POST"])
+@require_auth
 def refresh_feed(feed_id):
     """刷新订阅 (异步)"""
     db = get_db()
@@ -225,7 +237,7 @@ def refresh_feed(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -233,7 +245,7 @@ def refresh_feed(feed_id):
     def do_refresh(progress_callback=None):
         return _refresh_feed_sync(str(oid), progress_callback)
 
-    task_id = task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(oid))
+    task_id = task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(oid), owner_id=current_owner_id())
 
     return success_response({"task_id": task_id, "status": "queued"})
 
@@ -269,8 +281,9 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
         progress_callback(50)
 
     # 获取已有的guid列表
+    owner_id = feed.get("owner_id")
     existing_guids = set(
-        ep["guid"] for ep in db.episodes.find({"feed_id": oid}, {"guid": 1})
+        ep["guid"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": oid}, {"guid": 1})
     )
 
     # 插入新Episodes
@@ -279,7 +292,7 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
 
     for ep_info in episodes:
         if ep_info["guid"] not in existing_guids:
-            new_episodes.append(_build_episode_doc(oid, ep_info))
+            new_episodes.append(_build_episode_doc(oid, ep_info, owner_id=feed.get("owner_id")))
 
     if new_episodes:
         db.episodes.insert_many(new_episodes)
@@ -288,8 +301,8 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
         progress_callback(90)
 
     # 更新Feed状态
-    total_count = db.episodes.count_documents({"feed_id": oid})
-    unread_count = db.episodes.count_documents({"feed_id": oid, "is_read": False})
+    total_count = db.episodes.count_documents({"owner_id": owner_id, "feed_id": oid})
+    unread_count = db.episodes.count_documents({"owner_id": owner_id, "feed_id": oid, "is_read": False})
 
     db.feeds.update_one(
         {"_id": oid},
@@ -314,6 +327,7 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
 
 
 @feeds_bp.route("/<feed_id>/star", methods=["POST"])
+@require_auth
 def star_feed(feed_id):
     """标星/取消标星"""
     db = get_db()
@@ -323,7 +337,7 @@ def star_feed(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -331,13 +345,14 @@ def star_feed(feed_id):
     starred = data.get("starred", not feed.get("is_starred", False))
 
     db.feeds.update_one(
-        {"_id": oid}, {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
+        owner_filter({"_id": oid}), {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
     )
 
     return success_response({"id": feed_id, "is_starred": starred})
 
 
 @feeds_bp.route("/<feed_id>/favorite", methods=["POST"])
+@require_auth
 def favorite_feed(feed_id):
     """收藏/取消收藏"""
     db = get_db()
@@ -347,7 +362,7 @@ def favorite_feed(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
@@ -355,7 +370,7 @@ def favorite_feed(feed_id):
     favorite = data.get("favorite", not feed.get("is_favorite", False))
 
     db.feeds.update_one(
-        {"_id": oid},
+        owner_filter({"_id": oid}),
         {"$set": {"is_favorite": favorite, "updated_at": datetime.utcnow()}},
     )
 
@@ -363,6 +378,7 @@ def favorite_feed(feed_id):
 
 
 @feeds_bp.route("/<feed_id>/episodes", methods=["GET"])
+@require_auth
 def list_feed_episodes(feed_id):
     """获取某订阅的单集列表"""
     db = get_db()
@@ -372,14 +388,14 @@ def list_feed_episodes(feed_id):
     except InvalidId:
         return error_response("Invalid feed ID", "INVALID_ID", 400)
 
-    feed = db.feeds.find_one({"_id": oid})
+    feed = db.feeds.find_one(owner_filter({"_id": oid}))
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
     page, per_page = get_pagination_params()
 
     # 构建查询条件
-    query = {"feed_id": oid}
+    query = owner_filter({"feed_id": oid})
 
     status = request.args.get("status")
     if status:

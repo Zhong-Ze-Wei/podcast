@@ -23,6 +23,7 @@ class Transcript:
 
         return {
             "episode_id": episode_id,
+            "owner_id": kwargs.get("owner_id"),
             "text": text,
             "segments": to_bson_safe(segments or []),
             "language": kwargs.get("language", "en"),

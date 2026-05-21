@@ -27,6 +27,13 @@ class Config:
     # API配置
     API_PREFIX = "/api"
 
+    # Auth配置
+    AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "0").lower() in ("1", "true", "yes", "on")
+    JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SECRET_KEY", "dev-insecure-change-me"))
+    JWT_EXPIRES_HOURS = int(os.getenv("JWT_EXPIRES_HOURS", "168"))
+    DEFAULT_OWNER_ID = os.getenv("DEFAULT_OWNER_ID", "local-default-user")
+    DEFAULT_OWNER_EMAIL = os.getenv("DEFAULT_OWNER_EMAIL", "local@podcast.local")
+
     # Whisper配置 (后续AI功能)
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
     WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", "")

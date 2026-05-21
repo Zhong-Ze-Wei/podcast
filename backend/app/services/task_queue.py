@@ -116,6 +116,7 @@ class TaskQueue:
         func: Callable,
         episode_id: str = None,
         feed_id: str = None,
+        owner_id: str = None,
         on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
         **kwargs
@@ -142,6 +143,7 @@ class TaskQueue:
             "task_type": task_type,
             "episode_id": episode_id,
             "feed_id": feed_id,
+            "owner_id": owner_id,
             "status": "pending",
             "progress": 0,
             "result": None,

@@ -26,6 +26,9 @@ class MockDB:
             self._collections[name] = MockCollection(name)
         return self._collections[name]
 
+    def __getitem__(self, name):
+        return getattr(self, name)
+
 
 class MockCollection:
     """模拟 MongoDB collection"""
@@ -81,15 +84,16 @@ class MockCollection:
             if self._match(doc, query):
                 self._data.pop(i)
                 from pymongo.results import DeleteResult
-                return DeleteResult(1, acknowledged=True)
+                return DeleteResult({"n": 1}, acknowledged=True)
         from pymongo.results import DeleteResult
-        return DeleteResult(0, acknowledged=True)
+        return DeleteResult({"n": 0}, acknowledged=True)
 
     def delete_many(self, query):
-        count = 0
+        before = len(self._data)
         self._data = [d for d in self._data if not self._match(d, query)]
+        count = before - len(self._data)
         from pymongo.results import DeleteResult
-        return DeleteResult(count, acknowledged=True)
+        return DeleteResult({"n": count}, acknowledged=True)
 
     def count_documents(self, query):
         return sum(1 for doc in self._data if self._match(doc, query))

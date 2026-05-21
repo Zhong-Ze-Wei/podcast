@@ -67,8 +67,18 @@ def create_app():
 
 def ensure_indexes(db):
     """确保数据库索引"""
+    # users索引
+    db.users.create_index("email", unique=True)
+    db.users.create_index("role")
+    db.users.create_index("status")
+
     # feeds索引
-    db.feeds.create_index("rss_url", unique=True)
+    try:
+        db.feeds.drop_index("rss_url_1")
+    except Exception:
+        pass
+    db.feeds.create_index([("owner_id", 1), ("rss_url", 1)], unique=True)
+    db.feeds.create_index("owner_id")
     db.feeds.create_index("status")
     db.feeds.create_index("is_starred")
     db.feeds.create_index("is_favorite")
@@ -77,7 +87,12 @@ def ensure_indexes(db):
     # episodes索引
     db.episodes.create_index("feed_id")
     db.episodes.create_index("guid")
-    db.episodes.create_index([("feed_id", 1), ("guid", 1)], unique=True)
+    try:
+        db.episodes.drop_index("feed_id_1_guid_1")
+    except Exception:
+        pass
+    db.episodes.create_index([("owner_id", 1), ("feed_id", 1), ("guid", 1)], unique=True)
+    db.episodes.create_index("owner_id")
     db.episodes.create_index("status")
     db.episodes.create_index("is_starred")
     db.episodes.create_index("published")
@@ -86,7 +101,12 @@ def ensure_indexes(db):
     db.episodes.create_index([("feed_id", 1), ("is_read", 1)])
 
     # transcripts索引
-    db.transcripts.create_index("episode_id", unique=True)
+    try:
+        db.transcripts.drop_index("episode_id_1")
+    except Exception:
+        pass
+    db.transcripts.create_index([("owner_id", 1), ("episode_id", 1)], unique=True)
+    db.transcripts.create_index("owner_id")
 
     # summaries索引 - 需要先删除旧的唯一索引（如果存在）
     try:
@@ -100,6 +120,7 @@ def ensure_indexes(db):
         pass
     db.summaries.create_index("episode_id")
     db.summaries.create_index([("episode_id", 1), ("template_name", 1)])
+    db.summaries.create_index("owner_id")
 
     # prompt_templates索引
     db.prompt_templates.create_index("name", unique=True)
@@ -108,6 +129,7 @@ def ensure_indexes(db):
 
     # tasks索引
     db.tasks.create_index("task_id", unique=True)
+    db.tasks.create_index("owner_id")
     db.tasks.create_index("status")
     db.tasks.create_index("episode_id")
     db.tasks.create_index("created_at")
@@ -145,9 +167,13 @@ def register_blueprints(app):
     from .api.settings import settings_bp
     from .api.prompt_templates import prompt_templates_bp
     from .api.insights import insights_bp
+    from .api.auth import auth_bp
+    from .api.admin import admin_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
+    app.register_blueprint(auth_bp, url_prefix=f"{prefix}/auth")
+    app.register_blueprint(admin_bp, url_prefix=f"{prefix}/admin")
     app.register_blueprint(feeds_bp, url_prefix=f"{prefix}/feeds")
     app.register_blueprint(episodes_bp, url_prefix=f"{prefix}/episodes")
     app.register_blueprint(transcripts_bp, url_prefix=f"{prefix}/transcripts")

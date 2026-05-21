@@ -23,7 +23,7 @@ class Task:
     STATUS_FAILED = "failed"
 
     @staticmethod
-    def create(task_type: str, episode_id: ObjectId = None, feed_id: ObjectId = None) -> dict:
+    def create(task_type: str, episode_id: ObjectId = None, feed_id: ObjectId = None, owner_id: str = None) -> dict:
         """创建新的Task文档"""
         now = datetime.utcnow()
 
@@ -32,6 +32,7 @@ class Task:
             "task_type": task_type,
             "episode_id": episode_id,
             "feed_id": feed_id,
+            "owner_id": owner_id,
             "status": Task.STATUS_PENDING,
             "progress": 0,
             "result": None,
