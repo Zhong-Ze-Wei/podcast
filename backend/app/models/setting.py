@@ -4,8 +4,8 @@
 """
 
 import os
+import re
 from datetime import datetime
-from bson import ObjectId
 
 
 class SettingModel:
@@ -16,7 +16,13 @@ class SettingModel:
     # 预定义的设置键
     KEY_LLM_CONFIGS = "llm_configs"  # LLM配置列表
     KEY_LLM_ACTIVE = "llm_active_index"  # 当前激活的LLM配置索引
+    KEY_LLM_TASK_ROUTES = "llm_task_routes"  # AI任务到配置ID的路由
     KEY_TAVILY_CONFIG = "tavily_config"  # Tavily配置
+
+    LLM_TASKS = ("summary", "transcript_normalize", "briefing")
+    API_FORMAT_OPENAI = "openai_compatible"
+    API_FORMAT_ANTHROPIC = "anthropic_messages"
+    API_FORMATS = {API_FORMAT_OPENAI, API_FORMAT_ANTHROPIC}
 
     def __init__(self, db, owner_id=None):
         self.db = db
@@ -51,13 +57,57 @@ class SettingModel:
     def get_default_llm_config():
         """从环境变量获取默认LLM配置"""
         return {
-            "name": os.getenv("LLM_DEFAULT_NAME", "Default"),
-            "base_url": os.getenv("LLM_BASE_URL", "http://localhost:8000"),
+            "id": os.getenv("LLM_DEFAULT_ID", "modelscope-default"),
+            "name": os.getenv("LLM_DEFAULT_NAME", "ModelScope"),
+            "provider": os.getenv("LLM_PROVIDER", "modelscope"),
+            "api_format": os.getenv("LLM_API_FORMAT", SettingModel.API_FORMAT_OPENAI),
+            "base_url": os.getenv("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1"),
             "api_key": os.getenv("LLM_API_KEY", ""),
-            "model": os.getenv("LLM_MODEL", "gpt-3.5-turbo"),
+            "model": os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-V4-Flash"),
             "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "4096")),
             "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
+            "supports_streaming": os.getenv("LLM_SUPPORTS_STREAMING", "1").lower() in ("1", "true", "yes", "on"),
+            "enabled": os.getenv("LLM_ENABLED", "1").lower() in ("1", "true", "yes", "on"),
         }
+
+    @staticmethod
+    def _slug(value: str, fallback: str = "config") -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
+        return slug or fallback
+
+    @classmethod
+    def normalize_llm_config(cls, config, index=0):
+        """Normalize one LLM config to the current provider-first schema."""
+        normalized = dict(config or {})
+        provider = normalized.get("provider") or normalized.get("name") or f"config-{index + 1}"
+        provider_id = cls._slug(provider, f"config-{index + 1}")
+
+        normalized.setdefault("id", provider_id)
+        normalized["id"] = cls._slug(normalized["id"], provider_id)
+        normalized.setdefault("name", normalized["id"])
+        normalized.setdefault("provider", normalized["id"])
+        normalized["provider"] = cls._slug(normalized["provider"], normalized["id"])
+
+        api_format = normalized.get("api_format") or cls.API_FORMAT_OPENAI
+        if api_format not in cls.API_FORMATS:
+            api_format = cls.API_FORMAT_OPENAI
+        normalized["api_format"] = api_format
+
+        if not normalized.get("base_url"):
+            raise ValueError("base_url is required")
+        normalized["base_url"] = str(normalized["base_url"]).strip().rstrip("/")
+
+        if not normalized.get("model"):
+            raise ValueError("model is required")
+        normalized["model"] = str(normalized["model"]).strip()
+
+        normalized.setdefault("api_key", "")
+        normalized["api_key"] = str(normalized.get("api_key") or "").strip()
+        normalized["max_tokens"] = int(normalized.get("max_tokens") or 4096)
+        normalized["temperature"] = float(normalized.get("temperature", 0.2))
+        normalized["supports_streaming"] = bool(normalized.get("supports_streaming", True))
+        normalized["enabled"] = bool(normalized.get("enabled", True))
+        return normalized
 
     def get_llm_configs(self):
         """获取所有LLM配置"""
@@ -69,8 +119,14 @@ class SettingModel:
             configs = [self.get_default_llm_config()]
             self.set(self.KEY_LLM_CONFIGS, configs)
             self.set(self.KEY_LLM_ACTIVE, 0)
+        else:
+            configs = [self.normalize_llm_config(config, i) for i, config in enumerate(configs)]
 
-        return {"configs": configs, "active_index": active_index}
+        return {
+            "configs": configs,
+            "active_index": active_index,
+            "task_routes": self.get_llm_task_routes(configs),
+        }
 
     def save_llm_configs(self, configs, active_index=None):
         """保存LLM配置列表"""
@@ -78,18 +134,7 @@ class SettingModel:
         if len(configs) > 5:
             configs = configs[:5]
 
-        # 验证配置
-        for config in configs:
-            if not config.get("name"):
-                config["name"] = "Unnamed"
-            if not config.get("base_url"):
-                raise ValueError("base_url is required")
-            if not config.get("model"):
-                raise ValueError("model is required")
-            # 设置默认值
-            config.setdefault("api_key", "")
-            config.setdefault("max_tokens", 4096)
-            config.setdefault("temperature", 0.2)
+        configs = [self.normalize_llm_config(config, i) for i, config in enumerate(configs)]
 
         self.set(self.KEY_LLM_CONFIGS, configs)
 
@@ -97,6 +142,36 @@ class SettingModel:
             if active_index < 0 or active_index >= len(configs):
                 active_index = 0
             self.set(self.KEY_LLM_ACTIVE, active_index)
+
+    def get_llm_task_routes(self, configs=None):
+        """Get task route mapping, falling back to the active/default config."""
+        configs = configs or self.get(self.KEY_LLM_CONFIGS, [])
+        available_ids = {
+            config["id"]
+            for i, config in enumerate(configs)
+            for config in [self.normalize_llm_config(config, i)]
+            if config.get("enabled", True)
+        }
+        saved = self.get(self.KEY_LLM_TASK_ROUTES, {}) or {}
+        routes = {}
+        for task in self.LLM_TASKS:
+            config_id = saved.get(task, "default")
+            routes[task] = config_id if config_id in available_ids else "default"
+        return routes
+
+    def save_llm_task_routes(self, task_routes, configs):
+        """Persist task routes, only allowing configured and enabled config IDs."""
+        available_ids = {
+            config["id"]
+            for config in configs
+            if config.get("enabled", True)
+        }
+        routes = {}
+        for task in self.LLM_TASKS:
+            config_id = (task_routes or {}).get(task, "default")
+            routes[task] = config_id if config_id in available_ids else "default"
+        self.set(self.KEY_LLM_TASK_ROUTES, routes)
+        return routes
 
     def get_active_llm_config(self):
         """获取当前激活的LLM配置"""
