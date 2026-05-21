@@ -1,4 +1,5 @@
 from app.api.settings import settings_bp
+from app.models.setting import SettingModel
 from tests.auth_helpers import add_user, auth_headers, make_auth_app
 
 
@@ -32,3 +33,71 @@ def test_llm_settings_are_scoped_per_user():
     assert own.get_json()["configs"][0]["has_api_key"] is True
     assert other.status_code == 200
     assert other.get_json()["configs"][0]["name"] != "User1 LLM"
+
+
+def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypatch):
+    for key in [
+        "LLM_DEFAULT_ID",
+        "LLM_DEFAULT_NAME",
+        "LLM_PROVIDER",
+        "LLM_API_FORMAT",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "LLM_SUPPORTS_STREAMING",
+        "LLM_ENABLED",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+    config = SettingModel.get_default_llm_config()
+
+    assert config["id"] == "modelscope-default"
+    assert config["provider"] == "modelscope"
+    assert config["api_format"] == "openai_compatible"
+    assert config["name"] == "ModelScope"
+    assert config["base_url"] == "https://api-inference.modelscope.cn/v1"
+    assert config["model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert config["api_key"] == ""
+    assert config["supports_streaming"] is True
+    assert config["enabled"] is True
+
+
+def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs():
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "user@example.com")
+    client = app.test_client()
+
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "active_index": 0,
+            "configs": [{
+                "name": "ModelScope",
+                "provider": "modelscope",
+                "api_format": "openai_compatible",
+                "base_url": "https://api-inference.modelscope.cn/v1",
+                "api_key": "secret",
+                "model": "deepseek-ai/DeepSeek-V4-Flash",
+                "supports_streaming": True,
+                "enabled": True,
+            }],
+            "task_routes": {
+                "summary": "modelscope",
+                "transcript_normalize": "missing-provider",
+                "briefing": "default",
+            },
+        },
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 200
+
+    saved = client.get("/api/settings/llm", headers=auth_headers(user))
+    payload = saved.get_json()
+    assert payload["configs"][0]["id"] == "modelscope"
+    assert payload["configs"][0]["api_key"] == ""
+    assert payload["configs"][0]["has_api_key"] is True
+    assert payload["task_routes"] == {
+        "summary": "modelscope",
+        "transcript_normalize": "default",
+        "briefing": "default",
+    }

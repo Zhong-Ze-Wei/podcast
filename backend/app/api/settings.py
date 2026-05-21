@@ -37,7 +37,11 @@ def get_llm_configs():
                 safe_config["has_api_key"] = False
             configs.append(safe_config)
 
-        return jsonify({"configs": configs, "active_index": data["active_index"]})
+        return jsonify({
+            "configs": configs,
+            "active_index": data["active_index"],
+            "task_routes": data.get("task_routes", {}),
+        })
     except Exception as e:
         current_app.logger.error(f"Failed to get LLM configs: {e}")
         return jsonify({"error": str(e)}), 500
@@ -54,6 +58,7 @@ def save_llm_configs():
 
         configs = data.get("configs", [])
         active_index = data.get("active_index")
+        task_routes = data.get("task_routes")
 
         if not configs:
             return jsonify({"error": "At least one config is required"}), 400
@@ -67,16 +72,28 @@ def save_llm_configs():
         existing_data = model.get_llm_configs()
         existing_configs = existing_data.get("configs", [])
 
+        existing_by_id = {
+            config.get("id"): config
+            for config in existing_configs
+            if config.get("id")
+        }
+
         # 如果新配置的 api_key 为空但标记有 has_api_key，保留原来的值
         for i, config in enumerate(configs):
             if not config.get("api_key") and config.get("has_api_key"):
                 # 尝试从现有配置中恢复 API key
-                if i < len(existing_configs):
-                    config["api_key"] = existing_configs[i].get("api_key", "")
+                existing = existing_by_id.get(config.get("id"))
+                if existing is None and i < len(existing_configs):
+                    existing = existing_configs[i]
+                if existing:
+                    config["api_key"] = existing.get("api_key", "")
             # 清理临时标记
             config.pop("has_api_key", None)
 
         model.save_llm_configs(configs, active_index)
+        normalized = model.get_llm_configs()["configs"]
+        if task_routes is not None:
+            model.save_llm_task_routes(task_routes, normalized)
 
         return jsonify({"success": True, "message": "LLM configs saved"})
     except ValueError as e:
