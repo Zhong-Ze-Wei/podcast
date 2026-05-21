@@ -37,9 +37,22 @@ def get_llm_configs():
                 safe_config["has_api_key"] = False
             configs.append(safe_config)
 
+        providers = []
+        for provider in data.get("providers", []):
+            safe_provider = provider.copy()
+            if safe_provider.get("api_key"):
+                safe_provider["api_key"] = ""
+                safe_provider["has_api_key"] = True
+            else:
+                safe_provider["has_api_key"] = False
+            providers.append(safe_provider)
+
         return jsonify({
             "configs": configs,
             "active_index": data["active_index"],
+            "providers": providers,
+            "models": data.get("models", []),
+            "default_model_id": data.get("default_model_id", "default"),
             "task_routes": data.get("task_routes", {}),
         })
     except Exception as e:
@@ -57,19 +70,44 @@ def save_llm_configs():
             return jsonify({"error": "No data provided"}), 400
 
         configs = data.get("configs", [])
+        providers = data.get("providers")
+        models = data.get("models")
         active_index = data.get("active_index")
+        default_model_id = data.get("default_model_id")
         task_routes = data.get("task_routes")
 
-        if not configs:
+        if providers is None and not configs:
             return jsonify({"error": "At least one config is required"}), 400
 
-        if len(configs) > 5:
+        if configs and len(configs) > 5:
             return jsonify({"error": "Maximum 5 configs allowed"}), 400
 
         model = get_setting_model()
+        existing_data = model.get_llm_configs()
+
+        if providers is not None:
+            if not providers:
+                return jsonify({"error": "At least one provider is required"}), 400
+            if not models:
+                return jsonify({"error": "At least one model is required"}), 400
+
+            existing_providers = existing_data.get("providers", [])
+            existing_provider_by_id = {
+                provider.get("id"): provider
+                for provider in existing_providers
+                if provider.get("id")
+            }
+            for provider in providers:
+                if not provider.get("api_key") and provider.get("has_api_key"):
+                    existing = existing_provider_by_id.get(provider.get("id"))
+                    if existing:
+                        provider["api_key"] = existing.get("api_key", "")
+                provider.pop("has_api_key", None)
+
+            model.save_llm_settings(providers, models, default_model_id, task_routes)
+            return jsonify({"success": True, "message": "LLM configs saved"})
 
         # 获取现有配置，用于保留未更改的 API key
-        existing_data = model.get_llm_configs()
         existing_configs = existing_data.get("configs", [])
 
         existing_by_id = {

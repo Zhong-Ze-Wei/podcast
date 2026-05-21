@@ -16,6 +16,9 @@ class SettingModel:
     # 预定义的设置键
     KEY_LLM_CONFIGS = "llm_configs"  # LLM配置列表
     KEY_LLM_ACTIVE = "llm_active_index"  # 当前激活的LLM配置索引
+    KEY_LLM_PROVIDERS = "llm_providers"  # AI API key / endpoint providers
+    KEY_LLM_MODELS = "llm_models"  # Models under providers
+    KEY_LLM_DEFAULT_MODEL = "llm_default_model_id"  # Default model id
     KEY_LLM_TASK_ROUTES = "llm_task_routes"  # AI任务到配置ID的路由
     KEY_TAVILY_CONFIG = "tavily_config"  # Tavily配置
 
@@ -70,6 +73,31 @@ class SettingModel:
             "enabled": os.getenv("LLM_ENABLED", "1").lower() in ("1", "true", "yes", "on"),
         }
 
+    @classmethod
+    def get_default_llm_provider(cls):
+        config = cls.get_default_llm_config()
+        return {
+            "id": config["provider"],
+            "name": config["name"],
+            "provider": config["provider"],
+            "api_format": config["api_format"],
+            "base_url": config["base_url"],
+            "api_key": config["api_key"],
+            "enabled": config["enabled"],
+        }
+
+    @classmethod
+    def get_default_llm_model(cls):
+        config = cls.get_default_llm_config()
+        return {
+            "id": "modelscope-deepseek-v4-flash",
+            "provider_id": config["provider"],
+            "name": "DeepSeek V4 Flash",
+            "model": config["model"],
+            "enabled": config["enabled"],
+            "supports_streaming": config["supports_streaming"],
+        }
+
     @staticmethod
     def _slug(value: str, fallback: str = "config") -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
@@ -109,6 +137,136 @@ class SettingModel:
         normalized["enabled"] = bool(normalized.get("enabled", True))
         return normalized
 
+    @classmethod
+    def normalize_llm_provider(cls, provider, index=0):
+        normalized = dict(provider or {})
+        provider_key = normalized.get("provider") or normalized.get("id") or normalized.get("name") or f"provider-{index + 1}"
+        normalized.setdefault("id", cls._slug(provider_key, f"provider-{index + 1}"))
+        normalized["id"] = cls._slug(normalized["id"], f"provider-{index + 1}")
+        normalized.setdefault("provider", normalized["id"])
+        normalized["provider"] = cls._slug(normalized["provider"], normalized["id"])
+        normalized.setdefault("name", normalized["provider"])
+
+        api_format = normalized.get("api_format") or cls.API_FORMAT_OPENAI
+        if api_format not in cls.API_FORMATS:
+            api_format = cls.API_FORMAT_OPENAI
+        normalized["api_format"] = api_format
+
+        if not normalized.get("base_url"):
+            raise ValueError("base_url is required")
+        normalized["base_url"] = str(normalized["base_url"]).strip().rstrip("/")
+        normalized["api_key"] = str(normalized.get("api_key") or "").strip()
+        normalized["enabled"] = bool(normalized.get("enabled", True))
+        return normalized
+
+    @classmethod
+    def normalize_llm_model(cls, model, providers_by_id, index=0):
+        normalized = dict(model or {})
+        provider_id = cls._slug(normalized.get("provider_id") or "", "")
+        if provider_id not in providers_by_id:
+            return None
+        if not normalized.get("model"):
+            return None
+
+        model_name = str(normalized["model"]).strip()
+        normalized.setdefault("id", f"{provider_id}-{cls._slug(model_name, f'model-{index + 1}')}")
+        normalized["id"] = cls._slug(normalized["id"], f"model-{index + 1}")
+        normalized["provider_id"] = provider_id
+        normalized.setdefault("name", model_name)
+        normalized["model"] = model_name
+        normalized["enabled"] = bool(normalized.get("enabled", True))
+        normalized["supports_streaming"] = bool(normalized.get("supports_streaming", True))
+        return normalized
+
+    def _legacy_configs_to_split(self, configs):
+        providers_by_id = {}
+        models = []
+        for index, config in enumerate(configs or []):
+            normalized = self.normalize_llm_config(config, index)
+            provider_id = normalized.get("provider") or normalized["id"]
+            if provider_id not in providers_by_id:
+                providers_by_id[provider_id] = {
+                    "id": provider_id,
+                    "name": normalized.get("name") or provider_id,
+                    "provider": provider_id,
+                    "api_format": normalized.get("api_format", self.API_FORMAT_OPENAI),
+                    "base_url": normalized["base_url"],
+                    "api_key": normalized.get("api_key", ""),
+                    "enabled": normalized.get("enabled", True),
+                }
+            models.append({
+                "id": normalized["id"],
+                "provider_id": provider_id,
+                "name": normalized.get("model"),
+                "model": normalized.get("model"),
+                "enabled": normalized.get("enabled", True),
+                "supports_streaming": normalized.get("supports_streaming", True),
+            })
+        return list(providers_by_id.values()), models
+
+    def get_llm_settings(self):
+        """Get split provider/model settings, initializing from env or legacy configs."""
+        providers = self.get(self.KEY_LLM_PROVIDERS, [])
+        models = self.get(self.KEY_LLM_MODELS, [])
+
+        if not providers or not models:
+            legacy_configs = self.get(self.KEY_LLM_CONFIGS, [])
+            if legacy_configs:
+                providers, models = self._legacy_configs_to_split(legacy_configs)
+            else:
+                providers = [self.get_default_llm_provider()]
+                models = [self.get_default_llm_model()]
+            self.set(self.KEY_LLM_PROVIDERS, providers)
+            self.set(self.KEY_LLM_MODELS, models)
+            self.set(self.KEY_LLM_DEFAULT_MODEL, models[0]["id"])
+
+        providers = [self.normalize_llm_provider(provider, i) for i, provider in enumerate(providers)]
+        providers_by_id = {provider["id"]: provider for provider in providers if provider.get("enabled", True)}
+        models = [
+            normalized
+            for i, model in enumerate(models)
+            for normalized in [self.normalize_llm_model(model, providers_by_id, i)]
+            if normalized is not None
+        ]
+
+        default_model_id = self.get(self.KEY_LLM_DEFAULT_MODEL, models[0]["id"] if models else "default")
+        available_model_ids = {model["id"] for model in models if model.get("enabled", True)}
+        if default_model_id not in available_model_ids:
+            default_model_id = models[0]["id"] if models else "default"
+            self.set(self.KEY_LLM_DEFAULT_MODEL, default_model_id)
+
+        return {
+            "providers": providers,
+            "models": models,
+            "default_model_id": default_model_id,
+            "task_routes": self.get_llm_task_routes(models),
+        }
+
+    def save_llm_settings(self, providers, models, default_model_id=None, task_routes=None):
+        providers = [self.normalize_llm_provider(provider, i) for i, provider in enumerate(providers or [])]
+        if not providers:
+            raise ValueError("At least one provider is required")
+
+        providers_by_id = {provider["id"]: provider for provider in providers if provider.get("enabled", True)}
+        normalized_models = [
+            normalized
+            for i, model in enumerate(models or [])
+            for normalized in [self.normalize_llm_model(model, providers_by_id, i)]
+            if normalized is not None
+        ]
+        if not normalized_models:
+            raise ValueError("At least one model is required")
+
+        self.set(self.KEY_LLM_PROVIDERS, providers)
+        self.set(self.KEY_LLM_MODELS, normalized_models)
+
+        available_model_ids = {model["id"] for model in normalized_models if model.get("enabled", True)}
+        if default_model_id not in available_model_ids:
+            default_model_id = normalized_models[0]["id"]
+        self.set(self.KEY_LLM_DEFAULT_MODEL, default_model_id)
+        self.save_llm_task_routes(task_routes or {}, normalized_models)
+        return self.get_llm_settings()
+
     def get_llm_configs(self):
         """获取所有LLM配置"""
         configs = self.get(self.KEY_LLM_CONFIGS, [])
@@ -126,6 +284,7 @@ class SettingModel:
             "configs": configs,
             "active_index": active_index,
             "task_routes": self.get_llm_task_routes(configs),
+            **self.get_llm_settings(),
         }
 
     def save_llm_configs(self, configs, active_index=None):
@@ -147,10 +306,9 @@ class SettingModel:
         """Get task route mapping, falling back to the active/default config."""
         configs = configs or self.get(self.KEY_LLM_CONFIGS, [])
         available_ids = {
-            config["id"]
-            for i, config in enumerate(configs)
-            for config in [self.normalize_llm_config(config, i)]
-            if config.get("enabled", True)
+            config.get("id")
+            for config in configs
+            if config.get("id") and config.get("enabled", True)
         }
         saved = self.get(self.KEY_LLM_TASK_ROUTES, {}) or {}
         routes = {}
@@ -175,17 +333,26 @@ class SettingModel:
 
     def get_active_llm_config(self):
         """获取当前激活的LLM配置"""
-        data = self.get_llm_configs()
-        configs = data["configs"]
-        active_index = data["active_index"]
-
-        if not configs:
+        settings = self.get_llm_settings()
+        model_id = settings.get("default_model_id")
+        selected_model = next((model for model in settings["models"] if model["id"] == model_id), None)
+        if not selected_model:
             return None
-
-        if active_index >= len(configs):
-            active_index = 0
-
-        return configs[active_index]
+        provider = next((item for item in settings["providers"] if item["id"] == selected_model["provider_id"]), None)
+        if not provider:
+            return None
+        return {
+            "id": selected_model["id"],
+            "name": selected_model.get("name"),
+            "provider_id": provider["id"],
+            "provider": provider.get("provider"),
+            "api_format": provider.get("api_format", self.API_FORMAT_OPENAI),
+            "base_url": provider["base_url"],
+            "api_key": provider.get("api_key", ""),
+            "model": selected_model["model"],
+            "supports_streaming": selected_model.get("supports_streaming", True),
+            "enabled": selected_model.get("enabled", True),
+        }
 
     def set_active_llm_index(self, index):
         """设置激活的LLM配置索引"""
