@@ -37,7 +37,9 @@ def list_tasks():
 
     status = request.args.get("status")
     if status:
-        query["status"] = _task_status_query(status)
+        status_query = _task_status_query(status)
+        if status_query is not None:
+            query["status"] = status_query
 
     task_type = request.args.get("type")
     if task_type:
@@ -218,9 +220,11 @@ def _string_id(value):
 
 def _task_status_query(status: str):
     statuses = [item.strip() for item in status.split(",") if item.strip()]
+    if not statuses:
+        return None
     if len(statuses) > 1:
         return {"$in": statuses}
-    return statuses[0] if statuses else status
+    return statuses[0]
 
 
 def _format_datetime(dt) -> str:
