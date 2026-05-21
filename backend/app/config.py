@@ -51,6 +51,7 @@ class Config:
     LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
     LLM_API_KEY = os.getenv("LLM_API_KEY", "")
     LLM_MODEL = os.getenv("LLM_MODEL", "")
+    LLM_API_FORMAT = os.getenv("LLM_API_FORMAT", "openai_compatible")
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
