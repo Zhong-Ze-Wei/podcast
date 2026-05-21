@@ -28,20 +28,18 @@
 
 TODO:
 
-- [ ] 补齐 `feeds` API 权限隔离测试。
-- [ ] 补齐 `episodes` API 权限隔离测试。
-- [ ] 补齐 `transcripts` API 权限隔离测试。
-- [ ] 补齐 `summaries` API 权限隔离测试。
-- [ ] 补齐 `settings` API 权限隔离测试。
-- [ ] 处理真实 MongoDB 集成测试：没有 MongoDB 时 skip，而不是卡住。
-- [ ] 跑后端目标测试。
-- [ ] 跑前端构建。
-- [ ] 拆分提交：
-  - `docs: 添加中文 README 和升级任务清单`
-  - `feat: 添加 JWT 登录和最小管理员接口`
-  - `feat: 添加 owner_id 用户数据隔离`
+- [x] 补齐 `feeds` API 权限隔离测试。
+- [x] 补齐 `episodes` API 权限隔离测试。
+- [x] 补齐 `transcripts` API 权限隔离测试。
+- [x] 补齐 `summaries` API 权限隔离测试。
+- [x] 补齐 `settings` API 权限隔离测试。
+- [x] 处理真实 MongoDB 集成测试：没有 MongoDB 时 skip，而不是卡住。
+- [x] 跑后端目标测试。
+- [x] 跑前端构建。
+- [x] 拆分提交：
+  - `docs: 添加中文说明和升级执行清单`
+  - `feat: 添加 JWT 认证和用户数据隔离`
   - `feat: 接入前端登录和账号面板`
-  - `test: 补齐认证和权限隔离测试`
 
 验收命令：
 
@@ -65,7 +63,7 @@ TODO:
 - [ ] `test_transcripts_api.py`
 - [ ] `test_summaries_api.py`
 - [ ] `test_settings_api.py`
-- [ ] `test_tasks_api.py` 扩充 owner_id 场景
+- [x] `test_tasks_api.py` 扩充 owner_id 场景
 
 重点：
 
