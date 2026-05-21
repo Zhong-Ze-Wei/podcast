@@ -238,6 +238,42 @@
     "testSuccess": "Connection successful",
     "testFailed": "Connection test failed",
     "testRequiredFields": "Base URL and Model are required",
+    "ai": {
+      "providerFirst": "Provider-first configuration",
+      "providerFirstDesc": "Choose available providers first, then route tasks to enabled provider models. Real API keys stay in local config or the database.",
+      "presets": "Provider presets",
+      "configuredProviders": "Configured",
+      "customModel": "Custom model",
+      "endpointTitle": "API endpoint",
+      "endpointDesc": "ModelScope is the default preset; you can switch to OpenAI-compatible or Anthropic Messages formats.",
+      "configName": "Config name",
+      "apiFormat": "API format",
+      "setDefault": "Set default",
+      "savedKey": "Saved",
+      "keepExistingKey": "Leave blank to keep current key",
+      "enabled": "Enable this provider",
+      "streaming": "Supports streaming",
+      "advanced": "Advanced parameters",
+      "maxTokens": "Max Tokens",
+      "maxTokensHint": "Most tasks determine output length from templates; this is the fallback cap.",
+      "taskRouting": "Task routing",
+      "taskRoutingDesc": "Only enabled and complete provider models are selectable; unspecified tasks use the default model.",
+      "defaultModel": "Default model",
+      "tasks": {
+        "summary": {
+          "title": "Summary generation",
+          "description": "Structured podcast summaries and template output."
+        },
+        "transcript_normalize": {
+          "title": "Transcript normalization",
+          "description": "Simplified/traditional conversion, Chinese spacing cleanup, and text polishing."
+        },
+        "briefing": {
+          "title": "Daily briefing",
+          "description": "Generate trends and recommendations from multiple episodes."
+        }
+      }
+    },
     "account": {
       "title": "Account",
       "description": "Review the signed-in identity, log out, and inspect users and system health as an administrator.",
