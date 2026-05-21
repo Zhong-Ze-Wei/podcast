@@ -65,6 +65,9 @@ frontend/debug-summary.js
 # Sisyphus temp files
 .sisyphus/
 
+# Superpowers visual companion temp files
+.superpowers/
+
 # Claude temp files
 .claude/
 
