@@ -262,7 +262,7 @@ cd backend
 uv run python scripts/seed_test_users.py
 ```
 
-This creates `admin@example.com`, `user1@example.com`, and `user2@example.com` with password `password123` unless `TEST_USER_PASSWORD` is set.
+This creates the local admin `zz` and normal users `user1@example.com` / `user2@example.com` with password `123456` unless `TEST_USER_PASSWORD` is set. This weak default is for local demo only; change it before sharing or deploying.
 
 ## Troubleshooting
 

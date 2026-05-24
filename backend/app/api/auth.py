@@ -34,10 +34,14 @@ def _token_for(user_doc):
     )
 
 
+def _login_identifier(data):
+    return User.normalize_email(data.get("email") or data.get("username"))
+
+
 @auth_bp.route("/register", methods=["POST"])
 def register():
     data = request.get_json() or {}
-    email = User.normalize_email(data.get("email"))
+    email = _login_identifier(data)
     password = data.get("password", "")
     if not email or not password:
         return error_response("Email and password are required", "MISSING_CREDENTIALS", 400)
@@ -66,7 +70,7 @@ def register():
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.get_json() or {}
-    email = User.normalize_email(data.get("email"))
+    email = _login_identifier(data)
     password = data.get("password", "")
     db = get_db()
     user_doc = db.users.find_one({"email": email})

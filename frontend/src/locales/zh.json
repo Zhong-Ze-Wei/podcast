@@ -7,6 +7,7 @@
     "login": "登录",
     "register": "注册",
     "email": "邮箱",
+    "identity": "用户名 / 邮箱",
     "password": "密码",
     "passwordPlaceholder": "至少 8 位",
     "processing": "处理中...",

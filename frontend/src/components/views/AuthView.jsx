@@ -1,13 +1,13 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LockKeyhole, Mail, Podcast, UserPlus } from 'lucide-react';
+import { LockKeyhole, Podcast, User, UserPlus } from 'lucide-react';
 import { authApi, setAuthToken } from '../../services/api';
 
 const AuthView = ({ onAuthenticated }) => {
   const { t } = useTranslation();
   const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
+  const [identity, setIdentity] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -18,8 +18,8 @@ const AuthView = ({ onAuthenticated }) => {
     setError('');
     try {
       const response = mode === 'login'
-        ? await authApi.login({ email, password })
-        : await authApi.register({ email, password });
+        ? await authApi.login({ username: identity, password })
+        : await authApi.register({ email: identity, password });
       const payload = response.data || response;
       setAuthToken(payload.token);
       onAuthenticated(payload.user);
@@ -59,17 +59,17 @@ const AuthView = ({ onAuthenticated }) => {
             </button>
           </div>
 
-          <label className="block text-xs font-medium text-zinc-500 mb-2">{t('auth.email')}</label>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">{t('auth.identity')}</label>
           <div className="relative mb-4">
-            <Mail size={16} className="absolute left-3 top-3 text-zinc-500" />
+            <User size={16} className="absolute left-3 top-3 text-zinc-500" />
             <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              autoComplete="email"
+              value={identity}
+              onChange={(e) => setIdentity(e.target.value)}
+              type="text"
+              autoComplete="username"
               required
               className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-10 pr-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-              placeholder="you@example.com"
+              placeholder="zz"
             />
           </div>
 
@@ -81,7 +81,7 @@ const AuthView = ({ onAuthenticated }) => {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              minLength={8}
+              minLength={mode === 'login' ? 1 : 8}
               required
               className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-10 pr-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
               placeholder={t('auth.passwordPlaceholder')}

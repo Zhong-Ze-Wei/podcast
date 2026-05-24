@@ -21,8 +21,8 @@ load_dotenv()
 def main():
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     mongo_db = os.getenv("MONGO_DB", "podcast")
-    owner_email = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com").strip().lower()
-    owner_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "change-me-123456")
+    owner_email = os.getenv("DEFAULT_ADMIN_EMAIL", "zz").strip().lower()
+    owner_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "123456")
 
     client = MongoClient(mongo_uri)
     db = client[mongo_db]
