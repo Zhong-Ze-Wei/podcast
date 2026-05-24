@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 USERS = [
-    ("admin@example.com", "admin"),
+    ("zz", "admin"),
     ("user1@example.com", "user"),
     ("user2@example.com", "user"),
 ]
@@ -26,7 +26,7 @@ USERS = [
 def main():
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     mongo_db = os.getenv("MONGO_DB", "podcast")
-    password = os.getenv("TEST_USER_PASSWORD", "password123")
+    password = os.getenv("TEST_USER_PASSWORD", "123456")
     client = MongoClient(mongo_uri)
     db = client[mongo_db]
 

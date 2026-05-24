@@ -261,9 +261,9 @@ uv run python scripts/seed_test_users.py
 默认创建：
 
 ```text
-admin@example.com / password123
-user1@example.com / password123
-user2@example.com / password123
+zz / 123456
+user1@example.com / 123456
+user2@example.com / 123456
 ```
 
 测试重点：

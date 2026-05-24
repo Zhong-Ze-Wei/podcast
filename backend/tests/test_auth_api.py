@@ -2,6 +2,7 @@ from flask import Flask
 
 from app.api.admin import admin_bp
 from app.api.auth import auth_bp
+from app.models.user import User
 from tests.conftest import MockDB
 
 
@@ -61,6 +62,23 @@ def test_login_rejects_wrong_password_and_disabled_user():
         "password": "password123",
     })
     assert disabled.status_code == 403
+
+
+def test_login_accepts_username_alias_for_local_admin():
+    app = make_app()
+    client = app.test_client()
+    app.db.users.insert_one(User.create("zz", "123456", role="admin"))
+
+    response = client.post("/api/auth/login", json={
+        "username": "zz",
+        "password": "123456",
+    })
+
+    assert response.status_code == 200
+    body = response.get_json()["data"]
+    assert body["user"]["email"] == "zz"
+    assert body["user"]["role"] == "admin"
+    assert body["token"]
 
 
 def test_admin_routes_require_admin_role():

@@ -7,6 +7,7 @@
     "login": "Log in",
     "register": "Register",
     "email": "Email",
+    "identity": "Username / Email",
     "password": "Password",
     "passwordPlaceholder": "At least 8 characters",
     "processing": "Processing...",
