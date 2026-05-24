@@ -178,6 +178,27 @@ class SettingModel:
         normalized["supports_streaming"] = bool(normalized.get("supports_streaming", True))
         return normalized
 
+    @staticmethod
+    def _unique_by_id(items):
+        seen = set()
+        unique = []
+        for item in items:
+            item_id = item.get("id")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            unique.append(item)
+        return unique
+
+    @staticmethod
+    def _routable_models(models, providers_by_id):
+        return [
+            model
+            for model in models
+            if model.get("enabled", True)
+            and providers_by_id.get(model.get("provider_id"), {}).get("enabled", True)
+        ]
+
     def _legacy_configs_to_split(self, configs):
         providers_by_id = {}
         models = []
@@ -221,25 +242,26 @@ class SettingModel:
             self.set(self.KEY_LLM_DEFAULT_MODEL, models[0]["id"])
 
         providers = [self.normalize_llm_provider(provider, i) for i, provider in enumerate(providers)]
-        providers_by_id = {provider["id"]: provider for provider in providers if provider.get("enabled", True)}
-        models = [
+        providers_by_id = {provider["id"]: provider for provider in providers}
+        models = self._unique_by_id([
             normalized
             for i, model in enumerate(models)
             for normalized in [self.normalize_llm_model(model, providers_by_id, i)]
             if normalized is not None
-        ]
+        ])
+        routable_models = self._routable_models(models, providers_by_id)
 
-        default_model_id = self.get(self.KEY_LLM_DEFAULT_MODEL, models[0]["id"] if models else "default")
-        available_model_ids = {model["id"] for model in models if model.get("enabled", True)}
+        default_model_id = self.get(self.KEY_LLM_DEFAULT_MODEL, routable_models[0]["id"] if routable_models else "default")
+        available_model_ids = {model["id"] for model in routable_models}
         if default_model_id not in available_model_ids:
-            default_model_id = models[0]["id"] if models else "default"
+            default_model_id = routable_models[0]["id"] if routable_models else "default"
             self.set(self.KEY_LLM_DEFAULT_MODEL, default_model_id)
 
         return {
             "providers": providers,
             "models": models,
             "default_model_id": default_model_id,
-            "task_routes": self.get_llm_task_routes(models),
+            "task_routes": self.get_llm_task_routes(routable_models),
         }
 
     def save_llm_settings(self, providers, models, default_model_id=None, task_routes=None):
@@ -247,24 +269,25 @@ class SettingModel:
         if not providers:
             raise ValueError("At least one provider is required")
 
-        providers_by_id = {provider["id"]: provider for provider in providers if provider.get("enabled", True)}
-        normalized_models = [
+        providers_by_id = {provider["id"]: provider for provider in providers}
+        normalized_models = self._unique_by_id([
             normalized
             for i, model in enumerate(models or [])
             for normalized in [self.normalize_llm_model(model, providers_by_id, i)]
             if normalized is not None
-        ]
+        ])
         if not normalized_models:
             raise ValueError("At least one model is required")
 
         self.set(self.KEY_LLM_PROVIDERS, providers)
         self.set(self.KEY_LLM_MODELS, normalized_models)
 
-        available_model_ids = {model["id"] for model in normalized_models if model.get("enabled", True)}
+        routable_models = self._routable_models(normalized_models, providers_by_id)
+        available_model_ids = {model["id"] for model in routable_models}
         if default_model_id not in available_model_ids:
-            default_model_id = normalized_models[0]["id"]
+            default_model_id = routable_models[0]["id"] if routable_models else "default"
         self.set(self.KEY_LLM_DEFAULT_MODEL, default_model_id)
-        self.save_llm_task_routes(task_routes or {}, normalized_models)
+        self.save_llm_task_routes(task_routes or {}, routable_models)
         return self.get_llm_settings()
 
     def get_llm_configs(self):
@@ -339,7 +362,7 @@ class SettingModel:
         if not selected_model:
             return None
         provider = next((item for item in settings["providers"] if item["id"] == selected_model["provider_id"]), None)
-        if not provider:
+        if not provider or provider.get("enabled") is False or selected_model.get("enabled") is False:
             return None
         return {
             "id": selected_model["id"],

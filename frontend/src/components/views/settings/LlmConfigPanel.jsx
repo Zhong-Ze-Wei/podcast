@@ -219,12 +219,17 @@ const LlmConfigPanel = () => {
     if (!providerId) return;
 
     const existingIds = new Set(models.map(model => model.id));
+    const seenIds = new Set(existingIds);
     const additions = quickModelText
       .split('\n')
       .map(item => item.trim())
       .filter(Boolean)
       .map(modelName => createModel(providerId, modelName, modelName))
-      .filter(model => !existingIds.has(model.id));
+      .filter((model) => {
+        if (seenIds.has(model.id)) return false;
+        seenIds.add(model.id);
+        return true;
+      });
 
     if (additions.length === 0) return;
     setModels([...models, ...additions]);
@@ -275,6 +280,8 @@ const LlmConfigPanel = () => {
     setNotice(null);
     try {
       const result = await settingsApi.testLlmConnection({
+        model_id: model.id,
+        provider_id: provider.id,
         base_url: provider.base_url,
         api_key: provider.api_key,
         api_format: provider.api_format,
@@ -503,6 +510,19 @@ const LlmConfigPanel = () => {
                   </button>
                 </div>
                 <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
+                  <label className="mb-2 block text-xs text-zinc-500">{t('settings.ai.modelProvider')}</label>
+                  <div className="relative mb-3">
+                    <select
+                      value={selectedProvider?.id || ''}
+                      onChange={(e) => setSelectedProviderId(e.target.value)}
+                      className="w-full appearance-none rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                    >
+                      {providers.map(provider => (
+                        <option key={provider.id} value={provider.id}>{provider.name || provider.id}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-2.5 text-zinc-500" size={14} />
+                  </div>
                   <label className="mb-2 block text-xs text-zinc-500">{t('settings.ai.batchModels')}</label>
                   <textarea
                     value={quickModelText}

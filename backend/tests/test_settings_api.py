@@ -209,3 +209,141 @@ def test_active_llm_config_is_composed_from_default_provider_and_model():
     assert active["api_key"] == "secret"
     assert active["model"] == "deepseek-ai/DeepSeek-V4-Flash"
     assert active["api_format"] == "openai_compatible"
+
+
+def test_llm_settings_preserve_disabled_provider_models_but_exclude_from_routes():
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "user@example.com")
+    client = app.test_client()
+
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "providers": [
+                {
+                    "id": "modelscope",
+                    "name": "ModelScope",
+                    "provider": "modelscope",
+                    "api_format": "openai_compatible",
+                    "base_url": "https://api-inference.modelscope.cn/v1",
+                    "api_key": "secret",
+                    "enabled": True,
+                },
+                {
+                    "id": "deepseek",
+                    "name": "DeepSeek",
+                    "provider": "deepseek",
+                    "api_format": "openai_compatible",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "api_key": "secret-2",
+                    "enabled": False,
+                },
+            ],
+            "models": [
+                {
+                    "id": "flash",
+                    "provider_id": "modelscope",
+                    "name": "Flash",
+                    "model": "deepseek-ai/DeepSeek-V4-Flash",
+                    "enabled": True,
+                    "supports_streaming": True,
+                },
+                {
+                    "id": "deepseek-chat",
+                    "provider_id": "deepseek",
+                    "name": "DeepSeek Chat",
+                    "model": "deepseek-chat",
+                    "enabled": True,
+                    "supports_streaming": True,
+                },
+            ],
+            "default_model_id": "deepseek-chat",
+            "task_routes": {
+                "summary": "deepseek-chat",
+                "transcript_normalize": "flash",
+                "briefing": "default",
+            },
+        },
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 200
+
+    payload = client.get("/api/settings/llm", headers=auth_headers(user)).get_json()
+    assert [model["id"] for model in payload["models"]] == ["flash", "deepseek-chat"]
+    assert payload["default_model_id"] == "flash"
+    assert payload["task_routes"] == {
+        "summary": "default",
+        "transcript_normalize": "flash",
+        "briefing": "default",
+    }
+
+
+def test_llm_test_uses_stored_provider_key_when_model_id_is_sent(monkeypatch):
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "user@example.com")
+    client = app.test_client()
+    created = {}
+
+    class FakeMessage:
+        content = "OK"
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            created["request"] = kwargs
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, api_key, base_url):
+            created["api_key"] = api_key
+            created["base_url"] = base_url
+            self.chat = FakeChat()
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    client.put(
+        "/api/settings/llm",
+        json={
+            "providers": [{
+                "id": "modelscope",
+                "name": "ModelScope",
+                "provider": "modelscope",
+                "api_format": "openai_compatible",
+                "base_url": "https://api-inference.modelscope.cn/v1",
+                "api_key": "stored-secret",
+                "enabled": True,
+            }],
+            "models": [{
+                "id": "flash",
+                "provider_id": "modelscope",
+                "name": "Flash",
+                "model": "deepseek-ai/DeepSeek-V4-Flash",
+                "enabled": True,
+                "supports_streaming": True,
+            }],
+            "default_model_id": "flash",
+            "task_routes": {},
+        },
+        headers=auth_headers(user),
+    )
+
+    response = client.post(
+        "/api/settings/llm/test",
+        json={
+            "model_id": "flash",
+            "provider_id": "modelscope",
+            "api_key": "",
+        },
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    assert created["api_key"] == "stored-secret"
+    assert created["base_url"] == "https://api-inference.modelscope.cn/v1"
+    assert created["request"]["model"] == "deepseek-ai/DeepSeek-V4-Flash"

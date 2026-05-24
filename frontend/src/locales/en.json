@@ -269,6 +269,7 @@
       "maxTokens": "Max Tokens",
       "maxTokensHint": "Most tasks determine output length from templates; this is the fallback cap.",
       "quickModels": "Quick models",
+      "modelProvider": "Model provider",
       "batchModels": "Batch add to selected provider",
       "batchModelsPlaceholder": "One model id per line",
       "addBatchModels": "Add models",
