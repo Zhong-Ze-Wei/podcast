@@ -269,6 +269,7 @@
       "maxTokens": "Max Tokens",
       "maxTokensHint": "多数任务会按模板决定输出长度；这里作为兜底上限。",
       "quickModels": "快速模型",
+      "modelProvider": "模型所属服务商",
       "batchModels": "批量添加到当前服务商",
       "batchModelsPlaceholder": "每行一个模型 ID",
       "addBatchModels": "添加模型",

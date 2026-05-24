@@ -173,9 +173,28 @@ def test_llm_connection():
 
         base_url = data.get("base_url", "").rstrip("/")
         api_key = data.get("api_key", "")
-        model = data.get("model")
+        llm_model = data.get("model")
+        model_id = data.get("model_id")
+        provider_id = data.get("provider_id")
 
-        if not base_url or not model:
+        if model_id or provider_id:
+            settings = get_setting_model().get_llm_settings()
+            configured_model = next(
+                (item for item in settings.get("models", []) if item.get("id") == model_id),
+                None,
+            )
+            configured_provider_id = provider_id or (configured_model or {}).get("provider_id")
+            configured_provider = next(
+                (item for item in settings.get("providers", []) if item.get("id") == configured_provider_id),
+                None,
+            )
+            if configured_model:
+                llm_model = llm_model or configured_model.get("model")
+            if configured_provider:
+                base_url = base_url or configured_provider.get("base_url", "").rstrip("/")
+                api_key = api_key or configured_provider.get("api_key", "")
+
+        if not base_url or not llm_model:
             return jsonify({"error": "base_url and model are required"}), 400
 
         from openai import OpenAI
@@ -184,7 +203,7 @@ def test_llm_connection():
 
         # 发送简单测试请求
         response = client.chat.completions.create(
-            model=model,
+            model=llm_model,
             messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
             max_tokens=10,
             timeout=15,
@@ -194,7 +213,7 @@ def test_llm_connection():
             "success": True,
             "message": "Connection successful",
             "base_url": base_url,
-            "model": model,
+            "model": llm_model,
             "response": response.choices[0].message.content if response.choices else "",
         })
 
@@ -220,7 +239,7 @@ def test_llm_connection():
             "error": error_str,
             "hint": hint,
             "base_url": base_url if 'base_url' in dir() else "",
-            "model": model if 'model' in dir() else "",
+            "model": llm_model if 'llm_model' in dir() else "",
         }), 200
 
 
