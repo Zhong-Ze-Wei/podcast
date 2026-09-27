@@ -29,6 +29,70 @@ class YouTubeService:
             return None
         return m.group(1) or m.group(2)
 
+    CHANNEL_URL_PATTERN = re.compile(
+        r"youtube\.com/(@[\w.-]+|channel/[\w-]+|c/[\w.-]+)"
+    )
+
+    @classmethod
+    def is_channel_url(cls, url: str) -> bool:
+        return bool(cls.CHANNEL_URL_PATTERN.search(url or ""))
+
+    @classmethod
+    def resolve_channel(cls, url: str) -> Tuple[Optional[dict], Optional[str]]:
+        """
+        解析频道主页 URL（@handle / channel/UC.. / c/..）。
+
+        Returns:
+            ({channel_id, title}, error)
+        """
+        from yt_dlp import YoutubeDL
+
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "playlist_items": "1",
+            "proxy": cls._proxy(),
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            return None, cls._classify_error(e)
+
+        channel_id = info.get("channel_id") or info.get("id")
+        if not channel_id:
+            return None, "Could not resolve YouTube channel"
+        return {"channel_id": channel_id, "title": info.get("channel") or info.get("uploader") or ""}, None
+
+    @classmethod
+    def fetch_channel_videos(cls, channel_id: str) -> Tuple[Optional[list], Optional[str]]:
+        """
+        频道最新视频列表（官方 RSS，最近 15 条）。
+
+        Returns:
+            ([{video_id, title, published}], error)
+        """
+        import requests as _requests
+        import feedparser
+
+        try:
+            resp = _requests.get(
+                f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+                proxies={"http": cls._proxy(), "https": cls._proxy()} if cls._proxy() else None,
+                timeout=15,
+            )
+        except _requests.RequestException as e:
+            return None, f"YouTube channel RSS failed: {e}"
+
+        feed = feedparser.parse(resp.content)
+        videos = [{
+            "video_id": getattr(e, "yt_videoid", ""),
+            "title": getattr(e, "title", ""),
+            "published": getattr(e, "published", ""),
+        } for e in feed.entries if getattr(e, "yt_videoid", "")]
+        return videos, None
+
     @classmethod
     def _proxy(cls) -> Optional[str]:
         proxy = Config.YOUTUBE_PROXY

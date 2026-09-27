@@ -8,12 +8,17 @@ from bson import ObjectId
 
 
 class Feed:
-    """RSS订阅源模型"""
+    """订阅源模型（RSS / YouTube 频道 / B站 UP 主）"""
 
     # 状态常量
     STATUS_ACTIVE = "active"
     STATUS_PAUSED = "paused"
     STATUS_ERROR = "error"
+
+    # 源类型：rss 传统 RSS；youtube 频道订阅；bilibili UP 主订阅
+    TYPE_RSS = "rss"
+    TYPE_YOUTUBE = "youtube"
+    TYPE_BILIBILI = "bilibili"
 
     @staticmethod
     def create(rss_url: str, title: str = None, **kwargs) -> dict:
@@ -21,6 +26,8 @@ class Feed:
         now = datetime.utcnow()
         return {
             "rss_url": rss_url,
+            "type": kwargs.get("type", Feed.TYPE_RSS),
+            "channel_ref": kwargs.get("channel_ref", ""),
             "owner_id": kwargs.get("owner_id"),
             "title": title or "",
             "website": kwargs.get("website", ""),
@@ -49,6 +56,8 @@ class Feed:
         return {
             "id": str(doc["_id"]),
             "rss_url": doc.get("rss_url", ""),
+            "type": doc.get("type", Feed.TYPE_RSS),
+            "channel_ref": doc.get("channel_ref", ""),
             "title": doc.get("title", ""),
             "website": doc.get("website", ""),
             "image": doc.get("image", ""),
