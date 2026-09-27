@@ -46,6 +46,7 @@
 
 - [x] **P0 · YouTube 源适配器**（已完成，2026-09-27）：`POST /api/video-import/youtube`，URL → 字幕 → 自动建"YouTube 导入"feed + episode（状态 transcribed）+ transcript；端到端实测真实视频成功（2110 段 / 2.3 万词）
 - [x] **P1 · 频道订阅**（已完成，2026-09-27）：粘贴 YouTube 频道页 / B站空间页地址即可订阅，复用现有添加订阅与刷新入口；实测 Dwarkesh 频道首批 15 视频 15/15 带字幕。B站需在 `.env` 配置 `BILI_SESSDATA` 后刷新
+- [ ] **P2 · B站补拉字幕**：刷新时对已入库但无 transcript 的 episode 重试 AI 字幕（AI 字幕是异步生成的，发布当天常拿不到；实测首轮 30 投稿 17 条有字幕）
 - [ ] **P2 · B站字幕失败兜底**：无 AI 字幕或校验拒收的视频，下载音频走 Whisper 转写（`yt-dlp bestaudio`）
 - [ ] **P2 · WhisperX 分人转写开关**：YouTube/B站导入支持"强制 WhisperX 说话人分离"模式
 - [ ] **P3 · 前端展示优化**：订阅列表区分源类型徽标（RSS / YouTube / B站）
