@@ -161,8 +161,8 @@ def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
             return self._body
 
     mismatched = {"body": [{"from": 0, "to": 150, "content": "串台字幕"}]}
-    monkeypatch.setattr("app.services.bilibili_service.requests.get",
-                        lambda url, headers=None, timeout=None: FakeResp(mismatched))
+    monkeypatch.setattr("curl_cffi.requests.get",
+                        lambda url, **kw: FakeResp(mismatched))
 
     result, error = BilibiliService.fetch_ai_subtitle("BV1x")
     assert result is None
@@ -170,8 +170,8 @@ def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
 
     normal = {"body": [{"from": 0, "to": 90, "content": "正常字幕"},
                        {"from": 90, "to": 99, "content": "第二行"}]}
-    monkeypatch.setattr("app.services.bilibili_service.requests.get",
-                        lambda url, headers=None, timeout=None: FakeResp(normal))
+    monkeypatch.setattr("curl_cffi.requests.get",
+                        lambda url, **kw: FakeResp(normal))
     result, error = BilibiliService.fetch_ai_subtitle("BV1x")
     assert error is None
     assert result["text"] == "正常字幕 第二行"

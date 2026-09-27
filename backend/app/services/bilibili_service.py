@@ -11,9 +11,6 @@ import logging
 import re
 import time
 from typing import Optional, Tuple
-from urllib.parse import urlencode
-
-import requests
 
 from ..config import Config
 
@@ -38,33 +35,67 @@ class BilibiliService:
     SPACE_PATTERN = re.compile(r"space\.bilibili\.com/(\d+)")
 
     _wbi_key_cache = {"key": None, "fetched_at": 0}
+    _buvid_cache = {"key": None, "buvid": ""}
 
     # ------------------------------------------------------------------
-    # 基础请求
+    # 基础请求（curl_cffi 函数级调用：B站封 python-requests 的 TLS 指纹，
+    # 且 curl_cffi Session 在工作线程中不可用，故每次请求独立发起）
     # ------------------------------------------------------------------
 
-    @classmethod
-    def _headers(cls) -> dict:
-        headers = {
-            "User-Agent": cls.UA,
-            "Referer": "https://www.bilibili.com/",
-        }
-        sessdata = Config.BILI_SESSDATA
-        if sessdata:
-            headers["Cookie"] = f"SESSDATA={sessdata}"
-        return headers
+    _warmed_up = False
 
     @classmethod
-    def _get(cls, path: str, params: dict = None) -> Tuple[Optional[dict], Optional[str]]:
+    def warmup(cls):
+        """主线程触发 curl_cffi 全局初始化。
+
+        curl_cffi 的 TLS 全局状态若首次初始化发生在工作线程，
+        之后所有子线程请求都会拿到空响应；必须在主线程先发一次请求。
+        """
+        if cls._warmed_up:
+            return
+        cls._warmed_up = True
         try:
-            resp = requests.get(
-                f"{cls.API_BASE}{path}",
-                params=params,
-                headers=cls._headers(),
-                timeout=15,
-            )
+            from curl_cffi import requests as curl_requests
+
+            curl_requests.get("https://www.bilibili.com/", impersonate="chrome", timeout=5)
+        except Exception as e:
+            logger.warning(f"Bilibili curl_cffi warmup failed: {e}")
+
+    @classmethod
+    def _cookies(cls) -> dict:
+        sd = Config.BILI_SESSDATA
+        cookies = {"SESSDATA": sd} if sd else {}
+        if cls._buvid_cache["key"] == sd and cls._buvid_cache["buvid"]:
+            cookies["buvid3"] = cls._buvid_cache["buvid"]
+            return cookies
+
+        try:
+            from curl_cffi import requests as curl_requests
+
+            warm = curl_requests.get("https://www.bilibili.com/", impersonate="chrome", timeout=10)
+            buvid = warm.cookies.get("buvid3") or ""
+        except Exception:
+            buvid = ""
+        cls._buvid_cache = {"key": sd, "buvid": buvid}
+        if buvid:
+            cookies["buvid3"] = buvid
+        return cookies
+
+    @classmethod
+    def _fetch_json(cls, url: str, params: dict = None, referer: str = "https://www.bilibili.com/"):
+        from curl_cffi import requests as curl_requests
+
+        return curl_requests.get(
+            url, params=params, impersonate="chrome",
+            cookies=cls._cookies(), headers={"Referer": referer}, timeout=15,
+        )
+
+    @classmethod
+    def _get(cls, path: str, params: dict = None, referer: str = "https://www.bilibili.com/") -> Tuple[Optional[dict], Optional[str]]:
+        try:
+            resp = cls._fetch_json(f"{cls.API_BASE}{path}", params=params, referer=referer)
             data = resp.json()
-        except (requests.RequestException, ValueError) as e:
+        except Exception as e:
             return None, f"Bilibili request failed: {e}"
 
         if data.get("code") != 0:
@@ -147,7 +178,10 @@ class BilibiliService:
         if not signed:
             return None, "Bilibili login required (check BILI_SESSDATA)"
 
-        data, error = cls._get("/x/space/wbi/arc/search", signed)
+        data, error = cls._get(
+            "/x/space/wbi/arc/search", signed,
+            referer=f"https://space.bilibili.com/{mid}/video",
+        )
         if error:
             return None, error
 
@@ -204,9 +238,14 @@ class BilibiliService:
         if url.startswith("//"):
             url = "https:" + url
         try:
-            resp = requests.get(url, headers={"User-Agent": cls.UA, "Referer": "https://www.bilibili.com/"}, timeout=15)
+            from curl_cffi import requests as curl_requests
+
+            resp = curl_requests.get(
+                url, impersonate="chrome",
+                headers={"Referer": "https://www.bilibili.com/"}, timeout=15,
+            )
             doc = resp.json()
-        except (requests.RequestException, ValueError) as e:
+        except Exception as e:
             return None, f"Subtitle download failed: {e}"
 
         lines = doc.get("body") or []
