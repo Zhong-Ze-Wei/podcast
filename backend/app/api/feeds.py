@@ -6,6 +6,10 @@ Feeds API
 """
 
 from flask import Blueprint, request
+
+import os
+import requests as http_requests
+
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -181,6 +185,38 @@ def _queue_initial_refresh(feed_id, owner_id):
     task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id)
 
 
+def _persist_feed_icon(feed_id, url, referer=None, proxy=None, filename=None):
+    """
+    下载图片到 media/covers 并返回本地 API 路径（已存在则跳过下载）。
+
+    B站/YouTube 图源有防盗链或需代理，浏览器直连加载不可靠，统一落地本地。
+    """
+    from ..config import Config
+
+    try:
+        covers_dir = Config.COVERS_DIR
+        os.makedirs(covers_dir, exist_ok=True)
+        filename = filename or f"feed_{feed_id}.jpg"
+        local_path = os.path.join(covers_dir, filename)
+        if os.path.exists(local_path):
+            return f"/api/media/covers/{filename}"
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+        }
+        if referer:
+            headers["Referer"] = referer
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        resp = http_requests.get(url, headers=headers, proxies=proxies, timeout=15)
+        resp.raise_for_status()
+
+        with open(local_path, "wb") as f:
+            f.write(resp.content)
+        return f"/api/media/covers/{filename}"
+    except Exception:
+        return None
+
+
 def _create_youtube_channel_feed(db, url, owner_id, data):
     """订阅 YouTube 频道：解析频道 → 建 feed → 后台拉首批视频"""
     existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": url})
@@ -204,6 +240,14 @@ def _create_youtube_channel_feed(db, url, owner_id, data):
     feed_doc["last_checked"] = None
     result = db.feeds.insert_one(feed_doc)
     feed_doc["_id"] = result.inserted_id
+
+    if channel.get("avatar"):
+        local_icon = _persist_feed_icon(
+            result.inserted_id, channel["avatar"], proxy=YouTubeService._proxy()
+        )
+        if local_icon:
+            db.feeds.update_one({"_id": result.inserted_id}, {"$set": {"image": local_icon}})
+            feed_doc["image"] = local_icon
 
     _queue_initial_refresh(result.inserted_id, owner_id)
     return success_response(Feed.to_response(feed_doc), "YouTube channel subscribed", 201)
@@ -233,6 +277,15 @@ def _create_bilibili_feed(db, url, space_id, owner_id, data):
     feed_doc["last_checked"] = None
     result = db.feeds.insert_one(feed_doc)
     feed_doc["_id"] = result.inserted_id
+
+    if uploader.get("face"):
+        local_icon = _persist_feed_icon(
+            result.inserted_id, uploader["face"],
+            referer="https://space.bilibili.com/",
+        )
+        if local_icon:
+            db.feeds.update_one({"_id": result.inserted_id}, {"$set": {"image": local_icon}})
+            feed_doc["image"] = local_icon
 
     _queue_initial_refresh(result.inserted_id, owner_id)
     return success_response(Feed.to_response(feed_doc), "Bilibili uploader subscribed", 201)
@@ -411,10 +464,30 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
 def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="",
                           author="", published=None, audio_type="video/youtube",
                           transcript=None, transcript_source=None):
-    """插入视频 episode（含可选 transcript），返回是否新建"""
+    """
+    插入视频 episode（含可选 transcript）。
+
+    返回 'created'（新建）/ 'backfilled'（已存在但补上了 transcript）/ None。
+    """
     existing = db.episodes.find_one({"owner_id": feed.get("owner_id"), "guid": guid})
     if existing:
-        return False
+        # 已入库但缺字幕的剧集：补上 transcript（AI 字幕是异步生成的，首轮常拿不到）
+        if transcript and not db.transcripts.find_one({"episode_id": existing["_id"]}):
+            db.transcripts.insert_one(Transcript.create(
+                episode_id=existing["_id"],
+                owner_id=feed.get("owner_id"),
+                text=transcript["text"],
+                segments=transcript["segments"],
+                language=transcript.get("language", ""),
+                source=transcript_source,
+                model=transcript.get("model", ""),
+            ))
+            db.episodes.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"status": Episode.STATUS_TRANSCRIBED}},
+            )
+            return "backfilled"
+        return None
 
     episode_doc = Episode.create(
         feed_id=feed["_id"],
@@ -443,13 +516,15 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
             source=transcript_source,
             model=transcript.get("model", ""),
         ))
-    return True
+    return "created"
 
 
 def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
     """YouTube 频道刷新：RSS 拉最新 15 条 → 新视频拉字幕"""
     if progress_callback:
         progress_callback(10)
+
+    import time as _time
 
     videos, error = YouTubeService.fetch_channel_videos(feed.get("channel_ref"))
     if error:
@@ -462,8 +537,10 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
         progress_callback(30)
 
     owner_id = feed.get("owner_id")
+    # 只跳过已有 transcript 的剧集；缺字幕的重试（AI 字幕异步生成）
     existing_guids = set(
         ep["guid"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": feed["_id"]}, {"guid": 1})
+        if db.transcripts.find_one({"episode_id": ep["_id"]})
     )
 
     new_count, transcript_count, failed = 0, 0, 0
@@ -472,9 +549,20 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
         if guid in existing_guids:
             continue
 
+        _time.sleep(1.2)  # YouTube 连续大量请求同样会被限流，逐个节流
+
         metadata, meta_error = YouTubeService.fetch_metadata(video["video_id"])
         title = (metadata or {}).get("title") or video["title"]
         duration = (metadata or {}).get("duration") or 0
+
+        # 剧集封面落地本地（ytimg 国内浏览器直连不稳）
+        local_thumb = None
+        if (metadata or {}).get("thumbnail"):
+            local_thumb = _persist_feed_icon(
+                None, metadata["thumbnail"],
+                proxy=YouTubeService._proxy(),
+                filename=f"yt_{video['video_id']}.jpg",
+            )
 
         transcript, tr_error = YouTubeService.fetch_transcript(video["video_id"])
         if transcript:
@@ -484,17 +572,20 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
             db, feed, guid, title,
             duration=duration,
             link=f"https://www.youtube.com/watch?v={video['video_id']}",
-            image=(metadata or {}).get("thumbnail", ""),
+            image=local_thumb or (metadata or {}).get("thumbnail", ""),
             author=(metadata or {}).get("uploader", ""),
+            published=video.get("published"),
             transcript=transcript,
             transcript_source=Transcript.SOURCE_YOUTUBE,
         )
-        if created:
+        if created == "created":
             new_count += 1
             if transcript:
                 transcript_count += 1
             else:
                 failed += 1
+        elif created == "backfilled":
+            transcript_count += 1
         if progress_callback:
             progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
 
@@ -529,8 +620,10 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
         progress_callback(30)
 
     owner_id = feed.get("owner_id")
+    # 只跳过已有 transcript 的剧集；缺字幕的重试（AI 字幕异步生成）
     existing_guids = set(
         ep["guid"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": feed["_id"]}, {"guid": 1})
+        if db.transcripts.find_one({"episode_id": ep["_id"]})
     )
 
     new_count, transcript_count, failed = 0, 0, 0
@@ -539,13 +632,34 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
         if guid in existing_guids:
             continue
 
+    new_count, transcript_count, failed = 0, 0, 0
+    # 同订阅字幕查重：B站串台时多个视频会返回同一份字幕
+    import hashlib as _hashlib
+    import time as _time
+    existing_text_keys = set(
+        _hashlib.md5(tr["text"][:300].encode("utf-8", "ignore")).hexdigest()
+        for tr in db.transcripts.find({"owner_id": owner_id}, {"text": 1})
+        if tr.get("text")
+    )
+    for i, video in enumerate(videos):
+        guid = f"bilibili:{video['bvid']}"
+        if guid in existing_guids:
+            continue
+
+        _time.sleep(1.2)  # B站连续大量请求会触发瞬时风控，逐个节流
+
         published = None
         if video.get("published"):
             published = datetime.utcfromtimestamp(video["published"])
 
-        transcript, tr_error = BilibiliService.fetch_ai_subtitle(video["bvid"])
+        transcript, tr_error = BilibiliService.fetch_ai_subtitle(video["bvid"], title=video.get("title", ""))
         if transcript:
-            transcript["model"] = "bili-ai-subtitle"
+            text_key = _hashlib.md5(transcript["text"][:300].encode("utf-8", "ignore")).hexdigest()
+            if text_key in existing_text_keys:
+                transcript, tr_error = None, "AI subtitle rejected: duplicate of another episode (mismatched subtitle)"
+            else:
+                existing_text_keys.add(text_key)
+                transcript["model"] = "bili-ai-subtitle"
 
         created = _upsert_video_episode(
             db, feed, guid, video["title"],
@@ -558,12 +672,14 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
             transcript=transcript,
             transcript_source=Transcript.SOURCE_BILIBILI,
         )
-        if created:
+        if created == "created":
             new_count += 1
             if transcript:
                 transcript_count += 1
             else:
                 failed += 1
+        elif created == "backfilled":
+            transcript_count += 1
         if progress_callback:
             progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
 

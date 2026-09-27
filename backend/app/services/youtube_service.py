@@ -97,11 +97,21 @@ class YouTubeService:
             return None, f"YouTube channel RSS failed: {e}"
 
         feed = feedparser.parse(resp.content)
-        videos = [{
-            "video_id": getattr(e, "yt_videoid", ""),
-            "title": getattr(e, "title", ""),
-            "published": getattr(e, "published", ""),
-        } for e in feed.entries if getattr(e, "yt_videoid", "")]
+        from datetime import datetime as _dt
+
+        videos = []
+        for e in feed.entries:
+            if not getattr(e, "yt_videoid", ""):
+                continue
+            published = None
+            parsed = getattr(e, "published_parsed", None)
+            if parsed:
+                published = _dt(*parsed[:6])
+            videos.append({
+                "video_id": e.yt_videoid,
+                "title": getattr(e, "title", ""),
+                "published": published,
+            })
         return videos, None
 
     @classmethod
