@@ -433,8 +433,8 @@ TEMPLATE_TECH = {
 
 TEMPLATE_STARTUP = {
     "name": "startup",
-    "display_name": "Startup & Business",
-    "description": "Extract business models, growth strategies, and entrepreneurship lessons.",
+    "display_name": "创业与商业",
+    "description": "提取商业模式、增长策略与创业经验，适合商业类播客。",
     "is_system": True,
     "is_active": True,
     "locked": {
@@ -458,8 +458,8 @@ TEMPLATE_STARTUP = {
 
 TEMPLATE_LEARNING = {
     "name": "learning",
-    "display_name": "Learning Notes",
-    "description": "General-purpose learning summary with key concepts and actionable takeaways.",
+    "display_name": "学习笔记",
+    "description": "通用学习摘要：核心概念、要点与可行建议（默认模板）。",
     "is_system": True,
     "is_active": True,
     "locked": COMMON_LOCKED,
@@ -478,8 +478,8 @@ TEMPLATE_LEARNING = {
 
 TEMPLATE_INTERVIEW = {
     "name": "interview",
-    "display_name": "Interview & Stories",
-    "description": "Focus on personal stories, life lessons, and memorable quotes from interviews.",
+    "display_name": "访谈与故事",
+    "description": "聚焦个人故事、人生感悟与访谈金句。",
     "is_system": True,
     "is_active": True,
     "locked": COMMON_LOCKED,
