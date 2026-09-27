@@ -549,7 +549,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
         if guid in existing_guids:
             continue
 
-        _time.sleep(1.2)  # YouTube 连续大量请求同样会被限流，逐个节流
+        _time.sleep(2.5)  # YouTube 连续大量请求同样会被限流，逐个节流（2.5s，实测 1.2s 仍偶发触发风控）
 
         metadata, meta_error = YouTubeService.fetch_metadata(video["video_id"])
         title = (metadata or {}).get("title") or video["title"]
@@ -646,7 +646,7 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
         if guid in existing_guids:
             continue
 
-        _time.sleep(1.2)  # B站连续大量请求会触发瞬时风控，逐个节流
+        _time.sleep(2.5)  # B站连续大量请求会触发瞬时风控，逐个节流（2.5s，实测 1.2s 仍偶发触发风控）
 
         published = None
         if video.get("published"):
