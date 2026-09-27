@@ -90,7 +90,7 @@ def test_refresh_bilibili_feed_creates_transcribed_episodes(monkeypatch):
     monkeypatch.setattr(BilibiliService, "fetch_uploader_videos",
                         classmethod(lambda cls, mid, ps=30: ([_bili_video("BV1test1111"), _bili_video("BV2test2222")], None)))
     monkeypatch.setattr(BilibiliService, "fetch_ai_subtitle",
-                        classmethod(lambda cls, bvid: (
+                        classmethod(lambda cls, bvid, title="": (
                             {"text": "你好", "segments": [{"start": 0.0, "end": 2.0, "text": "你好"}],
                              "language": "zh"}, None) if bvid == "BV1test1111" else (None, "No AI subtitle available")))
 
@@ -149,10 +149,20 @@ def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
             "cover": "", "uploader": "u"}
     monkeypatch.setattr(BilibiliService, "fetch_video_meta",
                         classmethod(lambda cls, bvid: (meta, None)))
+
+    nav_data = {"wbi_img": {
+        "img_url": "https://a.b/i/" + "a" * 32 + ".png",
+        "sub_url": "https://a.b/s/" + "b" * 32 + ".png",
+    }}
     player_data = {"subtitle": {"subtitles": [
         {"lan": "ai-zh", "subtitle_url": "https://example.com/sub.json"}]}}
-    monkeypatch.setattr(BilibiliService, "_get",
-                        classmethod(lambda cls, path, params=None: (player_data, None)))
+
+    def fake_get(cls, path, params=None, referer=None):
+        if "nav" in path:
+            return (nav_data, None)
+        return (player_data, None)
+
+    monkeypatch.setattr(BilibiliService, "_get", classmethod(fake_get))
 
     class FakeResp:
         def __init__(self, body):
