@@ -40,7 +40,6 @@
 - 依赖已装入后端 venv：`yt-dlp 2026.08.19`、`youtube-transcript-api`（**未写入 pyproject.toml**，正式集成时固化版本）
 - 系统无独立 ffmpeg：yt-dlp 的 m4a→mp3 转码会失败；Whisper 管线使用 `imageio_ffmpeg` 自带二进制，且 faster-whisper 原生支持 m4a——集成时**跳过转码直接用 m4a**
 - B站接口走 wbi 签名（yt-dlp 日志实测可见 `Downloading wbi sign`），登录态由浏览器 cookie 提供
-- 实测样本产物：`labs/subtitle-probe/`（B站 m4a 音频 + YouTube VTT 字幕）
 
 ### 待办拆解
 
