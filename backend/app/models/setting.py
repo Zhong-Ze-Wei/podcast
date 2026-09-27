@@ -354,28 +354,42 @@ class SettingModel:
         self.set(self.KEY_LLM_TASK_ROUTES, routes)
         return routes
 
-    def get_active_llm_config(self):
-        """获取当前激活的LLM配置"""
-        settings = self.get_llm_settings()
-        model_id = settings.get("default_model_id")
-        selected_model = next((model for model in settings["models"] if model["id"] == model_id), None)
-        if not selected_model:
+    def _resolve_model_provider(self, settings, model_id):
+        """根据 model_id 解析 model + provider，返回合并配置或 None。"""
+        model = next((m for m in settings["models"] if m["id"] == model_id), None)
+        if not model:
             return None
-        provider = next((item for item in settings["providers"] if item["id"] == selected_model["provider_id"]), None)
-        if not provider or provider.get("enabled") is False or selected_model.get("enabled") is False:
+        provider = next((p for p in settings["providers"] if p["id"] == model["provider_id"]), None)
+        if not provider or not provider.get("enabled", True) or not model.get("enabled", True):
             return None
         return {
-            "id": selected_model["id"],
-            "name": selected_model.get("name"),
+            "id": model["id"],
+            "name": model.get("name"),
             "provider_id": provider["id"],
             "provider": provider.get("provider"),
             "api_format": provider.get("api_format", self.API_FORMAT_OPENAI),
             "base_url": provider["base_url"],
             "api_key": provider.get("api_key", ""),
-            "model": selected_model["model"],
-            "supports_streaming": selected_model.get("supports_streaming", True),
-            "enabled": selected_model.get("enabled", True),
+            "model": model["model"],
+            "supports_streaming": model.get("supports_streaming", True),
+            "enabled": model.get("enabled", True),
         }
+
+    def get_active_llm_config(self, task=None):
+        """获取当前激活的LLM配置，可选按任务路由。"""
+        settings = self.get_llm_settings()
+
+        # 优先使用 task route
+        if task:
+            task_routes = settings.get("task_routes", {})
+            routed_id = task_routes.get(task, "default")
+            if routed_id != "default":
+                config = self._resolve_model_provider(settings, routed_id)
+                if config:
+                    return config
+
+        # fallback 到 default model
+        return self._resolve_model_provider(settings, settings.get("default_model_id"))
 
     def set_active_llm_index(self, index):
         """设置激活的LLM配置索引"""

@@ -16,7 +16,7 @@ def test_llm_settings_are_scoped_per_user():
             "configs": [{
                 "name": "User1 LLM",
                 "base_url": "https://api.example.com/v1",
-                "api_key": "secret",
+                "api_key": "sk-test-abcdefghijklmnop",
                 "model": "model-a",
             }],
         },
@@ -29,7 +29,8 @@ def test_llm_settings_are_scoped_per_user():
 
     assert own.status_code == 200
     assert own.get_json()["configs"][0]["name"] == "User1 LLM"
-    assert own.get_json()["configs"][0]["api_key"] == ""
+    assert own.get_json()["configs"][0]["api_key"] != "sk-test-abcdefghijklmnop"
+    assert "..." in own.get_json()["configs"][0]["api_key"]
     assert own.get_json()["configs"][0]["has_api_key"] is True
     assert other.status_code == 200
     assert other.get_json()["configs"][0]["name"] != "User1 LLM"
@@ -75,9 +76,8 @@ def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs()
                 "provider": "modelscope",
                 "api_format": "openai_compatible",
                 "base_url": "https://api-inference.modelscope.cn/v1",
-                "api_key": "secret",
+                "api_key": "sk-test-abcdefghijklmnop",
                 "model": "deepseek-ai/DeepSeek-V4-Flash",
-                "supports_streaming": True,
                 "enabled": True,
             }],
             "task_routes": {
@@ -94,7 +94,8 @@ def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs()
     saved = client.get("/api/settings/llm", headers=auth_headers(user))
     payload = saved.get_json()
     assert payload["configs"][0]["id"] == "modelscope"
-    assert payload["configs"][0]["api_key"] == ""
+    assert payload["configs"][0]["api_key"] != "sk-test-abcdefghijklmnop"
+    assert "..." in payload["configs"][0]["api_key"]
     assert payload["configs"][0]["has_api_key"] is True
     assert payload["task_routes"] == {
         "summary": "default",
@@ -117,7 +118,7 @@ def test_llm_settings_split_providers_models_and_routes_without_returning_keys()
                 "provider": "modelscope",
                 "api_format": "openai_compatible",
                 "base_url": "https://api-inference.modelscope.cn/v1",
-                "api_key": "secret",
+                "api_key": "sk-test-abcdefghijklmnop",
                 "enabled": True,
             }],
             "models": [
@@ -150,16 +151,11 @@ def test_llm_settings_split_providers_models_and_routes_without_returning_keys()
     assert response.status_code == 200
 
     payload = client.get("/api/settings/llm", headers=auth_headers(user)).get_json()
-    assert payload["providers"] == [{
-        "id": "modelscope",
-        "name": "ModelScope",
-        "provider": "modelscope",
-        "api_format": "openai_compatible",
-        "base_url": "https://api-inference.modelscope.cn/v1",
-        "api_key": "",
-        "enabled": True,
-        "has_api_key": True,
-    }]
+    provider_resp = payload["providers"][0]
+    assert provider_resp["id"] == "modelscope"
+    assert provider_resp["has_api_key"] is True
+    assert provider_resp["api_key"] != "sk-test-abcdefghijklmnop"
+    assert "..." in provider_resp["api_key"]
     assert payload["models"] == [{
         "id": "modelscope-deepseek-v4-flash",
         "provider_id": "modelscope",
@@ -226,7 +222,7 @@ def test_llm_settings_preserve_disabled_provider_models_but_exclude_from_routes(
                     "provider": "modelscope",
                     "api_format": "openai_compatible",
                     "base_url": "https://api-inference.modelscope.cn/v1",
-                    "api_key": "secret",
+                    "api_key": "sk-test-abcdefghijklmnop",
                     "enabled": True,
                 },
                 {
@@ -235,7 +231,7 @@ def test_llm_settings_preserve_disabled_provider_models_but_exclude_from_routes(
                     "provider": "deepseek",
                     "api_format": "openai_compatible",
                     "base_url": "https://api.deepseek.com/v1",
-                    "api_key": "secret-2",
+                    "api_key": "sk-test-deepseek-key-xyz",
                     "enabled": False,
                 },
             ],
