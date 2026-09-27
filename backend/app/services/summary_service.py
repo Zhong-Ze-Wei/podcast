@@ -46,7 +46,7 @@ class SummaryService:
 
     def __init__(self, db):
         self.db = db
-        self.llm = get_llm_client()
+        self.llm = get_llm_client(task="summary")
         self._engine = None
 
     @property

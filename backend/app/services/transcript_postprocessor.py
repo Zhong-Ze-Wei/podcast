@@ -123,7 +123,7 @@ def _normalize_segments_with_ai(segments: List[Dict]) -> Tuple[List[Dict], Dict]
 
     from app.services.llm_client import get_llm_client
 
-    llm = get_llm_client()
+    llm = get_llm_client(task="transcript_normalize")
     result_segments = [dict(segment) for segment in segments]
     usage_total = {"prompt": 0, "completion": 0, "total": 0}
     model = ""

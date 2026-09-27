@@ -250,11 +250,12 @@ class LLMClient:
             raise ValueError(f"Invalid JSON response from LLM: {e}")
 
 
-def get_llm_client() -> LLMClient:
+def get_llm_client(task=None) -> LLMClient:
     """
     获取 LLM 客户端 - 每次创建新实例（线程安全）
 
-    优先从数据库获取活动配置，如果数据库不可用则使用环境变量配置
+    Args:
+        task: 可选任务名 (summary/briefing/transcript_normalize)，用于 task route 解析
     """
     active_config = None
 
@@ -266,7 +267,7 @@ def get_llm_client() -> LLMClient:
         db = get_db()
         if db is not None:
             setting_model = SettingModel(db)
-            active_config = setting_model.get_active_llm_config()
+            active_config = setting_model.get_active_llm_config(task=task)
 
     except Exception as e:
         logger.debug(f"Failed to get db from Flask context: {e}")
@@ -286,7 +287,7 @@ def get_llm_client() -> LLMClient:
             from app.models.setting import SettingModel
 
             setting_model = SettingModel(db)
-            active_config = setting_model.get_active_llm_config()
+            active_config = setting_model.get_active_llm_config(task=task)
 
         except Exception as e:
             logger.warning(f"Failed to get LLM config from MongoDB: {e}")
@@ -294,7 +295,7 @@ def get_llm_client() -> LLMClient:
     # 使用获取到的配置创建客户端
     if active_config:
         logger.debug(
-            f"Creating LLM client with config: {active_config.get('name', 'unnamed')}"
+            f"Creating LLM client: task={task}, model={active_config.get('model', 'unknown')}"
         )
         return LLMClient(
             base_url=active_config.get("base_url"),
