@@ -51,7 +51,37 @@
 
 ---
 
-## 2. Lex Fridman RSS 缺失时长字段
+## 2. AI 播客种子频道清单（YouTube）
+
+**来源**: [swyxio/ai-notes "Good AI Podcasts and Newsletters"](https://github.com/swyxio/ai-notes/blob/main/Resources/Good%20AI%20Podcasts%20and%20Newsletters.md)（Latent Space 创始人维护，Andrew Chen / Lex Fridman 公开推荐），交叉参考 2026 年多个工程师向榜单。
+**字幕实测**: 2026-09-27，四个头部频道最新一期 4/4 有英文字幕（youtube-transcript-api，走代理）。
+
+### 研究者访谈（长视频，字幕实测标注）
+
+- Dwarkesh Patel Podcast — **手动字幕实测 ✓**（1.4 万词/期；swyx 评："The new Lex Fridman"）
+- Machine Learning Street Talk (Tim Scarfe) — **手动字幕实测 ✓**（2.6 万词/期，safety/哲学向深技术访谈）
+- Latent Space (swyx) — **自动字幕实测 ✓**（2.9 万词/期，AI 工程向）
+- Cognitive Revolution (Nathan Labenz) — **自动字幕实测 ✓**（2.6 万词/期）
+- The Gradient Podcast / TWIML AI (Sam Charrington) / Practical AI / Deep Papers (Arize) / Interconnects Audio (Nathan Lambert)
+
+### 新闻 / 评论频道（YouTube）
+
+- Last Week in AI、Yannic Kilcher（论文精读）、Sasha Rush（srush_nlp）、AI Brief (NLW)、AI Explained、ThursdAI
+
+### 公司 / VC 播客
+
+- The DeepMind Podcast、Gradient Dissent (W&B)、Robot Brains (Pieter Abbeel)、High Agency (Raza Habib)
+- No Priors (Sarah Guo & Elad Gil)、Training Data (Sequoia)、Unsupervised Learning (Redpoint)
+
+### 字幕与说话人分离的现状
+
+- YouTube 手动/自动字幕均为**纯文本 + 时间戳，不带说话人标注**
+- 需要"分人"文稿时走本地 WhisperX：`whisperx_service.py` 已支持 pyannote 说话人分离（`.env` 中 `WHISPERX_DIARIZE=1` 已启用，HF_TOKEN 已配置），依赖已全部安装
+- 待办：[ ] "YouTube 导入优先字幕、可选强制 WhisperX 分人转写"的模式开关
+
+---
+
+## 3. Lex Fridman RSS 缺失时长字段
 
 **诊断日期**: 2026-09-27
 
