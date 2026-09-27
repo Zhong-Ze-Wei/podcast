@@ -213,19 +213,25 @@ class BilibiliService:
         }, None
 
     @classmethod
-    def fetch_ai_subtitle(cls, bvid: str) -> Tuple[Optional[dict], Optional[str]]:
+    def fetch_ai_subtitle(cls, bvid: str, title: str = "") -> Tuple[Optional[dict], Optional[str]]:
         """
         获取视频 AI 中文字幕（需 SESSDATA）。
 
-        内置串台校验：字幕时间轴不得超过视频时长 5%，行密度不低于
-        每 60 秒 1 行，超出判定为串台/损坏字幕并报错。
+        内置串台校验（B站 AI 字幕系统存在字幕关联错乱，实测同 UP 主
+        多个视频返回同一份字幕、或返回完全不相关内容）：
+        1. 时间轴不得超过视频时长 5%，行密度不低于每 60 秒 1 行
+        2. 字幕与标题的词窗命中率不低于 18%（词窗过少时跳过）
         """
         meta, error = cls.fetch_video_meta(bvid)
         if error:
             return None, error
         duration = meta["duration"]
 
-        data, error = cls._get("/x/player/v2", {"aid": meta["aid"], "cid": meta["cid"]})
+        # 用官方播放器同款的 wbi 签名接口：旧 player/v2 返回脏缓存（实测串台）
+        signed = cls._wbi_sign({"aid": meta["aid"], "cid": meta["cid"]})
+        if not signed:
+            return None, "Bilibili login required (check BILI_SESSDATA)"
+        data, error = cls._get("/x/player/wbi/v2", signed)
         if error:
             return None, error
 
@@ -252,17 +258,39 @@ class BilibiliService:
         if not lines:
             return None, "AI subtitle is empty"
 
-        # 串台校验：时间轴越界或行密度异常
+        # 校验一：时间轴越界、行密度或行均字数异常（串台字幕常为短视频内容，
+        # 每行仅一两个字、总行数撑不满长视频时长）
         max_to = max((l.get("to", 0) for l in lines), default=0)
         if duration and max_to > duration * 1.05:
             return None, "AI subtitle rejected: timeline exceeds video duration (mismatched subtitle)"
         if duration and len(lines) < duration / 60:
             return None, "AI subtitle rejected: too sparse (possible mismatched subtitle)"
+        avg_chars = sum(len(str(l.get("content", ""))) for l in lines) / max(len(lines), 1)
+        if avg_chars < 2:
+            return None, "AI subtitle rejected: lines too short (possible mismatched subtitle)"
 
         segments = [{"start": float(l["from"]), "end": float(l["to"]), "text": str(l["content"]).strip()}
                     for l in lines if str(l.get("content", "")).strip()]
         text = " ".join(s["text"] for s in segments)
+
+        # 校验二：标题词窗命中率（正常剧集实测 ≥30%，串台 ≤14%，阈值取 18%）
+        windows = cls._title_windows(title)
+        if len(windows) >= 6:
+            hits = sum(1 for w in windows if w in text)
+            if hits / len(windows) < 0.18:
+                return None, "AI subtitle rejected: content does not match video title (mismatched subtitle)"
+
         return {"text": text, "segments": segments, "language": "zh"}, None
+
+    @staticmethod
+    def _title_windows(title: str) -> set:
+        """标题清洗后提取 3/2 字滑窗词组，用于字幕内容相关性校验"""
+        clean = re.sub(r"[｜|【】「」·:：,，。!！?？\s0-9a-zA-Z]+", "", title or "")
+        windows = set()
+        for n in (3, 2):
+            for i in range(len(clean) - n + 1):
+                windows.add(clean[i:i + n])
+        return windows
 
     @staticmethod
     def _parse_length(length: str) -> int:
