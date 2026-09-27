@@ -149,6 +149,7 @@ class FeedAutoRefresher:
             if ep_info["guid"] not in existing_guids:
                 ep_doc = Episode.create(
                     feed_id=feed_id,
+                    owner_id=feed.get("owner_id"),
                     guid=ep_info["guid"],
                     title=ep_info["title"],
                     summary=ep_info.get("summary"),

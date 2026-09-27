@@ -28,8 +28,7 @@ feeds_bp = Blueprint("feeds", __name__)
 
 
 def _build_episode_doc(feed_id, ep_info, owner_id=None):
-    """从 RSS 解析结果构造 Episode 文档"""
-    owner_id = owner_id or current_owner_id()
+    """从 RSS 解析结果构造 Episode 文档（owner_id 继承自 feed，可能为 None=本地单用户）"""
     return Episode.create(
         feed_id=feed_id,
         owner_id=owner_id,
