@@ -49,8 +49,8 @@ class MockCollection:
     def insert_many(self, docs):
         for doc in docs:
             self.insert_one(doc)
-        from pymongo.results import InsertManyResults
-        return InsertManyResults([d["_id"] for d in docs], acknowledged=True)
+        from pymongo.results import InsertManyResult
+        return InsertManyResult([d["_id"] for d in docs], acknowledged=True)
 
     def find_one(self, query, *args, **kwargs):
         from bson import ObjectId
