@@ -12,8 +12,11 @@ from datetime import datetime
 
 from ..models.feed import Feed
 from ..models.episode import Episode
+from ..models.transcript import Transcript
 from ..services.rss_service import RSSService
 from ..services.task_queue import task_queue
+from ..services.youtube_service import YouTubeService
+from ..services.bilibili_service import BilibiliService
 from .utils import (
     success_response,
     error_response,
@@ -105,7 +108,7 @@ def get_feed(feed_id):
 @feeds_bp.route("", methods=["POST"])
 @require_auth
 def create_feed():
-    """添加新订阅"""
+    """添加新订阅（自动识别：RSS / YouTube 频道 / B站 UP 主）"""
     db = get_db()
     data = request.get_json() or {}
 
@@ -113,11 +116,19 @@ def create_feed():
     if not rss_url:
         return error_response("RSS URL is required", "MISSING_RSS_URL", 400)
 
+    owner_id = current_owner_id()
+
+    space_id = BilibiliService.extract_space_id(rss_url)
+    if space_id:
+        return _create_bilibili_feed(db, rss_url, space_id, owner_id, data)
+
+    if YouTubeService.is_channel_url(rss_url):
+        return _create_youtube_channel_feed(db, rss_url, owner_id, data)
+
     if not Feed.validate_rss_url(rss_url):
         return error_response("Invalid RSS URL", "INVALID_RSS_URL", 400)
 
     # 检查是否已存在
-    owner_id = current_owner_id()
     existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": rss_url})
     if existing:
         return error_response("Feed already exists", "FEED_EXISTS", 409)
@@ -159,6 +170,72 @@ def create_feed():
     # 获取并返回创建的Feed
     feed_doc["_id"] = feed_id
     return success_response(Feed.to_response(feed_doc), "Feed added successfully", 201)
+
+
+def _queue_initial_refresh(feed_id, owner_id):
+    """订阅创建后异步拉取首批视频（复用刷新管线）"""
+
+    def do_refresh(progress_callback=None):
+        return _refresh_feed_sync(str(feed_id), progress_callback)
+
+    task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id)
+
+
+def _create_youtube_channel_feed(db, url, owner_id, data):
+    """订阅 YouTube 频道：解析频道 → 建 feed → 后台拉首批视频"""
+    existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": url})
+    if existing:
+        return error_response("Feed already exists", "FEED_EXISTS", 409)
+
+    channel, error = YouTubeService.resolve_channel(url)
+    if error:
+        return error_response(error, "YOUTUBE_CHANNEL_RESOLVE_FAILED", 400)
+
+    feed_doc = Feed.create(
+        rss_url=url,
+        owner_id=owner_id,
+        type=Feed.TYPE_YOUTUBE,
+        channel_ref=channel["channel_id"],
+        title=channel["title"] or url,
+        website=f"https://www.youtube.com/channel/{channel['channel_id']}",
+        description=f"YouTube 频道订阅 ({channel['channel_id']})",
+        tags=data.get("tags", []),
+    )
+    feed_doc["last_checked"] = None
+    result = db.feeds.insert_one(feed_doc)
+    feed_doc["_id"] = result.inserted_id
+
+    _queue_initial_refresh(result.inserted_id, owner_id)
+    return success_response(Feed.to_response(feed_doc), "YouTube channel subscribed", 201)
+
+
+def _create_bilibili_feed(db, url, space_id, owner_id, data):
+    """订阅 B站 UP 主：拉 UP 主信息 → 建 feed → 后台拉首批视频"""
+    existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": url})
+    if existing:
+        return error_response("Feed already exists", "FEED_EXISTS", 409)
+
+    uploader, error = BilibiliService.fetch_uploader_info(space_id)
+    if error:
+        return error_response(error, "BILIBILI_UPLOADER_FETCH_FAILED", 400)
+
+    feed_doc = Feed.create(
+        rss_url=url,
+        owner_id=owner_id,
+        type=Feed.TYPE_BILIBILI,
+        channel_ref=space_id,
+        title=uploader["name"] or url,
+        website=f"https://space.bilibili.com/{space_id}",
+        image=uploader.get("face", ""),
+        description=uploader.get("sign", ""),
+        tags=data.get("tags", []),
+    )
+    feed_doc["last_checked"] = None
+    result = db.feeds.insert_one(feed_doc)
+    feed_doc["_id"] = result.inserted_id
+
+    _queue_initial_refresh(result.inserted_id, owner_id)
+    return success_response(Feed.to_response(feed_doc), "Bilibili uploader subscribed", 201)
 
 
 @feeds_bp.route("/<feed_id>", methods=["PUT"])
@@ -250,13 +327,19 @@ def refresh_feed(feed_id):
 
 
 def _refresh_feed_sync(feed_id: str, progress_callback=None):
-    """同步执行Feed刷新"""
+    """同步执行Feed刷新（按类型分发：RSS / YouTube 频道 / B站 UP 主）"""
     db = get_db()
     oid = ObjectId(feed_id)
 
     feed = db.feeds.find_one({"_id": oid})
     if not feed:
         raise ValueError("Feed not found")
+
+    feed_type = feed.get("type") or Feed.TYPE_RSS
+    if feed_type == Feed.TYPE_YOUTUBE:
+        return _refresh_youtube_channel_feed(db, feed, progress_callback)
+    if feed_type == Feed.TYPE_BILIBILI:
+        return _refresh_bilibili_feed(db, feed, progress_callback)
 
     if progress_callback:
         progress_callback(10)
@@ -323,6 +406,180 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
         progress_callback(100)
 
     return {"new_episodes": len(new_episodes), "total_episodes": total_count}
+
+
+def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="",
+                          author="", published=None, audio_type="video/youtube",
+                          transcript=None, transcript_source=None):
+    """插入视频 episode（含可选 transcript），返回是否新建"""
+    existing = db.episodes.find_one({"owner_id": feed.get("owner_id"), "guid": guid})
+    if existing:
+        return False
+
+    episode_doc = Episode.create(
+        feed_id=feed["_id"],
+        owner_id=feed.get("owner_id"),
+        guid=guid,
+        title=title,
+        link=link,
+        published=published or datetime.utcnow(),
+        duration=duration,
+        image=image,
+        audio_type=audio_type,
+    )
+    if transcript:
+        episode_doc["status"] = Episode.STATUS_TRANSCRIBED
+    if author:
+        episode_doc["author"] = author
+    result = db.episodes.insert_one(episode_doc)
+
+    if transcript:
+        db.transcripts.insert_one(Transcript.create(
+            episode_id=result.inserted_id,
+            owner_id=feed.get("owner_id"),
+            text=transcript["text"],
+            segments=transcript["segments"],
+            language=transcript.get("language", ""),
+            source=transcript_source,
+            model=transcript.get("model", ""),
+        ))
+    return True
+
+
+def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
+    """YouTube 频道刷新：RSS 拉最新 15 条 → 新视频拉字幕"""
+    if progress_callback:
+        progress_callback(10)
+
+    videos, error = YouTubeService.fetch_channel_videos(feed.get("channel_ref"))
+    if error:
+        db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
+            "status": Feed.STATUS_ERROR, "check_error": error, "last_checked": datetime.utcnow(),
+        }})
+        raise ValueError(error)
+
+    if progress_callback:
+        progress_callback(30)
+
+    owner_id = feed.get("owner_id")
+    existing_guids = set(
+        ep["guid"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": feed["_id"]}, {"guid": 1})
+    )
+
+    new_count, transcript_count, failed = 0, 0, 0
+    for i, video in enumerate(videos):
+        guid = f"youtube:{video['video_id']}"
+        if guid in existing_guids:
+            continue
+
+        metadata, meta_error = YouTubeService.fetch_metadata(video["video_id"])
+        title = (metadata or {}).get("title") or video["title"]
+        duration = (metadata or {}).get("duration") or 0
+
+        transcript, tr_error = YouTubeService.fetch_transcript(video["video_id"])
+        if transcript:
+            transcript["model"] = "youtube-transcript-api"
+
+        created = _upsert_video_episode(
+            db, feed, guid, title,
+            duration=duration,
+            link=f"https://www.youtube.com/watch?v={video['video_id']}",
+            image=(metadata or {}).get("thumbnail", ""),
+            author=(metadata or {}).get("uploader", ""),
+            transcript=transcript,
+            transcript_source=Transcript.SOURCE_YOUTUBE,
+        )
+        if created:
+            new_count += 1
+            if transcript:
+                transcript_count += 1
+            else:
+                failed += 1
+        if progress_callback:
+            progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
+
+    total = db.episodes.count_documents({"owner_id": owner_id, "feed_id": feed["_id"]})
+    db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
+        "status": Feed.STATUS_ACTIVE,
+        "check_error": None,
+        "last_checked": datetime.utcnow(),
+        "last_updated": datetime.utcnow() if new_count else feed.get("last_updated"),
+        "episode_count": total,
+    }})
+    if progress_callback:
+        progress_callback(100)
+
+    return {"new_episodes": new_count, "new_transcripts": transcript_count,
+            "transcript_failures": failed, "total_episodes": total}
+
+
+def _refresh_bilibili_feed(db, feed, progress_callback=None):
+    """B站 UP 主刷新：wbi 拉投稿列表 → 新视频拉 AI 字幕"""
+    if progress_callback:
+        progress_callback(10)
+
+    videos, error = BilibiliService.fetch_uploader_videos(feed.get("channel_ref"))
+    if error:
+        db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
+            "status": Feed.STATUS_ERROR, "check_error": error, "last_checked": datetime.utcnow(),
+        }})
+        raise ValueError(error)
+
+    if progress_callback:
+        progress_callback(30)
+
+    owner_id = feed.get("owner_id")
+    existing_guids = set(
+        ep["guid"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": feed["_id"]}, {"guid": 1})
+    )
+
+    new_count, transcript_count, failed = 0, 0, 0
+    for i, video in enumerate(videos):
+        guid = f"bilibili:{video['bvid']}"
+        if guid in existing_guids:
+            continue
+
+        published = None
+        if video.get("published"):
+            published = datetime.utcfromtimestamp(video["published"])
+
+        transcript, tr_error = BilibiliService.fetch_ai_subtitle(video["bvid"])
+        if transcript:
+            transcript["model"] = "bili-ai-subtitle"
+
+        created = _upsert_video_episode(
+            db, feed, guid, video["title"],
+            duration=video.get("duration") or 0,
+            link=f"https://www.bilibili.com/video/{video['bvid']}",
+            image=video.get("cover", ""),
+            author=feed.get("title", ""),
+            published=published,
+            audio_type="video/bilibili",
+            transcript=transcript,
+            transcript_source=Transcript.SOURCE_BILIBILI,
+        )
+        if created:
+            new_count += 1
+            if transcript:
+                transcript_count += 1
+            else:
+                failed += 1
+        if progress_callback:
+            progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
+
+    total = db.episodes.count_documents({"owner_id": owner_id, "feed_id": feed["_id"]})
+    db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
+        "status": Feed.STATUS_ACTIVE,
+        "check_error": None,
+        "last_checked": datetime.utcnow(),
+        "last_updated": datetime.utcnow() if new_count else feed.get("last_updated"),
+        "episode_count": total,
+    }})
+    if progress_callback:
+        progress_callback(100)
+
+    return {"new_episodes": new_count, "new_transcripts": transcript_count,
+            "transcript_failures": failed, "total_episodes": total}
 
 
 @feeds_bp.route("/<feed_id>/star", methods=["POST"])
