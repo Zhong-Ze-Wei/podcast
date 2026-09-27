@@ -1,282 +1,246 @@
-# 数据库报告
+# 数据库设计
 
-> MongoDB 数据库：`podcast`
-> 文档日期：2026-05-16
-
----
-
-## 1. 概览
-
-| 集合 | 说明 | 唯一约束 |
-|------|------|----------|
-| `feeds` | RSS 订阅源 | `rss_url` |
-| `episodes` | 单集 | `(feed_id, guid)` 复合唯一 |
-| `transcripts` | 转录文本 | `episode_id` |
-| `summaries` | AI 摘要 | 无（支持一集多摘要）|
-| `tasks` | 异步任务 | `task_id` |
-| `settings` | 应用配置（LLM / Tavily）| 无 |
-| `prompt_templates` | 摘要 Prompt 模板 | `name` |
-| `briefings` | AI 日报缓存 | `date` |
+> 从 `backend/app/models/` + `backend/app/__init__.py` 源码提取。
+> 数据库: MongoDB，库名 `podcast`。
 
 ---
 
-## 2. 集合字段详情
+## 集合总览
 
-### 2.1 feeds
+| 集合 | 模型文件 | 主要用途 |
+|------|---------|---------|
+| `users` | `models/user.py` | 用户认证 |
+| `feeds` | `models/feed.py` | RSS 订阅源 |
+| `episodes` | `models/episode.py` | 播客单集 |
+| `transcripts` | `models/transcript.py` | 转录文本 |
+| `summaries` | `models/summary.py` | AI 摘要 |
+| `tasks` | `models/task.py` | 异步任务 |
+| `settings` | `models/setting.py` | 应用配置 |
+| `prompt_templates` | `models/prompt_template.py` | 提示词模板 |
+| `briefings` | 无独立模型 | AI 简报缓存 |
+
+---
+
+## users
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `rss_url` | string | RSS 订阅地址（唯一索引）|
-| `title` | string | 播客名称 |
-| `website` | string | 播客网站 |
-| `image` | string | 封面图 URL |
-| `description` | string | 播客描述 |
-| `author` | string | 作者 |
-| `language` | string | 语言代码（如 en-US）|
+| `_id` | ObjectId | |
+| `email` | string | 唯一，用于登录 |
+| `password_hash` | string | bcrypt 哈希 |
+| `role` | string | `"user"` / `"admin"` |
+| `status` | string | `"active"` / `"disabled"` |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
+| `last_login_at` | datetime | nullable |
+
+**索引**: `email` (unique), `role`, `status`
+
+---
+
+## feeds
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `_id` | ObjectId | |
+| `rss_url` | string | RSS 地址 |
+| `owner_id` | string | 用户隔离 |
+| `title` | string | 播客标题 |
+| `website` | string | |
+| `image` | string | 封面图 |
+| `description` | string | |
+| `author` | string | |
+| `language` | string | |
 | `status` | string | `active` / `paused` / `error` |
-| `last_checked` | datetime | 最后检查时间 |
-| `last_updated` | datetime | 最后有新单集时间 |
-| `check_error` | string\|null | 最近一次错误信息 |
-| `is_starred` | boolean | 是否标星 |
-| `is_favorite` | boolean | 是否收藏 |
-| `note` | string | 用户备注 |
-| `tags` | array\<string\> | 标签列表 |
-| `episode_count` | int | 单集总数 |
-| `unread_count` | int | 未读单集数 |
-| `created_at` | datetime | 创建时间 |
-| `updated_at` | datetime | 更新时间 |
+| `last_checked` | datetime | nullable |
+| `last_updated` | datetime | nullable |
+| `check_error` | string | nullable，刷新错误信息 |
+| `is_starred` | bool | 默认 false |
+| `is_favorite` | bool | 默认 false |
+| `tags` | array | 标签列表 |
+| `episode_count` | int | 默认 0 |
+| `unread_count` | int | 默认 0 |
+| `note` | string | nullable，用户备注 |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**索引**：`rss_url (unique)`, `status`, `is_starred`, `created_at`
+**索引**: `(owner_id, rss_url)` unique, `owner_id`, `status`, `is_starred`, `is_favorite`, `created_at`
 
 ---
 
-### 2.2 episodes
+## episodes
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `feed_id` | ObjectId | 关联订阅源 |
-| `guid` | string | RSS Entry 的唯一标识 |
-| `title` | string | 单集标题 |
-| `summary` | string | 单集简介（来自 RSS，已清理广告链接）|
-| `content` | string | 单集完整内容（HTML 已清理）|
-| `link` | string | 单集网页链接 |
+| `_id` | ObjectId | |
+| `feed_id` | ObjectId | 所属 feed |
+| `owner_id` | string | 用户隔离 |
+| `guid` | string | RSS 全局唯一 ID |
+| `title` | string | |
+| `summary` | string | RSS summary |
+| `content` | string | RSS content:encoded |
+| `link` | string | |
 | `published` | datetime | 发布时间 |
 | `audio_url` | string | 远程音频地址 |
-| `audio_type` | string | 音频 MIME 类型（如 audio/mpeg）|
-| `audio_size` | int | 音频文件大小（字节）|
-| `duration` | int | 时长（秒）|
-| `image` | string | 单集封面图 URL |
-| `chapters_url` | string\|null | 章节 JSON 地址（Podcasting 2.0）|
-| `transcript_url` | string\|null | 官方字幕地址（Podcasting 2.0）|
-| `status` | string | 见状态流转表 |
-| `audio_path` | string\|null | 本地下载路径（相对 MEDIA_ROOT）|
-| `is_read` | boolean | 是否已读 |
-| `is_starred` | boolean | 是否标星 |
-| `is_favorite` | boolean | 是否收藏 |
-| `play_position` | int | 播放进度（秒）|
-| `has_transcript` | boolean | 是否有转录 |
-| `has_summary` | boolean | 是否有摘要 |
-| `created_at` | datetime | 创建时间 |
-| `updated_at` | datetime | 更新时间 |
+| `audio_type` | string | 默认 `"audio/mpeg"` |
+| `audio_size` | int | 字节，默认 0 |
+| `duration` | int | 秒，默认 0 |
+| `image` | string | nullable |
+| `chapters_url` | string | nullable |
+| `transcript_url` | string | nullable，外部转录源 |
+| `status` | string | 状态机: `new` → `downloading` → `downloaded` → `transcribing` → `transcribed` → `summarizing` → `summarized` (或 `error`) |
+| `local_path` | string | nullable，下载后的本地路径 |
+| `is_read` | bool | 默认 false |
+| `is_starred` | bool | 默认 false |
+| `is_favorite` | bool | 默认 false |
+| `play_position` | int | 播放进度（秒），默认 0 |
+| `popularity_score` | int | 默认 0 |
+| `has_transcript` | bool | 转录完成后设为 true |
+| `has_summary` | bool | 摘要完成后设为 true |
+| `transcript_source` | string | `"official"` / `"local_whisper"` / `"assemblyai"` / `"external"` 等 |
+| `last_download_error` | string | nullable |
+| `last_transcript_error` | string | nullable |
+| `last_summary_error` | string | nullable |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**Episode 状态枚举**：
-
-| 状态 | 说明 |
-|------|------|
-| `new` | 新建，未处理 |
-| `downloading` | 正在下载音频 |
-| `downloaded` | 音频下载完成 |
-| `transcribing` | 正在转录 |
-| `transcribed` | 转录完成 |
-| `summarizing` | 正在生成摘要 |
-| `summarized` | 摘要生成完成 |
-| `error` | 处理出错 |
-
-**索引**：`feed_id`, `guid`, `(feed_id, guid) unique`, `status`, `is_starred`, `published`
+**索引**: `feed_id`, `(owner_id, feed_id, guid)` unique, `owner_id`, `status`, `is_starred`, `published`, `has_transcript`, `has_summary`, `(feed_id, is_read)`
 
 ---
 
-### 2.3 transcripts
+## transcripts
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `episode_id` | ObjectId | 关联单集（唯一索引，1 集只有 1 条转录）|
+| `_id` | ObjectId | |
+| `episode_id` | ObjectId | |
+| `owner_id` | string | 用户隔离 |
 | `text` | string | 完整转录文本 |
-| `segments` | array | 分段信息（含时间戳、说话人，来自 AssemblyAI）|
-| `language` | string | 语言代码 |
-| `word_count` | int | 词数 |
-| `source` | string | `whisper` / `official` / `manual` |
-| `model` | string | 使用的模型（如 assembly_ai）|
-| `created_at` | datetime | 创建时间 |
+| `segments` | array | 时间戳分段 |
+| `language` | string | 默认 `"en"` |
+| `word_count` | int | 从 text 计算 |
+| `source` | string | `"whisper"` / `"official"` / `"assemblyai"` / `"external"` 等 |
+| `model` | string | 使用的模型，默认 `"base"` |
+| `postprocess` | object | nullable，后处理结果 |
+| `chapters` | array | nullable，AssemblyAI 章节 |
+| `entities` | array | nullable |
+| `speakers` | array | nullable |
+| `duration` | float | nullable |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**索引**：`episode_id (unique)`
+**索引**: `(owner_id, episode_id)` unique, `owner_id`
 
 ---
 
-### 2.4 summaries
+## summaries
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `episode_id` | ObjectId | 关联单集 |
-| `summary_type` | string | 旧版类型：`general` / `investment` / `learning`（v2）|
-| `template_name` | string | 新版模板名（v3，如 `learning` / `investment`）|
-| `version` | string | `v2`（legacy）/ `v3`（新模板引擎）|
-| `enabled_blocks` | array\<string\> | 已启用的 block ID 列表（v3）|
-| `params` | object | 生成参数（如 `{"length": "long"}`）（v3）|
-| `tldr` | string | 一句话摘要 |
-| `tags` | array\<string\> | 标签 |
-| `content` | object | 完整结构化内容（根据模板/类型不同字段不同）|
-| `content_zh` | object\|null | 中文翻译版本 |
-| `model` | string | 生成使用的 LLM 模型 |
-| `tokens_used` | object | Token 消耗：`{prompt, completion, total}` |
-| `generation_time_seconds` | float | 生成耗时 |
-| `translated_at` | datetime\|null | 翻译完成时间 |
-| `created_at` | datetime | 创建时间 |
-| `updated_at` | datetime | 更新时间 |
+| `_id` | ObjectId | |
+| `episode_id` | ObjectId | |
+| `owner_id` | string | 用户隔离 |
+| `template_name` | string | 使用的模板名 |
+| `enabled_blocks` | array | 启用的输出块 |
+| `params` | object | 模板参数 |
+| `version` | string | 当前 `"v3"` |
+| `tldr` | string | 一句话总结 |
+| `tags` | array | 关键词标签 |
+| `content` | object | LLM 完整输出 |
+| `content_zh` | object | 中文翻译 |
+| `model` | string | 使用的 LLM 模型 |
+| `tokens_used` | object | `{ prompt, completion, total }` |
+| `generation_time_seconds` | float | |
+| `translation_model` | string | nullable |
+| `translation_tokens` | object | nullable |
+| `translated_at` | datetime | nullable |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**content 字段示例（general 类型）**：
-```json
-{
-  "tldr": "...",
-  "tags": ["AI", "技术"],
-  "key_points": ["..."],
-  "why_it_matters": "..."
-}
-```
-
-**content 字段示例（investment 类型）**：
-```json
-{
-  "tldr": "...",
-  "investment_signals": ["..."],
-  "mentioned_tickers": ["AAPL"],
-  "market_insights": ["..."],
-  "risk_alerts": ["..."]
-}
-```
-
-**索引**：`episode_id`, `(episode_id, template_name)`, `(episode_id, summary_type)`
-
-> 注意：summaries 无唯一约束，同一集可存在多条不同 template_name 的摘要。
+**索引**: `episode_id`, `(episode_id, template_name)`, `owner_id`
 
 ---
 
-### 2.5 tasks
+## tasks
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `task_id` | string | UUID 字符串（唯一索引）|
-| `task_type` | string | `download` / `transcribe` / `summarize` / `refresh` |
-| `episode_id` | ObjectId\|null | 关联单集（download/transcribe/summarize）|
-| `feed_id` | ObjectId\|null | 关联订阅源（refresh）|
-| `status` | string | `pending` / `processing` / `completed` / `failed` |
-| `progress` | int | 进度 0-100 |
-| `result` | object\|null | 任务结果 |
-| `error_message` | string\|null | 错误信息 |
-| `created_at` | datetime | 创建时间 |
-| `started_at` | datetime\|null | 开始执行时间 |
-| `completed_at` | datetime\|null | 完成时间 |
+| `_id` | ObjectId | |
+| `task_id` | string | UUID |
+| `task_type` | string | `download` / `transcribe` / `summarize` / `translate` / `refresh` |
+| `episode_id` | string | |
+| `feed_id` | ObjectId | nullable |
+| `owner_id` | string | nullable |
+| `status` | string | `pending` → `processing` → `completed` / `failed` |
+| `progress` | int | 0-100 |
+| `result` | object | nullable |
+| `error_message` | string | nullable |
+| `created_at` | datetime | |
+| `started_at` | datetime | nullable |
+| `completed_at` | datetime | nullable |
 
-**索引**：`task_id (unique)`, `status`, `created_at`
-
----
-
-### 2.6 settings
-
-存储应用级配置，以 key-value 模式组织。
-
-| 主要 key | 说明 |
-|----------|------|
-| `llm_configs` | LLM 配置列表（最多 5 个）+ 活动配置索引 |
-| `tavily` | Tavily API Key 配置 |
-
-LLM 配置结构（存储在 `llm_configs` 文档中）：
-
-```json
-{
-  "configs": [
-    {
-      "name": "OpenAI GPT-4",
-      "base_url": "https://api.openai.com/v1",
-      "api_key": "sk-...",
-      "model": "gpt-4o-mini"
-    }
-  ],
-  "active_index": 0
-}
-```
+**索引**: `task_id` unique, `owner_id`, `status`, `episode_id`, `created_at`, `completed_at` (TTL 7 天)
 
 ---
 
-### 2.7 prompt_templates
+## settings
+
+KV 存储，按 `owner_id` 隔离。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `name` | string | 模板唯一标识（如 `learning`）（唯一索引）|
-| `display_name` | string | 显示名称 |
-| `description` | string | 模板描述 |
-| `locked` | object | 锁定区域：system_prompt + output_format_instruction + required_fields |
-| `optional_blocks` | array | 可选 block 列表，每个 block 含 id / name / prompt_fragment / output_field |
-| `parameters` | object | 可调参数定义（如 length: enum[short, medium, long]）|
-| `user_prompt_template` | string | 用户侧 prompt 模板（含 {{变量}} 占位符）|
-| `is_system` | boolean | 是否系统内置模板（不可修改/删除）|
-| `is_active` | boolean | 是否启用 |
-| `parent_id` | ObjectId\|null | 复制自哪个模板 |
-| `version` | int | 版本号（每次更新递增）|
-| `created_at` | datetime | 创建时间 |
-| `updated_at` | datetime | 更新时间 |
+| `_id` | ObjectId | |
+| `key` | string | 配置键 |
+| `value` | any | 配置值 |
+| `owner_id` | string | nullable，用户隔离 |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**索引**：`name (unique)`, `is_active`, `is_system`
+**预定义键**:
 
-**内置系统模板**：`learning` / `investment` / `tech` / `startup` / `interview`
+| 键 | 内容 |
+|----|------|
+| `llm_providers` | 服务商列表 [{ id, name, api_format, base_url, api_key, enabled }] |
+| `llm_models` | 模型列表 [{ id, provider_id, model, enabled, supports_streaming }] |
+| `llm_default_model_id` | 默认模型 ID |
+| `llm_task_routes` | 任务路由 { summary, briefing, transcript_normalize } → model_id |
+| `tavily_config` | Tavily 搜索配置 |
 
 ---
 
-### 2.8 briefings
+## prompt_templates
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `_id` | ObjectId | MongoDB 主键 |
-| `date` | string | 日期字符串（YYYY-MM-DD，唯一索引）|
-| `briefing` | object | 简报内容，含 `markdownReport` 字段 |
-| `created_at` | datetime | 创建时间 |
+| `_id` | ObjectId | |
+| `name` | string | 唯一标识 |
+| `display_name` | string | 显示名 |
+| `description` | string | |
+| `locked` | object | 不可修改的部分: { system_prompt, output_format_instruction, required_fields } |
+| `optional_blocks` | array | 可选输出块 [{ id, name, name_zh, prompt_fragment, output_field, enabled_by_default, order }] |
+| `parameters` | object | 模板参数 (enum/range/boolean) |
+| `user_prompt_template` | string | 用户提示词模板 |
+| `is_system` | bool | 系统模板不可修改 |
+| `is_active` | bool | |
+| `parent_id` | ObjectId | nullable，复制来源 |
+| `version` | int | |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
 
-**索引**：`date (unique)`
-
----
-
-## 3. 索引汇总
-
-| 集合 | 索引字段 | 类型 |
-|------|----------|------|
-| feeds | rss_url | unique |
-| feeds | status, is_starred, created_at | 普通 |
-| episodes | (feed_id, guid) | unique |
-| episodes | feed_id, guid, status, is_starred, published | 普通 |
-| transcripts | episode_id | unique |
-| summaries | episode_id | 普通 |
-| summaries | (episode_id, template_name) | 普通 |
-| summaries | (episode_id, summary_type) | 普通 |
-| tasks | task_id | unique |
-| tasks | status, created_at | 普通 |
-| prompt_templates | name | unique |
-| prompt_templates | is_active, is_system | 普通 |
-| briefings | date | unique |
+**索引**: `name` unique, `is_active`, `is_system`
 
 ---
 
-## 4. 已知问题
+## briefings
 
-| 问题 | 说明 |
-|------|------|
-| v2/v3 摘要混存 | `summaries` 集合中同时存在 `summary_type` (v2) 和 `template_name` (v3) 字段，查询逻辑复杂 |
-| summaries 无唯一约束 | 同一集的同一 template_name 可能写入多条（依靠 upsert 防重，若并发可能重复）|
-| settings 无 schema 约束 | key-value 结构无 MongoDB Schema Validation |
-| 无 TTL 索引 | tasks 集合历史记录无过期清理机制，长期运行后数据膨胀 |
-| briefings 无 TTL | 日报缓存无过期，历史日报永久保存 |
+无独立模型，由 `services/briefing_service.py` 直接操作。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `_id` | ObjectId | |
+| `date` | string | `"YYYY-MM-DD"` (UTC) |
+| `briefing` | object | LLM 生成的简报内容 |
+| `episode_count` | int | |
+| `created_at` | datetime | |
+
+**索引**: `date` unique
