@@ -3,6 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Rss, RefreshCw, Heart } from 'lucide-react';
 import { decodeHtmlEntities } from '../../utils/helpers';
+import FeedImage from '../common/FeedImage';
 
 /**
  * FeedCard - 订阅源卡片组件
@@ -20,16 +21,9 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
       >
         {/* 封面图片 - 使用 3:2 比例 */}
         <div className="relative aspect-[3/2] overflow-hidden">
-          <img
-            src={feed.image || '/placeholder.png'}
-            alt={feed.title}
+          <FeedImage
+            feed={feed}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={(e) => {
-              if (!e.target.dataset.fallback) {
-                e.target.dataset.fallback = 'true';
-                e.target.src = '/placeholder.png';
-              }
-            }}
           />
           {/* 节目数量角标 */}
           <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
@@ -74,17 +68,7 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
     >
       {/* 封面缩略图 */}
       <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-        <img
-          src={feed.image || '/placeholder.png'}
-          alt={feed.title}
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            if (!e.target.dataset.fallback) {
-              e.target.dataset.fallback = 'true';
-              e.target.src = '/placeholder.png';
-            }
-          }}
-        />
+        <FeedImage feed={feed} className="w-full h-full object-cover" />
         {feed.is_favorite && (
           <div className="absolute top-1 right-1">
             <Heart size={10} className="text-pink-400" fill="currentColor" />

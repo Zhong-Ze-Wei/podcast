@@ -1,12 +1,44 @@
 // -*- coding: utf-8 -*-
-import React from 'react';
-import { Play, Star } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, Star, Youtube, Tv } from 'lucide-react';
 import StatusBadge from '../common/StatusBadge';
 
 /**
  * EpisodeCard - 节目卡片组件
  * 支持网格/列表双视图
  */
+
+/**
+ * CoverImage - 剧集封面（按图源域名显示平台图标兜底）
+ * ytimg（YouTube 图床国内不可达）→ 红播放键；hdslb → 粉小电视
+ */
+const CoverImage = ({ src, alt, className = '' }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    const isYt = /ytimg|youtube/.test(src || '');
+    const isBili = /hdslb|bilibili/.test(src || '');
+    if (isYt || isBili) {
+      const Icon = isYt ? Youtube : Tv;
+      const bg = isYt ? 'bg-red-600' : 'bg-[#fb7299]';
+      return (
+        <div className={`${className} ${bg} flex items-center justify-center`}>
+          <Icon className="h-[45%] w-[45%] text-white" />
+        </div>
+      );
+    }
+    return <img src="/placeholder.png" alt={alt} className={className} />;
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+};
+
 const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feedImage }) => {
   // 获取封面图片：优先单集图片，fallback 到 feed 图片
   const coverImage = episode.image || feedImage || '/placeholder.png';
@@ -20,17 +52,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
       >
         {/* 封面图片 - 使用 3:2 比例 */}
         <div className="relative aspect-[3/2] overflow-hidden">
-          <img
-            src={coverImage}
-            alt={episode.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={(e) => {
-              if (!e.target.dataset.fallback) {
-                e.target.dataset.fallback = 'true';
-                e.target.src = '/placeholder.png';
-              }
-            }}
-          />
+          <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
           {/* 悬停播放按钮 */}
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <button
@@ -81,17 +103,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
     >
       {/* 封面缩略图 */}
       <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-        <img
-          src={coverImage}
-          alt={episode.title}
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            if (!e.target.dataset.fallback) {
-              e.target.dataset.fallback = 'true';
-              e.target.src = '/placeholder.png';
-            }
-          }}
-        />
+        <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover" />
         {/* 悬停播放 */}
         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button

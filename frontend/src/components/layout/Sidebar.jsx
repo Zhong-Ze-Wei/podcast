@@ -6,6 +6,7 @@ import {
   Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings,
   Sparkles, List
 } from 'lucide-react';
+import FeedImage from '../common/FeedImage';
 import { feedsApi } from '../../services/api';
 
 /**
@@ -202,17 +203,7 @@ const Sidebar = ({
             className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group cursor-pointer ${activeFeed === feed.id ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
             onClick={() => onFeedClick ? onFeedClick(feed) : null}
           >
-            <img
-              src={feed.image || '/placeholder.png'}
-              alt={feed.title}
-              className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100"
-              onError={(e) => {
-                if (!e.target.dataset.fallback) {
-                  e.target.dataset.fallback = 'true';
-                  e.target.src = '/placeholder.png';
-                }
-              }}
-            />
+            <FeedImage feed={feed} className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100" />
             <span className="truncate flex-1 text-left">{feed.title}</span>
             {feed.is_favorite && <Heart size={12} className="text-pink-400" fill="currentColor" />}
             {feed.unread_count > 0 && (

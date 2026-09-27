@@ -137,7 +137,10 @@ export const tasksApi = {
 export const settingsApi = {
   getLlmConfigs: () => api.get('/settings/llm'),
   saveLlmConfigs: (data) => api.put('/settings/llm', data),
-  testLlmConnection: (config) => api.post('/settings/llm/test', config)
+  testLlmConnection: (config) => api.post('/settings/llm/test', config),
+  fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
+  getAiAnalysis: () => api.get('/settings/ai-analysis'),
+  setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 
 // Insights API (AI Briefing)
