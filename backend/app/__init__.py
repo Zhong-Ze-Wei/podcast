@@ -169,6 +169,7 @@ def register_blueprints(app):
     from .api.insights import insights_bp
     from .api.auth import auth_bp
     from .api.admin import admin_bp
+    from .api.video_import import video_import_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
@@ -183,6 +184,7 @@ def register_blueprints(app):
     app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
     app.register_blueprint(prompt_templates_bp, url_prefix=f"{prefix}/prompt-templates")
     app.register_blueprint(insights_bp, url_prefix=f"{prefix}/insights")
+    app.register_blueprint(video_import_bp, url_prefix=f"{prefix}/video-import")
 
 
 def register_error_handlers(app):

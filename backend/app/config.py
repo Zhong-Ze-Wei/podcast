@@ -36,6 +36,8 @@ class Config:
 
     # Whisper配置 (后续AI功能)
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+    # 视频源配置 (YouTube 字幕/元数据获取的代理，空=直连)
+    YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "")
     WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", "")
     WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
     WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
