@@ -63,7 +63,18 @@ class YouTubeService:
         channel_id = info.get("channel_id") or info.get("id")
         if not channel_id:
             return None, "Could not resolve YouTube channel"
-        return {"channel_id": channel_id, "title": info.get("channel") or info.get("uploader") or ""}, None
+
+        # 频道头像：thumbnails 里优先取正方形，否则取最小的一张
+        avatar = ""
+        thumbs = [t for t in (info.get("thumbnails") or []) if t.get("url")]
+        square = next((t for t in thumbs if t.get("width") == t.get("height")), None)
+        avatar = (square or (min(thumbs, key=lambda t: t.get("width") or 9999) if thumbs else {}) or {}).get("url", "")
+
+        return {
+            "channel_id": channel_id,
+            "title": info.get("channel") or info.get("uploader") or "",
+            "avatar": avatar,
+        }, None
 
     @classmethod
     def fetch_channel_videos(cls, channel_id: str) -> Tuple[Optional[list], Optional[str]]:
@@ -170,9 +181,14 @@ class YouTubeService:
     @staticmethod
     def _classify_error(error: Exception) -> str:
         name = type(error).__name__
+        message = str(error)
         if "NoTranscript" in name or "NotFound" in name:
             return "No transcript available for this video"
         if "Blocked" in name or "Request" in name:
             return f"YouTube rejected the request ({name}); check YOUTUBE_PROXY"
-        message = str(error).strip().splitlines()[0] if str(error).strip() else name
-        return f"YouTube fetch failed: {message}"
+        # SSL 断连/超时基本是代理节点问题（Google 全域被掐），给出可操作的提示
+        if "SSL" in message or "EOF" in message or "timed out" in message.lower() or "Connection" in message:
+            proxy = Config.YOUTUBE_PROXY or "direct"
+            return f"无法通过代理连接 YouTube（{proxy}）——请检查代理节点是否可用后再试"
+        first_line = message.strip().splitlines()[0] if message.strip() else name
+        return f"YouTube fetch failed: {first_line}"
