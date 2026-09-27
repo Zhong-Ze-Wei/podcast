@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, TrendingUp, Lightbulb, BookOpen, Play, ChevronRight, Target, Zap, RefreshCw, Download, AlertCircle } from 'lucide-react';
 import { insightsApi } from '../../services/api';
-import { AI_ANALYSIS_ENABLED } from '../../utils/helpers';
+import { settingsApi } from '../../services/api';
 
 /**
  * AIBriefingView - AI每日简报视图
@@ -12,6 +12,10 @@ import { AI_ANALYSIS_ENABLED } from '../../utils/helpers';
  */
 const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const { t } = useTranslation();
+  const [aiEnabled, setAiEnabled] = useState(true);
+  useEffect(() => {
+    settingsApi.getAiAnalysis().then(r => setAiEnabled(!!(r.enabled))).catch(() => {});
+  }, []);
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,7 +44,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   }, [loadBriefing]);
 
   const handleRegenerate = async () => {
-    if (!AI_ANALYSIS_ENABLED) {
+    if (!aiEnabled) {
       setError('AI 分析已冻结：已有缓存可查看，但暂时不再生成今日简报。');
       return;
     }
@@ -94,10 +98,10 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
           <p className="text-zinc-400 mb-4">{error || '暂无简报数据'}</p>
           <button
             onClick={handleRegenerate}
-            disabled={!AI_ANALYSIS_ENABLED}
+            disabled={!aiEnabled}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-lg transition-colors"
           >
-            {AI_ANALYSIS_ENABLED ? '生成今日简报' : 'AI 分析已冻结'}
+            {aiEnabled ? '生成今日简报' : 'AI 分析已冻结'}
           </button>
         </div>
       </div>
@@ -130,9 +134,9 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
               )}
               <button
                 onClick={handleRegenerate}
-                disabled={!AI_ANALYSIS_ENABLED}
+                disabled={!aiEnabled}
                 className="p-2 text-zinc-500 hover:text-indigo-400 disabled:text-zinc-700 disabled:cursor-not-allowed transition-colors"
-                title={AI_ANALYSIS_ENABLED ? '重新生成' : 'AI 分析已冻结'}
+                title={aiEnabled ? '重新生成' : 'AI 分析已冻结'}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>

@@ -7,8 +7,33 @@ import {
   Languages, TrendingUp, AlertTriangle, Quote, Download
 } from 'lucide-react';
 import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
-import { decodeHtmlEntities, AI_ANALYSIS_ENABLED } from '../../utils/helpers';
+import { decodeHtmlEntities } from '../../utils/helpers';
+import { settingsApi } from '../../services/api';
 import TaskProgress from '../common/TaskProgress';
+
+/**
+ * EpisodeStatusBadge - 剧集处理状态徽标（标题区，一眼可见）
+ */
+const STATUS_BADGES = {
+  new: { label: '未转录', cls: 'bg-zinc-700/60 text-zinc-300' },
+  downloading: { label: '下载中', cls: 'bg-blue-500/15 text-blue-300 animate-pulse' },
+  downloaded: { label: '已下载', cls: 'bg-blue-500/15 text-blue-300' },
+  transcribing: { label: '转录中', cls: 'bg-purple-500/15 text-purple-300 animate-pulse' },
+  transcribed: { label: '已转录', cls: 'bg-green-500/15 text-green-300' },
+  summarizing: { label: '摘要中', cls: 'bg-indigo-500/15 text-indigo-300 animate-pulse' },
+  summarized: { label: '已摘要', cls: 'bg-green-500/15 text-green-300' },
+  error: { label: '出错', cls: 'bg-red-500/15 text-red-300' },
+};
+
+const EpisodeStatusBadge = ({ status }) => {
+  const badge = STATUS_BADGES[status];
+  if (!badge) return null;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
+      {badge.label}
+    </span>
+  );
+};
 
 /**
  * EpisodeDetailView - 节目详情页
@@ -20,6 +45,10 @@ import TaskProgress from '../common/TaskProgress';
  */
 const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
   const { t } = useTranslation();
+  const [aiEnabled, setAiEnabled] = useState(true);
+  useEffect(() => {
+    settingsApi.getAiAnalysis().then(r => setAiEnabled(!!(r.enabled))).catch(() => {});
+  }, []);
   const [activeTab, setActiveTab] = useState('transcript');
   const [transcript, setTranscript] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -389,7 +418,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateSummary = async (force = false) => {
-    if (!AI_ANALYSIS_ENABLED) {
+    if (!aiEnabled) {
       setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
       return;
     }
@@ -412,7 +441,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       // 任务已提交，TaskProgress 组件会轮询状态
     } catch (err) {
       console.error('Failed to generate summary:', err);
-      const errorCode = err?.code || '';
+      // 拦截器 reject 的是后端响应体，错误码在 error_code 字段
+      const errorCode = err?.error_code || err?.code || '';
       if (errorCode === 'SUMMARY_EXISTS' && !force) {
         await loadSummary();
         setLocalSummarizing(false);
@@ -475,6 +505,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             </span>
             <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
             <span className="text-zinc-500 text-sm">{new Date(episode.published_at).toLocaleDateString()}</span>
+            <EpisodeStatusBadge status={episode.status} />
           </div>
           <h1 className="text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
           <div className="flex items-center gap-4">
@@ -505,15 +536,15 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
-                disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing}
+                disabled={!aiEnabled || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
                     ? 'border-indigo-500 bg-indigo-900/30 text-indigo-400 cursor-not-allowed'
-                    : !AI_ANALYSIS_ENABLED
+                    : !aiEnabled
                       ? 'border-zinc-800 text-zinc-600 cursor-not-allowed'
                       : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
+                title={!aiEnabled ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
               >
                 {isCurrentlySummarizing ? (
                   <div className="animate-spin"><Sparkles size={20} /></div>
@@ -778,12 +809,12 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary && !isCurrentlySummarizing && (
                     <button
                       onClick={() => generateSummary(true)}
-                      disabled={!AI_ANALYSIS_ENABLED || loading}
+                      disabled={!aiEnabled || loading}
                       className="flex items-center gap-1 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 text-zinc-400 hover:text-white rounded-lg transition-colors"
-                      title={AI_ANALYSIS_ENABLED ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
+                      title={aiEnabled ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
                     >
                       <Sparkles size={13} />
-                      {AI_ANALYSIS_ENABLED ? '重新生成' : '已冻结'}
+                      {aiEnabled ? '重新生成' : '已冻结'}
                     </button>
                   )}
                   {/* 有翻译时显示语言切换 */}
@@ -1092,10 +1123,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={!aiEnabled || loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
+                      {!aiEnabled ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
                     </button>
                   )}
                 </div>
