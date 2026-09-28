@@ -50,8 +50,6 @@ def test_refresh_youtube_channel_feed_creates_transcribed_episodes(monkeypatch):
                         classmethod(lambda cls, vid: (
                             {"text": "hello", "segments": [{"start": 0.0, "end": 1.0, "text": "hello"}],
                              "language": "en"}, None) if vid == "aaa11111111" else (None, "no transcript")))
-    # 本测试聚焦字幕拉取；自动兜底转写由独立测试覆盖
-    monkeypatch.setattr("app.api.feeds._maybe_queue_fallback_transcription", lambda db, feed: None)
 
     with app.app_context():
         result = _refresh_youtube_channel_feed(app.db, feed)
