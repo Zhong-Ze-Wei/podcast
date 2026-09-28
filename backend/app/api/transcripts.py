@@ -370,7 +370,11 @@ def transcribe_video_episode(episode_id):
 
 
 def _transcribe_video_sync(episode_id, service, vid, progress_callback=None):
-    """下载视频音轨并本地转写（复用现有 _transcribe_sync）"""
+    """下载视频音轨并本地转写（复用现有 _transcribe_sync）。
+
+    转写结果为空时（无人声视频，如纯音乐画面）清理空 transcript、
+    回退状态并打 no_speech 标记，避免摘要管线与自动兜底反复尝试。
+    """
     db = get_db()
     oid = ObjectId(episode_id)
 
@@ -389,12 +393,22 @@ def _transcribe_video_sync(episode_id, service, vid, progress_callback=None):
     )
 
     provider = TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX
-    return _transcribe_sync(
+    result = _transcribe_sync(
         episode_id,
         provider=provider,
         language=None,
         progress_callback=lambda p: progress_callback(20 + int(p * 0.8)) if progress_callback else None,
     )
+
+    transcript = db.transcripts.find_one({"episode_id": oid})
+    if transcript and not (transcript.get("text") or "").strip():
+        db.transcripts.delete_one({"_id": transcript["_id"]})
+        db.episodes.update_one(
+            {"_id": oid},
+            {"$set": {"status": Episode.STATUS_NEW, "no_speech": True, "updated_at": datetime.utcnow()}},
+        )
+        return {"no_speech": True}
+    return result
 
 
 def _download_official_transcript(url: str, progress_callback=None):

@@ -28,7 +28,8 @@ def _add_feed(db, feed_type, channel_ref, title="Channel"):
 
 
 def _yt_video(vid):
-    return {"video_id": vid, "title": f"Video {vid}", "published": "2026-09-01"}
+    from datetime import datetime as _dt
+    return {"video_id": vid, "title": f"Video {vid}", "published": _dt(2026, 9, 1)}
 
 
 def _bili_video(bvid):
@@ -49,6 +50,8 @@ def test_refresh_youtube_channel_feed_creates_transcribed_episodes(monkeypatch):
                         classmethod(lambda cls, vid: (
                             {"text": "hello", "segments": [{"start": 0.0, "end": 1.0, "text": "hello"}],
                              "language": "en"}, None) if vid == "aaa11111111" else (None, "no transcript")))
+    # 本测试聚焦字幕拉取；自动兜底转写由独立测试覆盖
+    monkeypatch.setattr("app.api.feeds._maybe_queue_fallback_transcription", lambda db, feed: None)
 
     with app.app_context():
         result = _refresh_youtube_channel_feed(app.db, feed)
