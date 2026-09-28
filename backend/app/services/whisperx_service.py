@@ -63,11 +63,12 @@ def _ensure_ffmpeg_available() -> None:
             "Install FFmpeg and restart the backend, or use official/cloud transcription."
         ) from exc
 
-    if os.path.basename(ffmpeg_exe).lower() != "ffmpeg.exe":
+    executable_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    if os.path.basename(ffmpeg_exe).lower() != executable_name:
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         ffmpeg_dir = os.path.join(backend_dir, ".runtime", "ffmpeg")
         os.makedirs(ffmpeg_dir, exist_ok=True)
-        shim_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        shim_path = os.path.join(ffmpeg_dir, executable_name)
         if not os.path.exists(shim_path):
             shutil.copy2(ffmpeg_exe, shim_path)
         ffmpeg_exe = shim_path
@@ -132,6 +133,7 @@ def get_model(model_name: str = "base"):
         ) from exc
 
     load_kwargs = {
+        "local_files_only": True,
         "compute_type": options["compute_type"],
         "device_index": options["device_index"],
         "threads": options["num_workers"],
@@ -139,7 +141,8 @@ def get_model(model_name: str = "base"):
     }
     if options["model_dir"]:
         os.makedirs(options["model_dir"], exist_ok=True)
-        os.environ.setdefault("TORCH_HOME", os.path.join(options["model_dir"], "torch"))
+        if not os.getenv("TORCH_HOME"):
+            os.environ["TORCH_HOME"] = os.path.join(options["model_dir"], "torch")
         load_kwargs["download_root"] = options["model_dir"]
 
     _model = whisperx.load_model(options["model_name"], options["device"], **load_kwargs)

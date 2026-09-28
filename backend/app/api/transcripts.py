@@ -16,6 +16,7 @@ from ..models.transcript import Transcript, to_bson_safe
 from ..services.task_queue import task_queue
 from ..services.transcript_fetcher import TranscriptFetcher
 from ..services.transcript_postprocessor import normalize_transcript
+from ..services.capabilities import ensure_transcription_available, TranscriptionUnavailable
 from .utils import success_response, error_response
 
 transcripts_bp = Blueprint("transcripts", __name__)
@@ -210,6 +211,11 @@ def create_transcript(episode_id):
                 400
             )
 
+    try:
+        ensure_transcription_available(provider, current_app.config)
+    except TranscriptionUnavailable as exc:
+        return error_response(str(exc), "TRANSCRIPTION_UNAVAILABLE", 409)
+
     # 检查是否已经在转录或已完成
     episode_status = episode.get("status", "new")
     if episode_status == Episode.STATUS_TRANSCRIBING:
@@ -400,6 +406,8 @@ def _transcribe_sync(episode_id: str, provider=TRANSCRIPTION_PROVIDER_AUTO, lang
     provider = _resolve_transcription_provider(provider, episode)
     if not provider:
         raise ValueError("No transcription provider selected")
+
+    ensure_transcription_available(provider, current_app.config)
 
     if progress_callback:
         progress_callback(10)

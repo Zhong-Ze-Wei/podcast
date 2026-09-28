@@ -103,7 +103,10 @@ def test_transcribe_audio_fails_clearly_when_ffmpeg_missing(monkeypatch):
     assert "FFmpeg is required for local transcription" in str(exc_info.value)
 
 
-def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch):
+def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch, tmp_path):
+    import os
+    executable = tmp_path / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    executable.write_bytes(b"ffmpeg")
     class FakeWhisperModel:
         def transcribe(self, audio_path, **kwargs):
             info = types.SimpleNamespace(language="en", language_probability=0.99, duration=1.0)
@@ -111,7 +114,7 @@ def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch):
             return [segment], info
 
     monkeypatch.setattr(whisper_service.shutil, "which", lambda name: None)
-    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(get_ffmpeg_exe=lambda: r"E:\tools\ffmpeg.exe"))
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(get_ffmpeg_exe=lambda: str(executable)))
     monkeypatch.setitem(
         sys.modules,
         "faster_whisper",
@@ -127,4 +130,4 @@ def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch):
 
     assert text == "Hello"
     assert language == "en"
-    assert r"E:\tools" in whisper_service.os.environ["PATH"]
+    assert str(tmp_path) in whisper_service.os.environ["PATH"]

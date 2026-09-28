@@ -160,7 +160,10 @@ def test_transcribe_audio_fails_clearly_when_ffmpeg_missing(monkeypatch):
     assert "FFmpeg is required for local transcription" in str(exc_info.value)
 
 
-def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch):
+def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch, tmp_path):
+    import os
+    executable = tmp_path / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    executable.write_bytes(b"ffmpeg")
     reset_whisperx_cache(monkeypatch)
 
     class FakeModel:
@@ -168,16 +171,15 @@ def test_transcribe_audio_uses_imageio_ffmpeg_fallback(monkeypatch):
             return {"language": "en", "segments": [{"start": 0, "end": 1, "text": "Hello"}]}
 
     monkeypatch.setattr(whisperx_service.shutil, "which", lambda name: None)
-    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(get_ffmpeg_exe=lambda: r"E:\tools\ffmpeg.exe"))
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(get_ffmpeg_exe=lambda: str(executable)))
     monkeypatch.setitem(sys.modules, "whisperx", types.SimpleNamespace(load_model=lambda *args, **kwargs: FakeModel()))
-    monkeypatch.setattr(whisperx_service.os, "pathsep", ";")
     monkeypatch.setenv("WHISPERX_DIARIZE", "0")
     monkeypatch.setitem(whisperx_service.os.environ, "PATH", r"C:\Windows")
     text, segments, language = whisperx_service.transcribe_audio("episode.mp3", model_name="base")
 
     assert text == "Hello"
     assert language == "en"
-    assert r"E:\tools" in whisperx_service.os.environ["PATH"]
+    assert str(tmp_path) in whisperx_service.os.environ["PATH"]
 
 
 def test_transcribe_audio_normalizes_generator_words(monkeypatch, tmp_path):

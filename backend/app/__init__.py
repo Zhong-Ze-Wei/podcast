@@ -145,6 +145,7 @@ def register_blueprints(app):
     from .api.settings import settings_bp
     from .api.prompt_templates import prompt_templates_bp
     from .api.insights import insights_bp
+    from .api.capabilities import capabilities_bp
 
     prefix = app.config.get("API_PREFIX", "/api")
 
@@ -157,6 +158,7 @@ def register_blueprints(app):
     app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
     app.register_blueprint(prompt_templates_bp, url_prefix=f"{prefix}/prompt-templates")
     app.register_blueprint(insights_bp, url_prefix=f"{prefix}/insights")
+    app.register_blueprint(capabilities_bp, url_prefix=prefix)
 
 
 def register_error_handlers(app):
