@@ -110,7 +110,14 @@
     "summarizingStatus": "Generating summary",
     "selectTemplate": "Select a template to generate summary",
     "videoNoSubtitleReason": "No subtitle available remotely (not provided / disabled / not generated yet). Download audio and transcribe locally with Whisper.",
-    "transcribeVideoNow": "Transcribe now (audio + local Whisper)"
+    "transcribeVideoNow": "Transcribe now (audio + local Whisper)",
+    "keyConcepts": "Key Concepts",
+    "coreContent": "Core Content",
+    "actionItems": "Action Items",
+    "examples": "Examples",
+    "resources": "Resources",
+    "uniqueInsights": "Unique Insights",
+    "guestBackground": "Guest Background"
   },
   "player": {
     "play": "Play",
