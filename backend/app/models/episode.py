@@ -85,6 +85,7 @@ class Episode:
             "id": str(doc["_id"]),
             "feed_id": str(doc["feed_id"]) if doc.get("feed_id") else None,
             "guid": doc.get("guid", ""),
+            "transcript_fetch_error": doc.get("transcript_fetch_error"),
             "title": doc.get("title", ""),
             "summary": summary,
             "content": doc.get("content", ""),

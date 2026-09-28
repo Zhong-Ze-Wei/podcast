@@ -186,3 +186,22 @@ def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
     result, error = BilibiliService.fetch_ai_subtitle("BV1x")
     assert error is None
     assert result["text"] == "正常字幕 第二行"
+
+
+def test_subtitle_error_is_humanized_on_episode(monkeypatch):
+    """字幕拉取失败时，剧集上存人话原因供前端展示"""
+    app = make_auth_app()
+    feed = _add_feed(app.db, Feed.TYPE_YOUTUBE, "UCtest")
+
+    monkeypatch.setattr(YouTubeService, "fetch_channel_videos",
+                        classmethod(lambda cls, cid: ([_yt_video("ccc33333333")], None)))
+    monkeypatch.setattr(YouTubeService, "fetch_metadata",
+                        classmethod(lambda cls, vid: ({"title": "T", "duration": 100, "uploader": "u", "thumbnail": ""}, None)))
+    monkeypatch.setattr(YouTubeService, "fetch_transcript",
+                        classmethod(lambda cls, vid: (None, "No transcript available: Subtitles are disabled for this video")))
+
+    with app.app_context():
+        _refresh_youtube_channel_feed(app.db, feed)
+
+    ep = app.db.episodes.find_one({"guid": "youtube:ccc33333333"})
+    assert "禁用" in (ep.get("transcript_fetch_error") or "")

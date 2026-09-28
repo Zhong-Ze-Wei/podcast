@@ -685,7 +685,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       <div className="flex items-start gap-2">
                         <span className="mt-0.5 text-amber-400">ⓘ</span>
                         <div>
-                          <p className="text-sm text-amber-200">{t('detail.videoNoSubtitleReason')}</p>
+                          <p className="text-sm text-amber-200">
+                            {episode.transcript_fetch_error || t('detail.videoNoSubtitleReason')}
+                          </p>
                           <button
                             onClick={transcribeVideoNow}
                             className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
