@@ -106,6 +106,8 @@ def test_local_whisper_provider_requires_existing_local_audio(monkeypatch, tmp_p
 
 
 def test_local_whisperx_provider_can_be_queued_when_local_audio_exists(monkeypatch, tmp_path):
+    # This test isolates dispatch/persistence; capability gates are tested separately.
+    monkeypatch.setattr(transcripts, "ensure_transcription_available", lambda *args: None)
     app = make_app(MEDIA_ROOT=str(tmp_path))
     db = MockDB()
     audio_file = tmp_path / "audio" / "episode.mp3"
@@ -131,6 +133,8 @@ def test_local_whisperx_provider_can_be_queued_when_local_audio_exists(monkeypat
 
 
 def test_create_transcript_accepts_language_hint(monkeypatch, tmp_path):
+    # This test isolates dispatch/persistence; capability gates are tested separately.
+    monkeypatch.setattr(transcripts, "ensure_transcription_available", lambda *args: None)
     app = make_app(MEDIA_ROOT=str(tmp_path))
     db = MockDB()
     audio_file = tmp_path / "audio" / "episode.mp3"
@@ -160,6 +164,8 @@ def test_create_transcript_accepts_language_hint(monkeypatch, tmp_path):
 
 
 def test_transcribe_sync_local_whisper_saves_transcript(monkeypatch, tmp_path):
+    # This test isolates dispatch/persistence; capability gates are tested separately.
+    monkeypatch.setattr(transcripts, "ensure_transcription_available", lambda *args: None)
     app = make_app(
         MEDIA_ROOT=str(tmp_path),
         WHISPER_MODEL="small",
@@ -194,6 +200,8 @@ def test_transcribe_sync_local_whisper_saves_transcript(monkeypatch, tmp_path):
 
 
 def test_transcribe_sync_local_whisperx_saves_transcript(monkeypatch, tmp_path):
+    # This test isolates dispatch/persistence; capability gates are tested separately.
+    monkeypatch.setattr(transcripts, "ensure_transcription_available", lambda *args: None)
     app = make_app(
         MEDIA_ROOT=str(tmp_path),
         WHISPER_MODEL="base",

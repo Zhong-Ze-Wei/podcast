@@ -40,11 +40,12 @@ def _ensure_ffmpeg_available() -> None:
             "Install FFmpeg and restart the backend, or use official/cloud transcription."
         ) from exc
 
-    if os.path.basename(ffmpeg_exe).lower() != "ffmpeg.exe":
+    executable_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    if os.path.basename(ffmpeg_exe).lower() != executable_name:
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         ffmpeg_dir = os.path.join(backend_dir, ".runtime", "ffmpeg")
         os.makedirs(ffmpeg_dir, exist_ok=True)
-        shim_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        shim_path = os.path.join(ffmpeg_dir, executable_name)
         if not os.path.exists(shim_path):
             shutil.copy2(ffmpeg_exe, shim_path)
         ffmpeg_exe = shim_path
@@ -93,6 +94,7 @@ def get_model(model_name: str = "small"):
             device_index,
         )
         model_options = {
+            "local_files_only": True,
             "device": device,
             "compute_type": compute_type,
             "device_index": device_index,

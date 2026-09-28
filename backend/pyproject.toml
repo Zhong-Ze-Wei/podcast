@@ -13,16 +13,19 @@ dependencies = [
     "openai>=1.0.0",
     "python-dateutil>=2.8.0",
     "python-dotenv>=1.0.0",
-    "markdown>=3.5.0",
-    "weasyprint>=60.0",
-    "assemblyai>=0.35.0",
-    "faster-whisper>=1.1.0",
-    "whisperx>=3.8.5",
-    "torch==2.8.0+cu128",
-    "torchvision==0.23.0+cu128",
-    "torchaudio==2.8.0+cu128",
+]
+
+[project.optional-dependencies]
+local-whisper = ["faster-whisper>=1.1.0", "imageio-ffmpeg>=0.6.0"]
+local-whisperx = [
+    "whisperx==3.8.5",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "torchaudio==2.8.0",
     "imageio-ffmpeg>=0.6.0",
 ]
+cloud-transcription = ["assemblyai>=0.35.0"]
+pdf = ["markdown>=3.5.0", "weasyprint>=60.0"]
 
 [dependency-groups]
 dev = [
@@ -33,7 +36,14 @@ dev = [
 package = false
 
 [[tool.uv.index]]
+name = "pytorch-cuda"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cuda", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" }]
+torchvision = [{ index = "pytorch-cuda", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" }]
+torchaudio = [{ index = "pytorch-cuda", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

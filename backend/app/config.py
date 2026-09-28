@@ -35,7 +35,9 @@ class Config:
     WHISPER_DEVICE_INDEX = int(os.getenv("WHISPER_DEVICE_INDEX", "0"))
     WHISPER_NUM_WORKERS = int(os.getenv("WHISPER_NUM_WORKERS", "1"))
     TRANSCRIPTION_DEFAULT_PROVIDER = os.getenv("TRANSCRIPTION_DEFAULT_PROVIDER", "official").lower()
+    TRANSCRIPTION_LOCAL_ENABLED = os.getenv("TRANSCRIPTION_LOCAL_ENABLED", "0").lower() in ("1", "true", "yes", "on")
     TRANSCRIPTION_CLOUD_ENABLED = os.getenv("TRANSCRIPTION_CLOUD_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+    ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
     TRANSCRIPTION_DEFAULT_LANGUAGE = os.getenv("TRANSCRIPTION_DEFAULT_LANGUAGE", "auto").lower()
     TRANSCRIPTION_AI_NORMALIZE_ENABLED = os.getenv("TRANSCRIPTION_AI_NORMALIZE_ENABLED", "0").lower() in ("1", "true", "yes", "on")
 
