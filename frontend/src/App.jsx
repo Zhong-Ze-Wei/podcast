@@ -608,7 +608,7 @@ export default function App() {
               onViewModeChange={setEpisodeViewMode}
             />
 
-            <div className={`p-8 grid ${episodeViewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'} ${currentPlaying ? 'pb-24' : ''}`}>
+            <div className={`p-4 md:p-8 grid ${episodeViewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'} ${currentPlaying ? 'pb-24' : ''}`}>
               {activeFeed ? (
                 // 显示选中Feed的Episodes
                 filteredEpisodes.map(ep => (
