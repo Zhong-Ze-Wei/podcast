@@ -266,7 +266,7 @@ const LlmConfigPanel = () => {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="border-b border-zinc-800 px-8 py-4">
+      <div className="border-b border-zinc-800 px-4 md:px-8 py-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-sm font-medium text-white">
@@ -289,7 +289,7 @@ const LlmConfigPanel = () => {
       <NoticeBanner />
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6">
 
         {/* Provider Cards */}
         {providers.map((provider) => {
