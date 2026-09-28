@@ -73,6 +73,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateBlocks, setTemplateBlocks] = useState([]);
+  const [templateParams, setTemplateParams] = useState({ length: '', language: '' });
+  const [paramOptions, setParamOptions] = useState({});
   const [enabledBlocks, setEnabledBlocks] = useState([]);
   const [showChinese, setShowChinese] = useState(false);
 
@@ -100,6 +102,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             .map(b => b.id) || [];
           setEnabledBlocks(defaultEnabled);
           setTemplateBlocks(detail.optional_blocks || []);
+          setParamOptions(detail.parameters || {});
         }
       } catch (err) {
         console.error('Failed to load templates:', err);
@@ -443,9 +446,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setLocalSummarizing(true);
     setError(null);
     try {
+      const params = {};
+      if (templateParams.length) params.length = templateParams.length;
+      if (templateParams.language) params.language = templateParams.language;
       await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
         enabled_blocks: enabledBlocks,
+        params,
         force
       });
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
@@ -474,7 +481,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setSelectedTemplate(template);
     setSummary(null);
     setShowChinese(false);
-    // 获取模板详情并设置默认启用的块
+    setTemplateParams({ length: '', language: '' });
+    // 获取模板详情并设置默认启用的块与参数选项
     try {
       const response = await promptTemplatesApi.get(template.id);
       const detail = response.data || response;
@@ -482,7 +490,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         ?.filter(b => b.enabled_by_default)
         .map(b => b.id) || [];
       setEnabledBlocks(defaultEnabled);
-      setTemplateBlocks(detail.optional_blocks || []);
+      setTemplateBlocks(detail.optional_blocks || [])
+          setParamOptions(detail.parameters || {});
     } catch (err) {
       console.error('Failed to load template detail:', err);
     }
@@ -834,6 +843,40 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     </button>
                   ))}
                 </div>
+
+                  {/* 参数快捷调节（覆盖模板默认） */}
+                  {paramOptions.length && (
+                    <div className="mt-3 flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-xs text-zinc-400">
+                        {paramOptions.length.label_zh || '摘要长度'}
+                        <select
+                          value={templateParams.length}
+                          onChange={(e) => setTemplateParams(prev => ({ ...prev, length: e.target.value }))}
+                          className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
+                        >
+                          <option value="">跟随模板默认</option>
+                          {(paramOptions.length.options || []).map(o => (
+                            <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {paramOptions.language && (
+                        <label className="flex items-center gap-2 text-xs text-zinc-400">
+                          {paramOptions.language.label_zh || '输出语言'}
+                          <select
+                            value={templateParams.language}
+                            onChange={(e) => setTemplateParams(prev => ({ ...prev, language: e.target.value }))}
+                            className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
+                          >
+                            <option value="">跟随模板默认</option>
+                            {(paramOptions.language.options || []).map(o => (
+                              <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  )}
                 <div className="flex gap-2">
                   {/* 有摘要时显示强制重新生成按钮 */}
                   {summary && !isCurrentlySummarizing && (
