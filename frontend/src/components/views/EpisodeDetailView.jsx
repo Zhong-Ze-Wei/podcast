@@ -516,7 +516,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden animate-in">
-      <div className="px-8 py-6 border-b border-zinc-800 flex items-start gap-6 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-6 border-b border-zinc-800 flex items-start gap-4 md:gap-6 bg-zinc-900/20">
         <button onClick={onBack} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
           <ChevronLeft size={24} />
         </button>
@@ -529,8 +529,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             <span className="text-zinc-500 text-sm">{new Date(episode.published_at).toLocaleDateString()}</span>
             <EpisodeStatusBadge status={episode.status} />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
-          <div className="flex items-center gap-4">
+          <h1 className="text-xl md:text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <button
               onClick={() => onPlay && onPlay(episode)}
               className="flex items-center gap-2 bg-white text-black px-6 py-2.5 rounded-full font-semibold hover:scale-105 transition-transform shadow-lg shadow-white/10"
@@ -579,7 +579,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         </div>
       </div>
 
-      <div className="px-8 border-b border-zinc-800 flex items-center gap-8 bg-zinc-950/50 backdrop-blur sticky top-0 z-10">
+      <div className="px-4 md:px-8 border-b border-zinc-800 flex items-center gap-4 md:gap-8 bg-zinc-950/50 backdrop-blur sticky top-0 z-10 overflow-x-auto">
         {['transcript', 'summary', 'info'].map(tab => (
           <button
             key={tab}
