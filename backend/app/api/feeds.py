@@ -591,7 +591,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
         elif created == "backfilled":
             transcript_count += 1
         if progress_callback:
-            progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
+            progress_callback((30 + int(60 * (i + 1) / max(len(videos), 1)), f"拉取字幕 {i + 1}/{len(videos)}"))
 
     total = db.episodes.count_documents({"owner_id": owner_id, "feed_id": feed["_id"]})
     db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
@@ -602,7 +602,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
         "episode_count": total,
     }})
     if progress_callback:
-        progress_callback(100)
+        progress_callback((100, f"完成：新增 {new_count} 集 / 字幕 {transcript_count} 条"))
 
     return {"new_episodes": new_count, "new_transcripts": transcript_count,
             "transcript_failures": failed, "total_episodes": total}
@@ -685,7 +685,7 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
         elif created == "backfilled":
             transcript_count += 1
         if progress_callback:
-            progress_callback(30 + int(60 * (i + 1) / max(len(videos), 1)))
+            progress_callback((30 + int(60 * (i + 1) / max(len(videos), 1)), f"拉取字幕 {i + 1}/{len(videos)}"))
 
     total = db.episodes.count_documents({"owner_id": owner_id, "feed_id": feed["_id"]})
     db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
@@ -696,7 +696,7 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
         "episode_count": total,
     }})
     if progress_callback:
-        progress_callback(100)
+        progress_callback((100, f"完成：新增 {new_count} 集 / 字幕 {transcript_count} 条"))
 
     return {"new_episodes": new_count, "new_transcripts": transcript_count,
             "transcript_failures": failed, "total_episodes": total}

@@ -91,3 +91,31 @@ def test_task_queue_materializes_generator_results_before_persisting():
     stored = db.tasks.find_one({"task_id": task_id})
     assert task["result"] == [{"value": 1}]
     assert stored["result"] == [{"value": 1}]
+
+
+def test_progress_callback_accepts_message_tuple():
+    """progress_callback 支持传 (percent, message)，任务记录带 progress_message"""
+    from app.services.task_queue import TaskQueue
+
+    q = TaskQueue(max_workers=1)
+    captured = {}
+
+    def job(progress_callback=None):
+        progress_callback((42, "拉取字幕 5/12"))
+        return "ok"
+
+    def cb(**kw):
+        pass
+
+    task_id = q.submit(task_type="refresh", func=job, **{})
+    q.wait_all() if hasattr(q, "wait_all") else None
+    # TaskQueue 测试环境的等待方式参照现有用例；这里直接等一小段时间
+    import time
+    for _ in range(30):
+        info = q.tasks.get(task_id) or {}
+        if info.get("status") in ("completed", "failed"):
+            break
+        time.sleep(0.1)
+    info = q.tasks[task_id]
+    assert info["status"] == "completed"
+    assert info["progress_message"] == "拉取字幕 5/12"  # 完成态归 100，消息保留
