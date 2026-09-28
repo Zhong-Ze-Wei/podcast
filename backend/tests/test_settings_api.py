@@ -343,3 +343,16 @@ def test_llm_test_uses_stored_provider_key_when_model_id_is_sent(monkeypatch):
     assert created["api_key"] == "stored-secret"
     assert created["base_url"] == "https://api-inference.modelscope.cn/v1"
     assert created["request"]["model"] == "deepseek-ai/DeepSeek-V4-Flash"
+
+
+def test_bilibili_status_endpoint(monkeypatch):
+    monkeypatch.setattr("app.config.Config", type("C", (), {"BILI_SESSDATA": ""}))
+    """B站登录态端点：返回 configured 标记（无 SESSDATA 时 configured=False）"""
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "u9@example.com")
+    client = app.test_client()
+    resp = client.get("/api/settings/bilibili-status", headers=auth_headers(user))
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["configured"] is False
+    assert body["valid"] is False

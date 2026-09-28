@@ -463,3 +463,24 @@ def save_ai_analysis_switch():
     from ..services.ai_control import is_ai_analysis_enabled
 
     return jsonify({"enabled": is_ai_analysis_enabled()})
+
+
+@settings_bp.route("/bilibili-status", methods=["GET"])
+@require_auth
+def get_bilibili_status():
+    """B站登录态：验证 SESSDATA 是否配置且有效（调 nav 接口实时校验）"""
+    from ..config import Config
+    from ..services.bilibili_service import BilibiliService
+
+    if not Config.BILI_SESSDATA:
+        return jsonify({"configured": False, "valid": False})
+
+    data, error = BilibiliService._get("/x/web-interface/nav")
+    if error:
+        return jsonify({"configured": True, "valid": False, "error": error})
+    return jsonify({
+        "configured": True,
+        "valid": bool(data and data.get("isLogin")),
+        "nickname": (data or {}).get("uname", ""),
+        "mid": (data or {}).get("mid"),
+    })
