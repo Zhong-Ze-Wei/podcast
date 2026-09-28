@@ -99,7 +99,7 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
           onViewModeChange={onViewModeChange}
         />
         {filteredEpisodes.length > 0 ? (
-          <div className={`p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {filteredEpisodes.map(ep => (
               <EpisodeCard
                 key={ep.id}
