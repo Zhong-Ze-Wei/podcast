@@ -465,6 +465,37 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
     return {"new_episodes": len(new_episodes), "total_episodes": total_count}
 
 
+_TRANSLATE_SUBTITLE_ERRORS = [
+    ("disabled", "频道主禁用了字幕（YouTube 侧无法获取）"),
+    ("No AI subtitle available", "B站 AI 字幕尚未生成，稍后自动重试"),
+    ("No transcript available", "该视频暂无字幕"),
+    ("rejected", "字幕未通过内容校验（与视频不符，已拒收）"),
+    ("login required", "B站登录态失效，请更新 SESSDATA"),
+    ("proxy", "代理不可用，请检查代理节点"),
+]
+
+
+def _humanize_subtitle_error(error: str) -> str:
+    for key, text in _TRANSLATE_SUBTITLE_ERRORS:
+        if key.lower() in (error or "").lower():
+            return text
+    return error or "字幕拉取失败"
+
+
+def _mark_episode_subtitle_error(db, episode_id, error):
+    """字幕失败原因落到剧集，供前端展示"""
+    db.episodes.update_one(
+        {"_id": episode_id},
+        {"$set": {"transcript_fetch_error": _humanize_subtitle_error(error)}},
+    )
+
+
+def _clear_episode_subtitle_error(db, episode_id):
+    db.episodes.update_one(
+        {"_id": episode_id},
+        {"$unset": {"transcript_fetch_error": ""}},
+    )
+
 def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="",
                           author="", published=None, audio_type="video/youtube",
                           transcript=None, transcript_source=None):
@@ -582,6 +613,13 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
             transcript=transcript,
             transcript_source=Transcript.SOURCE_YOUTUBE,
         )
+        ep_doc = db.episodes.find_one({"owner_id": owner_id, "guid": guid})
+        if ep_doc:
+            if tr_error:
+                _mark_episode_subtitle_error(db, ep_doc["_id"], tr_error)
+            elif transcript:
+                _clear_episode_subtitle_error(db, ep_doc["_id"])
+
         if created == "created":
             new_count += 1
             if transcript:
@@ -676,6 +714,13 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
             transcript=transcript,
             transcript_source=Transcript.SOURCE_BILIBILI,
         )
+        ep_doc = db.episodes.find_one({"owner_id": owner_id, "guid": guid})
+        if ep_doc:
+            if tr_error:
+                _mark_episode_subtitle_error(db, ep_doc["_id"], tr_error)
+            elif transcript:
+                _clear_episode_subtitle_error(db, ep_doc["_id"])
+
         if created == "created":
             new_count += 1
             if transcript:
