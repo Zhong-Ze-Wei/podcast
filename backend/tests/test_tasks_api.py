@@ -53,10 +53,10 @@ def test_task_list_is_filtered_by_owner():
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert [item["id"] for item in payload["data"]] == ["user1-task"]
+    assert [item["id"] for item in payload["data"]] == ["user2-task", "user1-task"]  # 共享库：全部可见
 
 
-def test_task_detail_hides_other_owner_task():
+def test_task_detail_is_shared():
     app = make_tasks_app()
     db = app.db
     user1 = add_user(db, "user1@example.com")
@@ -65,11 +65,12 @@ def test_task_detail_hides_other_owner_task():
 
     response = app.test_client().get("/api/tasks/user2-task", headers=auth_headers(user1))
 
-    assert response.status_code == 404
-    assert response.get_json()["error_code"] == "TASK_NOT_FOUND"
+    # 共享库：他人任务详情可见
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
 
 
-def test_task_cancel_hides_other_owner_task():
+def test_task_cancel_is_restricted_to_owner():
     app = make_tasks_app()
     db = app.db
     user1 = add_user(db, "user1@example.com")
@@ -81,5 +82,5 @@ def test_task_cancel_hides_other_owner_task():
         headers=auth_headers(user1),
     )
 
-    assert response.status_code == 404
-    assert response.get_json()["error_code"] == "TASK_NOT_FOUND"
+    # 取消他人任务被拒（共享库中任务取消仍归属操作者）
+    assert response.status_code == 400

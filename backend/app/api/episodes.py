@@ -22,7 +22,7 @@ from .utils import (
     get_pagination_params,
     get_bool_param,
 )
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, owner_filter, require_auth
 
 episodes_bp = Blueprint("episodes", __name__)
 

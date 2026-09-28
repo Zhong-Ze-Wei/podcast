@@ -56,7 +56,7 @@ def add_episode(db, owner_id, title):
     return episode_id
 
 
-def test_episode_list_and_detail_are_filtered_by_owner():
+def test_episode_list_and_detail_are_shared_across_users():
     app = make_app()
     db = app.db
     user1 = add_user(db, "user1@example.com")
@@ -67,13 +67,14 @@ def test_episode_list_and_detail_are_filtered_by_owner():
     client = app.test_client()
     headers = {"Authorization": f"Bearer {token_for(user1)}"}
 
+    # 共享库：登录用户可见所有人的剧集
     listed = client.get("/api/episodes", headers=headers)
     assert listed.status_code == 200
-    titles = [item["title"] for item in listed.get_json()["data"]]
-    assert titles == ["User 1 Episode"]
+    titles = {item["title"] for item in listed.get_json()["data"]}
+    assert titles == {"User 1 Episode", "User 2 Episode"}
 
     own_detail = client.get(f"/api/episodes/{user1_episode}", headers=headers)
     assert own_detail.status_code == 200
 
     other_detail = client.get(f"/api/episodes/{user2_episode}", headers=headers)
-    assert other_detail.status_code == 404
+    assert other_detail.status_code == 200

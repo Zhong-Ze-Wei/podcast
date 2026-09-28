@@ -15,7 +15,7 @@ from ..services.task_queue import task_queue
 from ..services.summary_service import get_summary_service
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from .utils import success_response, error_response
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, owner_filter, require_auth
 
 logger = logging.getLogger(__name__)
 summaries_bp = Blueprint("summaries", __name__)
@@ -313,7 +313,7 @@ def _translate_sync(episode_id: str, template_name: str = None, progress_callbac
 
 
 @summaries_bp.route("/<episode_id>", methods=["DELETE"])
-@require_auth
+@require_role("user", "admin")
 def delete_summary(episode_id):
     """
     删除摘要。
