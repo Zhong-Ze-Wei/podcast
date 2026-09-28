@@ -7,7 +7,7 @@ from datetime import datetime
 
 from flask import Blueprint, request, jsonify, current_app
 from ..models.setting import SettingModel
-from .decorators import current_owner_id, require_auth
+from .decorators import current_owner_id, require_auth, require_admin
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -27,7 +27,7 @@ def get_setting_model():
 
 
 @settings_bp.route("/llm", methods=["GET"])
-@require_auth
+@require_admin
 def get_llm_configs():
     """获取LLM配置列表"""
     try:
@@ -64,7 +64,7 @@ def get_llm_configs():
 
 
 @settings_bp.route("/llm", methods=["PUT"])
-@require_auth
+@require_admin
 def save_llm_configs():
     """保存LLM配置列表"""
     try:
@@ -145,7 +145,7 @@ def save_llm_configs():
 
 
 @settings_bp.route("/llm/active", methods=["PUT"])
-@require_auth
+@require_admin
 def set_active_llm():
     """设置激活的LLM配置"""
     try:
@@ -166,7 +166,7 @@ def set_active_llm():
 
 
 @settings_bp.route("/llm/test", methods=["POST"])
-@require_auth
+@require_admin
 def test_llm_connection():
     """测试LLM连接"""
     try:
@@ -247,7 +247,7 @@ def test_llm_connection():
 
 
 @settings_bp.route("/tavily", methods=["GET"])
-@require_auth
+@require_admin
 def get_tavily_config():
     """获取Tavily配置"""
     try:
@@ -270,7 +270,7 @@ def get_tavily_config():
 
 
 @settings_bp.route("/tavily", methods=["PUT"])
-@require_auth
+@require_admin
 def save_tavily_config():
     """保存Tavily配置"""
     try:
@@ -327,7 +327,7 @@ def save_tavily_config():
 
 
 @settings_bp.route("/tavily/test", methods=["POST"])
-@require_auth
+@require_admin
 def test_tavily_connection():
     """测试Tavily API连接"""
     data = request.get_json()
@@ -351,7 +351,7 @@ def test_tavily_connection():
 
 
 @settings_bp.route("/prompts/search-query", methods=["GET"])
-@require_auth
+@require_admin
 def get_search_query_fragment():
     """获取搜索查询片段"""
     try:
@@ -366,7 +366,7 @@ def get_search_query_fragment():
 
 
 @settings_bp.route("/prompts/search-query", methods=["PUT"])
-@require_auth
+@require_admin
 def save_search_query_fragment():
     """保存搜索查询片段"""
     try:
@@ -438,7 +438,7 @@ def fetch_provider_models():
 
 
 @settings_bp.route("/ai-analysis", methods=["GET"])
-@require_auth
+@require_admin
 def get_ai_analysis_switch():
     """AI 分析总开关状态"""
     from ..services.ai_control import is_ai_analysis_enabled
@@ -447,7 +447,7 @@ def get_ai_analysis_switch():
 
 
 @settings_bp.route("/ai-analysis", methods=["PUT"])
-@require_auth
+@require_admin
 def save_ai_analysis_switch():
     """更新 AI 分析总开关（写入数据库，运行时生效）"""
     data = request.get_json() or {}

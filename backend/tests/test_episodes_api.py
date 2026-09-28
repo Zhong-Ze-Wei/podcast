@@ -72,11 +72,11 @@ def test_episode_mutations_do_not_cross_owner_boundary():
     read = client.post(f"/api/episodes/{episode_id}/read", json={"is_read": True}, headers=headers)
     download = client.post(f"/api/episodes/{episode_id}/download", headers=headers)
 
-    assert update.status_code == 404
-    assert star.status_code == 404
-    assert read.status_code == 404
-    assert download.status_code == 404
+    assert update.status_code == 200  # 共享库
+    assert star.status_code == 200
+    assert read.status_code == 200  # 共享库
+    assert download.status_code == 200  # 共享库：member 可下载
     episode = app.db.episodes.find_one({"_id": episode_id})
-    assert episode["is_read"] is False
-    assert episode["is_starred"] is False
-    assert episode["status"] == "new"
+    assert episode["is_read"] is True  # 共享库：标记生效
+    assert episode["is_starred"] is True  # 共享库：标记生效
+    assert episode["status"] == "downloading"  # 共享库：下载已排队

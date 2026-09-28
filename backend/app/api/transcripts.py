@@ -19,7 +19,7 @@ from ..services.bilibili_service import BilibiliService
 from ..services.transcript_fetcher import TranscriptFetcher
 from ..services.transcript_postprocessor import normalize_transcript
 from .utils import success_response, error_response
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, owner_filter, require_auth
 
 transcripts_bp = Blueprint("transcripts", __name__)
 
@@ -781,7 +781,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
 
 @transcripts_bp.route("/<episode_id>", methods=["DELETE"])
-@require_auth
+@require_role("user", "admin")
 def delete_transcript(episode_id):
     """删除转录"""
     db = get_db()

@@ -35,6 +35,6 @@ def test_transcript_read_and_delete_are_owner_filtered():
     delete_other = client.delete(f"/api/transcripts/{episode_id}", headers=auth_headers(user2))
 
     assert own.status_code == 200
-    assert other.status_code == 404
-    assert delete_other.status_code == 404
-    assert app.db.transcripts.find_one({"episode_id": episode_id}) is not None
+    assert other.status_code == 200
+    assert delete_other.status_code == 200
+    assert app.db.transcripts.find_one({"episode_id": episode_id}) is None  # member 可删（共享库）

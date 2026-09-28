@@ -31,7 +31,7 @@ from .utils import (
     get_bool_param,
 )
 from .decorators import validate_object_id
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import current_owner_id, owner_filter, require_auth, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def get_feed(feed_id):
 
 
 @feeds_bp.route("", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def create_feed():
     """添加新订阅（自动识别：RSS / YouTube 频道 / B站 UP 主）"""
     db = get_db()
@@ -296,7 +296,7 @@ def _create_bilibili_feed(db, url, space_id, owner_id, data):
 
 
 @feeds_bp.route("/<feed_id>", methods=["PUT"])
-@require_auth
+@require_role("user", "admin")
 def update_feed(feed_id):
     """更新订阅"""
     db = get_db()
@@ -330,7 +330,7 @@ def update_feed(feed_id):
 
 
 @feeds_bp.route("/<feed_id>", methods=["DELETE"])
-@require_auth
+@require_role("user", "admin")
 def delete_feed(feed_id):
     """删除订阅"""
     db = get_db()
@@ -360,7 +360,7 @@ def delete_feed(feed_id):
 
 
 @feeds_bp.route("/<feed_id>/refresh", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def refresh_feed(feed_id):
     """刷新订阅 (异步)"""
     db = get_db()

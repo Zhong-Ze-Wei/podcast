@@ -5,8 +5,8 @@ from tests.auth_helpers import add_user, auth_headers, make_auth_app
 
 def test_llm_settings_are_scoped_per_user():
     app = make_auth_app((settings_bp, "/api/settings"))
-    user1 = add_user(app.db, "user1@example.com")
-    user2 = add_user(app.db, "user2@example.com")
+    user1 = add_user(app.db, "user1@example.com", role="admin")
+    user2 = add_user(app.db, "user2@example.com", role="admin")
     client = app.test_client()
 
     save = client.put(
@@ -64,7 +64,7 @@ def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypat
 
 def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs():
     app = make_auth_app((settings_bp, "/api/settings"))
-    user = add_user(app.db, "user@example.com")
+    user = add_user(app.db, "user@example.com", role="admin")
     client = app.test_client()
 
     response = client.put(
@@ -106,7 +106,7 @@ def test_llm_save_adds_ids_and_persists_task_routes_only_for_available_configs()
 
 def test_llm_settings_split_providers_models_and_routes_without_returning_keys():
     app = make_auth_app((settings_bp, "/api/settings"))
-    user = add_user(app.db, "user@example.com")
+    user = add_user(app.db, "user@example.com", role="admin")
     client = app.test_client()
 
     response = client.put(
@@ -209,7 +209,7 @@ def test_active_llm_config_is_composed_from_default_provider_and_model():
 
 def test_llm_settings_preserve_disabled_provider_models_but_exclude_from_routes():
     app = make_auth_app((settings_bp, "/api/settings"))
-    user = add_user(app.db, "user@example.com")
+    user = add_user(app.db, "user@example.com", role="admin")
     client = app.test_client()
 
     response = client.put(
@@ -277,7 +277,7 @@ def test_llm_settings_preserve_disabled_provider_models_but_exclude_from_routes(
 
 def test_llm_test_uses_stored_provider_key_when_model_id_is_sent(monkeypatch):
     app = make_auth_app((settings_bp, "/api/settings"))
-    user = add_user(app.db, "user@example.com")
+    user = add_user(app.db, "user@example.com", role="admin")
     client = app.test_client()
     created = {}
 
@@ -349,7 +349,7 @@ def test_bilibili_status_endpoint(monkeypatch):
     monkeypatch.setattr("app.config.Config", type("C", (), {"BILI_SESSDATA": ""}))
     """B站登录态端点：返回 configured 标记（无 SESSDATA 时 configured=False）"""
     app = make_auth_app((settings_bp, "/api/settings"))
-    user = add_user(app.db, "u9@example.com")
+    user = add_user(app.db, "u9@example.com", role="admin")
     client = app.test_client()
     resp = client.get("/api/settings/bilibili-status", headers=auth_headers(user))
     assert resp.status_code == 200
