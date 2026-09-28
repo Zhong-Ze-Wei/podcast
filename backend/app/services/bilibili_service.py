@@ -292,6 +292,39 @@ class BilibiliService:
                 windows.add(clean[i:i + n])
         return windows
 
+    @classmethod
+    def download_audio(cls, bvid: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        下载视频音轨到媒体目录（m4a，直连不走代理）。
+
+        Returns:
+            (本地文件绝对路径, error)
+        """
+        from yt_dlp import YoutubeDL
+        from ..config import Config
+        import os
+
+        audio_dir = Config.AUDIO_DIR
+        os.makedirs(audio_dir, exist_ok=True)
+        outtmpl = os.path.join(audio_dir, f"bili_{bvid}.%(ext)s")
+
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": outtmpl,
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"https://www.bilibili.com/video/{bvid}", download=True)
+        except Exception as e:
+            first_line = str(e).strip().splitlines()[0] if str(e).strip() else str(e)
+            return None, f"Bilibili audio download failed: {first_line}"
+
+        path = info.get("requested_downloads", [{}])[0].get("filepath")
+        return path, None
+
     @staticmethod
     def _parse_length(length: str) -> int:
         """'HH:MM:SS' 或 'MM:SS' 转秒"""

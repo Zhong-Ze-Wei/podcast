@@ -417,6 +417,19 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
+  const isVideoEpisode = episode?.guid?.startsWith('youtube:') || episode?.guid?.startsWith('bilibili:');
+
+  const transcribeVideoNow = async () => {
+    setError(null);
+    setLocalTranscribing(true);
+    try {
+      await transcriptsApi.transcribeVideo(episode.id);
+    } catch (err) {
+      setError(err?.message || 'Failed to start transcription');
+      setLocalTranscribing(false);
+    }
+  };
+
   const generateSummary = async (force = false) => {
     if (!aiEnabled) {
       setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
@@ -657,6 +670,23 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                 <div className="flex flex-col items-center justify-center py-20 text-zinc-500 border-2 border-dashed border-zinc-800 rounded-2xl">
                   <Mic2 size={48} className="mb-4 text-zinc-700" />
                   <p className="text-lg font-medium mb-4">{t('detail.noTranscript')}</p>
+
+                  {isVideoEpisode && !localTranscribing && (
+                    <div className="mb-6 max-w-md rounded-lg border border-amber-700/40 bg-amber-900/10 px-4 py-3 text-left">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 text-amber-400">ⓘ</span>
+                        <div>
+                          <p className="text-sm text-amber-200">{t('detail.videoNoSubtitleReason')}</p>
+                          <button
+                            onClick={transcribeVideoNow}
+                            className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                          >
+                            {t('detail.transcribeVideoNow')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 显示错误信息 */}
                   {error && (

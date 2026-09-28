@@ -101,6 +101,7 @@ export const episodesApi = {
 
 // Transcripts API
 export const transcriptsApi = {
+  transcribeVideo: (episodeId) => api.post(`/transcripts/${episodeId}/fetch-video-audio`),
   get: (episodeId) => api.get(`/transcripts/${episodeId}`),
   create: (episodeId, options = {}) => api.post(`/transcripts/${episodeId}`, options),
   delete: (episodeId) => api.delete(`/transcripts/${episodeId}`),
