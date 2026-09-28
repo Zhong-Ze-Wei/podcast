@@ -58,6 +58,7 @@ const LlmConfigPanel = () => {
   const [manualModelInputs, setManualModelInputs] = useState({});
   const [collapsedProviders, setCollapsedProviders] = useState(() => new Set());
   const [aiEnabled, setAiEnabled] = useState(true);
+  const [biliStatus, setBiliStatus] = useState(null);
 
   useEffect(() => { loadConfigs(); }, []);
 
@@ -92,6 +93,7 @@ const LlmConfigPanel = () => {
       setDefaultModelId(res.default_model_id || res.models?.[0]?.id || 'default');
       setTaskRoutes(res.task_routes || {});
       settingsApi.getAiAnalysis().then(r => setAiEnabled(!!r.enabled)).catch(() => {});
+      settingsApi.getBilibiliStatus().then(setBiliStatus).catch(() => {});
       // 已配置 Key 的服务商默认折叠为摘要卡片
       setCollapsedProviders(new Set((res.providers || []).filter(p => p.api_key).map(p => p.id)));
     } catch (err) {
@@ -592,6 +594,23 @@ const LlmConfigPanel = () => {
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${aiEnabled ? 'left-[22px]' : 'left-0.5'}`} />
           </button>
         </div>
+
+        {/* Bilibili login status */}
+        {biliStatus && (
+          <div className="mx-auto max-w-4xl flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
+            <div className="text-sm text-zinc-300">
+              B站登录态
+              <span className="ml-3 text-xs text-zinc-500">
+                {biliStatus.configured
+                  ? (biliStatus.valid
+                      ? `已连接 · ${biliStatus.nickname || biliStatus.mid}（SESSDATA 有效）`
+                      : '已配置但校验未通过（SESSDATA 可能已过期，请更新 backend/.env）')
+                  : '未配置 SESSDATA（B站订阅刷新与 AI 字幕需要，见 backend/.env 的 BILI_SESSDATA）'}
+              </span>
+            </div>
+            <span className={`h-2.5 w-2.5 rounded-full ${biliStatus.configured && biliStatus.valid ? 'bg-green-500' : biliStatus.configured ? 'bg-amber-500' : 'bg-zinc-600'}`} />
+          </div>
+        )}
 
         {/* Task routing */}
         <div className="mx-auto max-w-4xl border-t border-zinc-800/60 pt-6">

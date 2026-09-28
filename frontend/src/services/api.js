@@ -141,6 +141,7 @@ export const settingsApi = {
   testLlmConnection: (config) => api.post('/settings/llm/test', config),
   fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
   getAiAnalysis: () => api.get('/settings/ai-analysis'),
+  getBilibiliStatus: () => api.get('/settings/bilibili-status'),
   setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 
