@@ -9,6 +9,7 @@ import {
 import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
 import { decodeHtmlEntities, AI_ANALYSIS_ENABLED } from '../../utils/helpers';
 import TaskProgress from '../common/TaskProgress';
+import { transcriptionOptions as getTranscriptionOptions, defaultTranscriptionProvider } from '../../utils/transcription';
 
 /**
  * EpisodeDetailView - 节目详情页
@@ -18,7 +19,7 @@ import TaskProgress from '../common/TaskProgress';
  * - AI生成的摘要
  * - 节目元信息
  */
-const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
+const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay, capabilities, capabilitiesError, onOpenTranscription }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('transcript');
   const [transcript, setTranscript] = useState(null);
@@ -39,6 +40,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [transcriptionProvider, setTranscriptionProvider] = useState('official');
   const [transcriptionLanguage, setTranscriptionLanguage] = useState('auto');
   const pendingTranscriptionProviderRef = useRef(null);
+  const providerEpisodeRef = useRef(null);
 
   // Summary states
   const [templates, setTemplates] = useState([]);
@@ -94,54 +96,15 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const estimateCost = episode?.duration ? (episode.duration * 0.37 / 3600).toFixed(2) : null;
   const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null;
   const hasOfficialTranscript = Boolean(episode?.transcript_url);
-  const hasLocalAudio = Boolean(episode?.local_audio_url || episode?.local_path || episode?.audio_path);
+  const hasLocalAudio = Boolean(episode?.local_audio_url);
   const hasRemoteAudio = Boolean(episode?.audio_url);
   const isLocalTranscriptionProvider = (provider) => provider === 'local_whisper' || provider === 'local_whisperx';
   const episodeHasLocalAudio = (targetEpisode) => Boolean(
-    targetEpisode?.local_audio_url || targetEpisode?.local_path || targetEpisode?.audio_path
+    targetEpisode?.local_audio_url
   );
-  const transcriptionOptions = [
-    {
-      value: 'official',
-      label: '官方字幕',
-      description: hasOfficialTranscript ? '免费，优先使用节目源提供的字幕。' : '当前单集没有官方字幕地址。',
-      disabled: !hasOfficialTranscript
-    },
-    {
-      value: 'local_whisper',
-      label: '本地 Whisper',
-      description: hasLocalAudio
-        ? '使用已下载音频在本机转录，不调用云端。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 Whisper 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'local_whisperx',
-      label: 'WhisperX',
-      description: hasLocalAudio
-        ? '本地高级转录模式，用于后续接入说话人识别；当前需要单独安装 WhisperX runtime。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 WhisperX 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'assemblyai',
-      label: 'AssemblyAI 云端',
-      description: '付费云端转录，后端必须显式开启 TRANSCRIPTION_CLOUD_ENABLED=1。',
-      disabled: false
-    },
-    {
-      value: 'manual',
-      label: '手动导入',
-      description: '预留入口，后续支持粘贴或上传文本。',
-      disabled: true
-    }
-  ];
+  const transcriptionOptions = getTranscriptionOptions(capabilities, episode, t, capabilitiesError);
   const selectedTranscriptionOption =
-    transcriptionOptions.find(option => option.value === transcriptionProvider) || transcriptionOptions[0];
+    transcriptionOptions.find(option => option.value === transcriptionProvider) || { disabled: true, description: capabilitiesError || t('settings.transcription.episode.help') };
   const transcriptSourceLabels = {
     local_whisper: '本地 Whisper',
     local_whisperx: 'WhisperX',
@@ -166,14 +129,12 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     transcriptionLanguageOptions.find(option => option.value === transcriptionLanguage) || transcriptionLanguageOptions[0];
 
   useEffect(() => {
-    if (hasOfficialTranscript) {
-      setTranscriptionProvider('official');
-    } else if (hasLocalAudio || hasRemoteAudio) {
-      setTranscriptionProvider('local_whisper');
-    } else {
-      setTranscriptionProvider('assemblyai');
-    }
-  }, [episode?.id, hasOfficialTranscript, hasLocalAudio, hasRemoteAudio]);
+    const options = getTranscriptionOptions(capabilities, episode, t, capabilitiesError);
+    const sameEpisode = providerEpisodeRef.current === episode?.id;
+    providerEpisodeRef.current = episode?.id;
+    setTranscriptionProvider(current => sameEpisode && options.some(option => option.value === current && !option.disabled)
+      ? current : defaultTranscriptionProvider(options));
+  }, [episode?.id, hasOfficialTranscript, hasLocalAudio, hasRemoteAudio, capabilities, capabilitiesError, t]);
 
   // 任务完成回调
   const handleTranscribeComplete = async () => {
@@ -314,7 +275,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       return true;
     } catch (err) {
       console.error('Failed to generate transcript:', err);
-      const errorCode = err?.code || '';
+      const errorCode = err?.error_code || err?.code || '';
       const errorMsg = err?.message || 'Failed to generate transcript';
       if (errorCode === 'ALREADY_TRANSCRIBING' || errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.alreadyTranscribing') || 'Transcription is already in progress');
@@ -374,7 +335,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       if (onRefresh) onRefresh();
       return 'queued';
     } catch (err) {
-      const errorCode = err?.code || '';
+      const errorCode = err?.error_code || err?.code || '';
       if (errorCode === 'ALREADY_DOWNLOADED') {
         setLocalDownloading(false);
         await refreshEpisode();
@@ -428,7 +389,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       // 任务已提交，TaskProgress 组件会轮询状态
     } catch (err) {
       console.error('Failed to generate summary:', err);
-      const errorCode = err?.code || '';
+      const errorCode = err?.error_code || err?.code || '';
       if (errorCode === 'SUMMARY_EXISTS' && !force) {
         await loadSummary();
         setLocalSummarizing(false);
@@ -694,15 +655,17 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                             }}
                             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
                           >
+                            <option value="" disabled>{t('settings.transcription.episode.select')}</option>
                             {transcriptionOptions.map(option => (
                               <option key={option.value} value={option.value} disabled={option.disabled}>
-                                {option.label}
+                                {option.label}{option.disabled ? t('settings.transcription.episode.unavailable') : ''}
                               </option>
                             ))}
                           </select>
                           <p className="mt-2 text-xs leading-relaxed text-zinc-500">
                             {selectedTranscriptionOption?.description}
                           </p>
+                          <button onClick={onOpenTranscription} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300">{t('settings.transcription.episode.openSettings')}</button>
                         </div>
                         <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
                           <div className="flex items-center justify-between gap-3 mb-2">

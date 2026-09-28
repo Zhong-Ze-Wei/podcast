@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, RefreshCw } from 'lucide-react';
-import { feedsApi, episodesApi, tasksApi } from './services/api';
+import { feedsApi, episodesApi, tasksApi, capabilitiesApi } from './services/api';
 import {
   AUTO_REFRESH_KEY,
   TASK_POLL_KEY,
@@ -17,6 +17,7 @@ import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
+import TranscriptionView from './components/views/TranscriptionView';
 import AIBriefingView from './components/views/AIBriefingView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
@@ -33,7 +34,8 @@ const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
   workspace: '/workspace',
   favorites: '/favorites',
-  settings: '/settings'
+  settings: '/settings',
+  transcription: '/transcription'
 };
 
 function parseAppPath(pathname) {
@@ -47,6 +49,7 @@ function parseAppPath(pathname) {
   if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
   if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
   if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
+  if (parts[0] === 'transcription') return { type: 'view', view: 'transcription' };
   return { type: 'view', view: 'workspace' };
 }
 
@@ -74,6 +77,27 @@ export default function App() {
   const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
   const [feedEpisodesLoading, setFeedEpisodesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [capabilities, setCapabilities] = useState(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
+  const [capabilitiesError, setCapabilitiesError] = useState('');
+  const refreshCapabilities = useCallback(async () => {
+    setCapabilitiesLoading(true);
+    try {
+      const response = await capabilitiesApi.get();
+      setCapabilities(response.data);
+      setCapabilitiesError('');
+    } catch {
+      setCapabilities(null);
+      setCapabilitiesError('settings.transcription.loadError');
+    } finally {
+      setCapabilitiesLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    refreshCapabilities();
+    window.addEventListener('focus', refreshCapabilities);
+    return () => window.removeEventListener('focus', refreshCapabilities);
+  }, [refreshCapabilities]);
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
@@ -600,12 +624,26 @@ export default function App() {
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
+        ) : view === 'transcription' ? (
+          <TranscriptionView
+            capabilities={capabilities}
+            loading={capabilitiesLoading}
+            error={capabilitiesError ? t(capabilitiesError) : ''}
+            onRefresh={refreshCapabilities}
+            onBack={() => {
+              if (hasInAppNavigationRef.current) window.history.back();
+              else navigateToView('workspace');
+            }}
+          />
         ) : view === 'settings' ? (
           <SettingsView
             onBack={() => navigateToView('list')}
           />
         ) : (
           <EpisodeDetailView
+            capabilities={capabilities}
+            capabilitiesError={capabilitiesError ? t(capabilitiesError) : ''}
+            onOpenTranscription={() => navigateToView('transcription')}
             episode={selectedEpisode}
             onBack={() => {
               if (hasInAppNavigationRef.current) {
