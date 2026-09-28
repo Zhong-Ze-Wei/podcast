@@ -42,7 +42,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Header */}
-      <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={onBack}
