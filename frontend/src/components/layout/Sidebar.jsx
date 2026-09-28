@@ -135,7 +135,7 @@ const Sidebar = ({
   return (
     <div className={`w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full flex-shrink-0
       fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200
-      ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
+      ${open ? "translate-x-0" : "-translate-x-full"} md:transform-none`}>
       <div className="p-6">
         <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 flex items-center gap-2">
           <Mic2 className="text-indigo-500" />
