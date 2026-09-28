@@ -269,6 +269,12 @@ const Sidebar = ({
 
       <div className={`p-4 border-t border-zinc-800 space-y-2 ${hasPlayer ? 'pb-24' : ''}`}>
         <button
+          onClick={() => setView('transcription')}
+          className={`flex items-center gap-2 text-zinc-400 hover:text-white text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-zinc-600 hover:bg-zinc-900 ${currentView === 'transcription' ? 'bg-zinc-900 text-white border-zinc-600' : ''}`}
+        >
+          <Mic2 size={14} /> {t('settings.transcription.title')}
+        </button>
+        <button
           onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('settings'); }}
           className={`flex items-center gap-2 text-zinc-400 hover:text-white text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-zinc-600 hover:bg-zinc-900 ${currentView === 'settings' ? 'bg-zinc-900 text-white border-zinc-600' : ''}`}
         >

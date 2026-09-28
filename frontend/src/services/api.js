@@ -41,6 +41,10 @@ api.interceptors.response.use(
 );
 
 // Feeds API
+export const capabilitiesApi = {
+  get: () => api.get('/capabilities')
+};
+
 export const feedsApi = {
   list: (params = {}) => api.get('/feeds', { params }),
   get: (id) => api.get(`/feeds/${id}`),
