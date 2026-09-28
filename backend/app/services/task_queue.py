@@ -225,10 +225,20 @@ class TaskQueue:
                 {"$set": update_doc}
             )
 
-    def _update_progress(self, task_id: str, progress: int):
-        """更新任务进度"""
+    def _update_progress(self, task_id: str, progress):
+        """更新任务进度，progress 支持数字或 (percent, message) 元组"""
+        message = None
+        if isinstance(progress, tuple):
+            progress, message = progress
         if task_id in self.tasks:
             self.tasks[task_id]["progress"] = progress
+            if message is not None:
+                self.tasks[task_id]["progress_message"] = message
+                if self._db is not None:
+                    self._db.tasks.update_one(
+                        {"task_id": task_id},
+                        {"$set": {"progress_message": message}},
+                    )
 
         # 同步到数据库 (进度更新不太频繁，可以每次都写)
         if self._db is not None:

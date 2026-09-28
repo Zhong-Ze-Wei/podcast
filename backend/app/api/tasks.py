@@ -187,6 +187,7 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "type": task.get("task_type"),
         "status": task.get("status"),
         "progress": task.get("progress", 0),
+        "progress_message": task.get("progress_message"),
         "episode_id": episode_id,
         "feed_id": feed_id,
         "episode_title": episode.get("title") if episode else None,
