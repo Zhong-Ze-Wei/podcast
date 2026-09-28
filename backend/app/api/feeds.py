@@ -707,7 +707,7 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
             db, feed, guid, video["title"],
             duration=video.get("duration") or 0,
             link=f"https://www.bilibili.com/video/{video['bvid']}",
-            image=video.get("cover", ""),
+            image=(video.get("cover", "") or "") + "@480w_270h_1c.webp" if video.get("cover", "").startswith("http") else video.get("cover", ""),
             author=feed.get("title", ""),
             published=published,
             audio_type="video/bilibili",

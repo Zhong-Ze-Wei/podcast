@@ -153,7 +153,7 @@ def register_media_routes(app):
         resolved = safe_join(media_root, filename)
         if not resolved or not os.path.isfile(resolved):
             abort(404)
-        return send_from_directory(media_root, filename, conditional=True)
+        return send_from_directory(media_root, filename, conditional=True, max_age=604800)
 
 
 def register_blueprints(app):
