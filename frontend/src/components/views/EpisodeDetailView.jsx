@@ -672,8 +672,27 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   );
                 })
               ) : transcript?.text ? (
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">{transcript.text}</p>
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    {transcript.source === 'bilibili' && (
+                      <span className="rounded-full bg-pink-500/15 px-2.5 py-0.5 text-[11px] font-medium text-pink-300">
+                        B站 AI 字幕 · 已通过内容校验
+                      </span>
+                    )}
+                    {transcript.source === 'youtube' && (
+                      <span className="rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-medium text-red-300">
+                        YouTube 字幕
+                      </span>
+                    )}
+                    {(transcript.source === 'local_whisperx' || transcript.source === 'whisper') && (
+                      <span className="rounded-full bg-purple-500/15 px-2.5 py-0.5 text-[11px] font-medium text-purple-300">
+                        本地 Whisper 转写{transcript.segments?.some(s => s.speaker) ? ' · 含说话人分离' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="prose prose-invert max-w-none">
+                    <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">{transcript.text}</p>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-zinc-500 border-2 border-dashed border-zinc-800 rounded-2xl">
