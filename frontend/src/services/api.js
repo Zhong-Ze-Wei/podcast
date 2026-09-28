@@ -149,10 +149,13 @@ export const settingsApi = {
 export const insightsApi = {
   getBriefing: () => api.get('/insights/briefing'),
   regenerateBriefing: () => api.post('/insights/briefing'),
-  exportPdf: () => {
-    // 直接下载 PDF 文件
+  exportPdf: async () => {
+    // 经 axios 携带登录令牌取 PDF blob 再触发保存（<a> 直链不带 Authorization 会被 401 拒绝）
+    const resp = await api.get('/insights/briefing/export', { responseType: 'blob' });
+    const blob = resp instanceof Blob ? resp : new Blob([resp], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = '/api/insights/briefing/export';
+    link.href = url;
     link.download = 'podcast-briefing.pdf';
     document.body.appendChild(link);
     link.click();
