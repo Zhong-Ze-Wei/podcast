@@ -523,64 +523,6 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
     return "created"
 
 
-def _maybe_queue_fallback_transcription(db, feed):
-    """
-    刷新尾部自动兜底：为最老的一集无字幕视频安排本地转写。
-
-    条件：视频剧集、无 transcript、无 no_speech 标记、发布超过 3 天
-    （给 B站异步生成的 AI 字幕留窗口）。每次刷新只补一集，逐次补齐，
-    避免转写任务积压。
-    """
-    from datetime import timedelta
-    from ..services.youtube_service import YouTubeService
-    from ..services.bilibili_service import BilibiliService
-    from .transcripts import _transcribe_video_sync
-
-    if (feed.get("type") or Feed.TYPE_RSS) == Feed.TYPE_RSS:
-        return
-
-    cutoff = datetime.utcnow() - timedelta(days=3)
-    candidates = list(db.episodes.find({
-        "feed_id": feed["_id"],
-        "status": Episode.STATUS_NEW,
-        "no_speech": {"$ne": True},
-        "published": {"$lt": cutoff},
-    }).sort("published", 1).limit(1))
-
-    if not candidates:
-        return
-
-    episode = candidates[0]
-    guid = episode.get("guid", "")
-    if guid.startswith("youtube:"):
-        service, vid = YouTubeService, guid.replace("youtube:", "")
-    elif guid.startswith("bilibili:"):
-        service, vid = BilibiliService, guid.replace("bilibili:", "")
-    else:
-        return
-
-    if db.tasks.find_one({
-        "episode_id": str(episode["_id"]),
-        "task_type": "transcribe",
-        "status": {"$in": ["pending", "processing"]},
-    }):
-        return
-
-    def do_fallback(progress_callback=None):
-        return _transcribe_video_sync(str(episode["_id"]), service, vid, progress_callback)
-
-    db.episodes.update_one(
-        {"_id": episode["_id"]},
-        {"$set": {"status": Episode.STATUS_TRANSCRIBING, "updated_at": datetime.utcnow()}},
-    )
-    task_queue.submit(
-        task_type="transcribe",
-        func=do_fallback,
-        episode_id=str(episode["_id"]),
-        owner_id=feed.get("owner_id"),
-    )
-    logger.info("Queued fallback transcription for episode %s", episode.get("title", "")[:40])
-
 def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
     """YouTube 频道刷新：RSS 拉最新 15 条 → 新视频拉字幕"""
     if progress_callback:
@@ -661,8 +603,6 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None):
     }})
     if progress_callback:
         progress_callback(100)
-
-    _maybe_queue_fallback_transcription(db, feed)
 
     return {"new_episodes": new_count, "new_transcripts": transcript_count,
             "transcript_failures": failed, "total_episodes": total}
@@ -757,8 +697,6 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
     }})
     if progress_callback:
         progress_callback(100)
-
-    _maybe_queue_fallback_transcription(db, feed)
 
     return {"new_episodes": new_count, "new_transcripts": transcript_count,
             "transcript_failures": failed, "total_episodes": total}
