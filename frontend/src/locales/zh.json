@@ -108,7 +108,9 @@
     "transcribingStatus": "正在转录中",
     "estimateTime": "预计时间",
     "summarizingStatus": "正在生成摘要",
-    "selectTemplate": "选择一个模板来生成摘要"
+    "selectTemplate": "选择一个模板来生成摘要",
+    "videoNoSubtitleReason": "远程没有可用字幕（UP 未提供 / 被禁用 / 尚未生成）。可下载音频并用本地 Whisper 转写获得文稿。",
+    "transcribeVideoNow": "立即转写（下载音频 + 本地 Whisper）"
   },
   "player": {
     "play": "播放",

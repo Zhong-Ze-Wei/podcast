@@ -108,7 +108,9 @@
     "transcribingStatus": "Transcribing",
     "estimateTime": "Estimated time",
     "summarizingStatus": "Generating summary",
-    "selectTemplate": "Select a template to generate summary"
+    "selectTemplate": "Select a template to generate summary",
+    "videoNoSubtitleReason": "No subtitle available remotely (not provided / disabled / not generated yet). Download audio and transcribe locally with Whisper.",
+    "transcribeVideoNow": "Transcribe now (audio + local Whisper)"
   },
   "player": {
     "play": "Play",

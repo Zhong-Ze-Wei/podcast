@@ -188,6 +188,41 @@ class YouTubeService:
             "thumbnail": info.get("thumbnail") or "",
         }, None
 
+    @classmethod
+    def download_audio(cls, video_id: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        下载视频音轨到媒体目录（m4a，不做转码——whisper 原生支持）。
+
+        Returns:
+            (本地文件绝对路径, error)
+        """
+        from yt_dlp import YoutubeDL
+        from ..config import Config
+        import os
+
+        audio_dir = Config.AUDIO_DIR
+        os.makedirs(audio_dir, exist_ok=True)
+        outtmpl = os.path.join(audio_dir, f"yt_{video_id}.%(ext)s")
+
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": outtmpl,
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "proxy": cls._proxy(),
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(
+                    f"https://www.youtube.com/watch?v={video_id}", download=True
+                )
+        except Exception as e:
+            return None, cls._classify_error(e)
+
+        path = info.get("requested_downloads", [{}])[0].get("filepath")
+        return path, None
+
     @staticmethod
     def _classify_error(error: Exception) -> str:
         name = type(error).__name__
