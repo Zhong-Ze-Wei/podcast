@@ -33,6 +33,9 @@ uv run python run.py        # → http://localhost:5000
 cd frontend
 npm install
 npm run dev                 # 配置端口 3000，被占自动递增（本机常为 3002）
+
+# 可选：本地 AI 转写组件（torch/WhisperX，约 1-3GB，按机器自动选 CUDA/CPU 版）
+python setup_local_ai.py
 ```
 
 首次使用流程、全部配置变量（含 `YOUTUBE_PROXY` / `BILI_SESSDATA` 等视频源必需项）、常见问题：**[快速启动文档](./docs/getting-started.md)**。

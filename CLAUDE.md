@@ -7,6 +7,7 @@
 - **前端**: React 18 + Vite + TailwindCSS（dev 端口 3000，占用自动递增；3002 常见）
 - **AI**: LLMClient 双协议（OpenAI 兼容 SDK / Anthropic HTTP）+ 本地 faster-whisper / WhisperX
 - **视频源**: yt-dlp、youtube-transcript-api、curl_cffi（B站 wbi 签名 + chrome TLS 指纹绕反爬）
+- **本地 AI 是可选组件**：torch/faster-whisper/whisperx 在 `local-ai` 依赖组（安装器 `setup_local_ai.py` 在仓库根目录）。**模块顶层禁止 import torch/whisper***，一律函数内懒加载；端点入口用 `is_available()` 守卫并返回 `LOCAL_AI_NOT_INSTALLED`
 
 ## 领域规则（违反会破坏已定产品决策）
 

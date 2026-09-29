@@ -96,6 +96,22 @@ def _resolve_transcription_provider(provider, episode):
     return provider
 
 
+LOCAL_AI_INSTALL_HINT = (
+    "本地转写组件未安装：在仓库根目录运行 python setup_local_ai.py，"
+    "脚本会按机器配置（Windows/macOS/Linux、有无 NVIDIA GPU）自动选择合适版本（约 1-3GB）"
+)
+
+
+def _local_ai_available(provider: str) -> bool:
+    from ..services import whisper_service, whisperx_service
+
+    if provider == TRANSCRIPTION_PROVIDER_LOCAL_WHISPER:
+        return whisper_service.is_available()
+    if provider == TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX:
+        return whisperx_service.is_available()
+    return True
+
+
 def _is_cloud_transcription_enabled():
     return bool(current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False))
 
@@ -195,12 +211,15 @@ def create_transcript(episode_id):
             "NO_TRANSCRIPT_URL",
             400
         )
-    if provider in {TRANSCRIPTION_PROVIDER_LOCAL_WHISPER, TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX} and not _get_local_audio_path(episode):
-        return error_response(
-            "Local audio file not found for this episode",
-            "LOCAL_AUDIO_NOT_FOUND",
-            400
-        )
+    if provider in {TRANSCRIPTION_PROVIDER_LOCAL_WHISPER, TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX}:
+        if not _local_ai_available(provider):
+            return error_response(LOCAL_AI_INSTALL_HINT, "LOCAL_AI_NOT_INSTALLED", 400)
+        if not _get_local_audio_path(episode):
+            return error_response(
+                "Local audio file not found for this episode",
+                "LOCAL_AUDIO_NOT_FOUND",
+                400
+            )
     if provider == TRANSCRIPTION_PROVIDER_ASSEMBLYAI:
         if not _is_cloud_transcription_enabled():
             return error_response(
@@ -308,6 +327,11 @@ def transcribe_video_episode(episode_id):
     episode = db.episodes.find_one(owner_filter({"_id": oid}))
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+
+    from ..services import whisperx_service
+
+    if not whisperx_service.is_available():
+        return error_response(LOCAL_AI_INSTALL_HINT, "LOCAL_AI_NOT_INSTALLED", 400)
 
     guid = episode.get("guid", "")
     if guid.startswith("youtube:"):
