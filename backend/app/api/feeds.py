@@ -113,6 +113,18 @@ def get_feed(feed_id):
     return success_response(Feed.to_response(feed))
 
 
+def _normalize_feed_url(url: str) -> str:
+    """去掉跟踪参数（utm_*、spm*）和尾部斜杠的小写规范形，用于订阅去重（共享库下全局唯一）"""
+    from urllib.parse import urlparse, parse_qsl, urlencode
+
+    parts = urlparse((url or "").strip())
+    query = urlencode([
+        (k, v) for k, v in parse_qsl(parts.query)
+        if not k.lower().startswith(("utm_", "spm"))
+    ])
+    return parts._replace(query=query, path=parts.path.rstrip("/")).geturl().lower()
+
+
 @feeds_bp.route("", methods=["POST"])
 @require_role("user", "admin")
 def create_feed():
@@ -126,6 +138,14 @@ def create_feed():
 
     owner_id = current_owner_id()
 
+    # 共享库：订阅全局唯一，按规范化 URL 去重（同一来源不允许重复添加）
+    normalized = _normalize_feed_url(rss_url)
+    for existing in db.feeds.find({}, {"rss_url": 1, "title": 1}):
+        if _normalize_feed_url(existing.get("rss_url") or "") == normalized:
+            return error_response(
+                f"Feed already exists: {existing.get('title', '')}", "FEED_EXISTS", 409
+            )
+
     space_id = BilibiliService.extract_space_id(rss_url)
     if space_id:
         return _create_bilibili_feed(db, rss_url, space_id, owner_id, data)
@@ -135,11 +155,6 @@ def create_feed():
 
     if not Feed.validate_rss_url(rss_url):
         return error_response("Invalid RSS URL", "INVALID_RSS_URL", 400)
-
-    # 检查是否已存在
-    existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": rss_url})
-    if existing:
-        return error_response("Feed already exists", "FEED_EXISTS", 409)
 
     # 解析RSS
     feed_info, error = RSSService.parse_feed(rss_url)
