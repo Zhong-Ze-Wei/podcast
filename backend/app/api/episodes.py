@@ -7,7 +7,9 @@ Episodes API
 
 import os
 
-from flask import Blueprint, request, current_app
+import requests
+
+from flask import Blueprint, request, current_app, redirect
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -21,6 +23,7 @@ from ..services.user_episode_state import (
     upsert,
     user_filter_condition,
 )
+from ..services.youtube_service import YouTubeService
 from .utils import (
     success_response,
     error_response,
@@ -228,6 +231,74 @@ def mark_read(episode_id):
     upsert(db, user_id, oid, {"is_read": is_read})
 
     return success_response({"id": episode_id, "is_read": is_read})
+
+
+def _proxy_stream(url, use_proxy=False):
+    """转发上游音频流给浏览器，透传 Range 请求头实现进度拖动"""
+    headers = {}
+    if request.headers.get("Range"):
+        headers["Range"] = request.headers["Range"]
+    proxies = None
+    if use_proxy:
+        proxy = YouTubeService._proxy()
+        if proxy:
+            proxies = {"http": proxy, "https": proxy}
+
+    upstream = requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=20)
+
+    passthrough = {}
+    for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+        if upstream.headers.get(name):
+            passthrough[name] = upstream.headers[name]
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                yield chunk
+        finally:
+            upstream.close()
+
+    return current_app.response_class(
+        generate(), status=upstream.status_code, headers=passthrough
+    )
+
+
+@episodes_bp.route("/<episode_id>/stream", methods=["GET"])
+def stream_episode_audio(episode_id):
+    """音频流：供 <audio> 标签直接播放（标签带不了 Authorization 头，令牌从 query 取）。
+    YouTube 剧集实时解析音频直链后代理转发，不落盘；RSS 剧集 302 到原地址。"""
+    from ..services.jwt_auth import verify_token
+
+    token = request.args.get("token", "")
+    payload = verify_token(token, current_app.config.get("JWT_SECRET", ""))
+    if not payload:
+        return error_response("Authentication required", "AUTH_REQUIRED", 401)
+
+    db = get_db()
+    try:
+        oid = ObjectId(episode_id)
+    except InvalidId:
+        return error_response("Invalid episode ID", "INVALID_ID", 400)
+
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
+    if not episode:
+        return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+
+    audio_type = episode.get("audio_type") or ""
+    if audio_type.startswith("video/youtube"):
+        guid = episode.get("guid") or ""
+        video_id = guid.split(":", 1)[1] if guid.startswith("youtube:") else ""
+        if not video_id:
+            return error_response("Episode has no YouTube video id", "NO_VIDEO_ID", 404)
+        stream_url, error = YouTubeService.resolve_stream_url(video_id)
+        if error:
+            return error_response(error, "STREAM_RESOLVE_FAILED", 502)
+        return _proxy_stream(stream_url, use_proxy=True)
+
+    if episode.get("audio_url"):
+        return redirect(episode["audio_url"])
+
+    return error_response("No playable audio for this episode", "NO_AUDIO", 404)
 
 
 @episodes_bp.route("/<episode_id>/download", methods=["POST"])

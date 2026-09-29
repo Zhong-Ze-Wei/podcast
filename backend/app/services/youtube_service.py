@@ -114,6 +114,46 @@ class YouTubeService:
             })
         return videos, None
 
+    # 音频直链缓存 {video_id: (url, expires_at)}——直链带签名有时效
+    _stream_url_cache = {}
+
+    @classmethod
+    def resolve_stream_url(cls, video_id: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        解析音频直链（不下载），供在线流播放代理转发。
+
+        Returns:
+            (url, error)
+        """
+        import time as _time
+        from yt_dlp import YoutubeDL
+
+        cached = cls._stream_url_cache.get(video_id)
+        if cached and cached[1] > _time.time():
+            return cached[0], None
+
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "proxy": cls._proxy(),
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(
+                    f"https://www.youtube.com/watch?v={video_id}", download=False
+                )
+        except Exception as e:
+            return None, cls._classify_error(e)
+
+        url = (info or {}).get("url")
+        if not url:
+            return None, "Could not resolve audio stream URL"
+
+        # 直链有效期通常约 6 小时，缓存 2 小时留足余量
+        cls._stream_url_cache[video_id] = (url, _time.time() + 2 * 3600)
+        return url, None
+
     @classmethod
     def _proxy(cls) -> Optional[str]:
         proxy = Config.YOUTUBE_PROXY
