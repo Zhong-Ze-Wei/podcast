@@ -25,6 +25,7 @@ class RecordingDB:
         self.prompt_templates = RecordingCollection()
         self.tasks = RecordingCollection()
         self.briefings = RecordingCollection()
+        self.user_episode_states = RecordingCollection()
 
 
 def test_tasks_completed_at_ttl_index_is_created():

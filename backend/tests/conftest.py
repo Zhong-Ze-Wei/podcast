@@ -109,6 +109,9 @@ class MockCollection:
                 if isinstance(value, ObjectId):
                     if doc_val != value:
                         return False
+                elif isinstance(value, dict):
+                    if not self._match_operator(doc_val, value):
+                        return False
                 elif isinstance(value, str):
                     if str(doc_val) != value:
                         return False
@@ -150,6 +153,9 @@ class MockCollection:
                 return False
         if "$in" in ops:
             if val not in ops["$in"]:
+                return False
+        if "$nin" in ops:
+            if val in ops["$nin"]:
                 return False
         if "$ne" in ops:
             if val == ops["$ne"]:
