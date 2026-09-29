@@ -23,7 +23,8 @@ def get_setting_model():
     """获取设置模型实例"""
     from .. import get_db
 
-    return SettingModel(get_db(), owner_id=current_owner_id())
+    # LLM 配置全局唯一（管理员维护，全员共用）；不再按账号各存一套
+    return SettingModel(get_db())
 
 
 @settings_bp.route("/llm", methods=["GET"])

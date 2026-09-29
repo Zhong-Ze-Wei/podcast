@@ -33,7 +33,8 @@ def test_llm_settings_are_scoped_per_user():
     assert "..." in own.get_json()["configs"][0]["api_key"]
     assert own.get_json()["configs"][0]["has_api_key"] is True
     assert other.status_code == 200
-    assert other.get_json()["configs"][0]["name"] != "User1 LLM"
+    # 全局配置语义：user2 看到同一份（Key 掩码）
+    assert other.get_json()["configs"][0]["name"] == "User1 LLM"
 
 
 def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypatch):
