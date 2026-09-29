@@ -68,6 +68,20 @@ npm run dev
 | `WHISPERX_DIARIZE` | `0` | `1` 开启说话人分离（需 `HF_TOKEN`） |
 | `TRANSCRIPTION_CLOUD_ENABLED` | `0` | AssemblyAI 云转写开关 |
 
+## 本地转写组件（可选加载）
+
+本地 Whisper/WhisperX 转写依赖 torch 全家桶（约 1-3GB，且与机器强相关：CUDA 轮子只适用于 NVIDIA GPU），**不在默认依赖里**。git clone 后核心功能（RSS/字幕/流播放/LLM 摘要）开箱即用；需要本地转写时在仓库根目录执行：
+
+```powershell
+python setup_local_ai.py          # 自动检测：Windows/macOS/Linux × 有无 NVIDIA GPU
+python setup_local_ai.py --cpu    # 强制 CPU / Apple Silicon 通用版
+python setup_local_ai.py --cuda   # 强制 CUDA 12.8 版
+```
+
+组件装进 `backend/.venv`，仓库目录不落文件。检测矩阵：Windows/Linux + NVIDIA → CUDA 轮子（GPU 加速）；macOS（Apple Silicon 走 MPS）/ 无卡机器 → 通用轮子；Android/Termux → 提示改用"PC 部署 + 手机浏览器访问"（手机不适合当宿主机）。
+
+未安装组件时点"立即转写"或创建本地转写任务，接口会返回 400 `LOCAL_AI_NOT_INSTALLED` 并附安装命令，前端直接显示该提示。注意：之后裸跑 `uv sync`（不带 `--inexact`）会移除可选组件，更新组件请重跑安装脚本。
+
 ## 首次使用
 
 ```mermaid
