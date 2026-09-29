@@ -669,12 +669,6 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
     )
 
     new_count, transcript_count, failed = 0, 0, 0
-    for i, video in enumerate(videos):
-        guid = f"bilibili:{video['bvid']}"
-        if guid in existing_guids:
-            continue
-
-    new_count, transcript_count, failed = 0, 0, 0
     # 同订阅字幕查重：B站串台时多个视频会返回同一份字幕
     import hashlib as _hashlib
     import time as _time
