@@ -53,16 +53,18 @@ def register():
         return error_response("Email already exists", "USER_EXISTS", 409)
 
     role = User.ROLE_USER
+    status = User.STATUS_PENDING  # 注册需管理员审批
     if db.users.count_documents({}) == 0:
         role = User.ROLE_ADMIN
+        status = User.STATUS_ACTIVE  # 首个用户即管理员，直接可用
 
-    user_doc = User.create(email, password, role=role)
+    user_doc = User.create(email, password, role=role, status=status)
     result = db.users.insert_one(user_doc)
     user_doc["_id"] = result.inserted_id
 
     return success_response(
         {"user": User.to_response(user_doc), "token": _token_for(user_doc)},
-        "User registered",
+        "Registered — awaiting administrator approval",
         201,
     )
 
@@ -78,6 +80,8 @@ def login():
         return error_response("Invalid email or password", "INVALID_CREDENTIALS", 401)
     if user_doc.get("status") == User.STATUS_DISABLED:
         return error_response("User is disabled", "USER_DISABLED", 403)
+    if user_doc.get("status") == User.STATUS_PENDING:
+        return error_response("Account pending approval by administrator", "ACCOUNT_PENDING", 403)
 
     db.users.update_one(
         {"_id": user_doc["_id"]},

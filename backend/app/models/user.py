@@ -13,6 +13,7 @@ class User:
 
     STATUS_ACTIVE = "active"
     STATUS_DISABLED = "disabled"
+    STATUS_PENDING = "pending"
 
     @staticmethod
     def create(email: str, password: str, role: str = ROLE_USER, **kwargs) -> dict:

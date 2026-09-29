@@ -6,6 +6,7 @@ import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
 import AccountPanel from './settings/AccountPanel';
+import AdminUsersPanel from './settings/AdminUsersPanel';
 
 const SettingsView = ({ onBack, currentUser, onLogout }) => {
   const { t } = useTranslation();
@@ -18,6 +19,12 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       description: t('settings.account.description'),
       icon: UserCircle
     },
+    ...(currentUser?.role === 'admin' ? [{
+      id: 'users',
+      label: '用户管理',
+      description: '注册审批与角色分配',
+      icon: UserCircle
+    }] : []),
     {
       id: 'app',
       label: t('settings.appTab'),
@@ -81,6 +88,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
+        {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}
         {activeTab === 'llm' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
