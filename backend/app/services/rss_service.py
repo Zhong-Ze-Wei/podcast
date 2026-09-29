@@ -14,6 +14,8 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
 import logging
 
+from app.config import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,8 +50,7 @@ class RSSService:
         """
         try:
             # 使用requests获取RSS内容 (更好的浏览器模拟)
-            response = requests.get(rss_url, headers=cls.HEADERS, timeout=timeout)
-            response.raise_for_status()
+            response = cls._fetch(rss_url, timeout)
 
             # 解析RSS内容
             feed = feedparser.parse(response.content)
@@ -81,6 +82,33 @@ class RSSService:
                 return None, classified_error
             logger.exception(f"Failed to parse RSS: {rss_url}")
             return None, f"Failed to parse RSS: {str(e)}"
+
+    @classmethod
+    def _fetch(cls, rss_url: str, timeout: int):
+        """拉取 RSS：直连失败（超时/连接被拒/403 拦截）且配置了本地代理时，换代理再试一次"""
+        try:
+            response = requests.get(rss_url, headers=cls.HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except Exception as e:
+            if not (Config.YOUTUBE_PROXY and cls._proxy_may_fix(e)):
+                raise
+            logger.info(f"RSS direct fetch failed ({e}); retrying via proxy: {rss_url}")
+            response = requests.get(
+                rss_url,
+                headers=cls.HEADERS,
+                timeout=timeout,
+                proxies={"http": Config.YOUTUBE_PROXY, "https": Config.YOUTUBE_PROXY},
+            )
+            response.raise_for_status()
+            return response
+
+    @staticmethod
+    def _proxy_may_fix(error: Exception) -> bool:
+        """超时/连接类失败和 403 多为地域或反爬拦截，换代理出口通常有效；404/5xx 换路也没用"""
+        if isinstance(error, requests.exceptions.HTTPError):
+            return getattr(getattr(error, "response", None), "status_code", None) == 403
+        return isinstance(error, (requests.exceptions.Timeout, requests.exceptions.ConnectionError))
 
     @staticmethod
     def _classify_request_error(error: Exception) -> Optional[str]:

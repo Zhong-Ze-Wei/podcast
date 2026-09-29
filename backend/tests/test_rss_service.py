@@ -68,6 +68,67 @@ def test_parse_feed_classifies_invalid_xml(monkeypatch):
     assert "invalid" in error.lower() or "parse" in error.lower()
 
 
+def test_parse_feed_retries_via_proxy_on_connection_error(monkeypatch):
+    from app.services import rss_service as rss_module
+
+    monkeypatch.setattr(rss_module.Config, "YOUTUBE_PROXY", "http://127.0.0.1:7891")
+    calls = []
+
+    def fake_get(url, headers=None, timeout=None, proxies=None):
+        calls.append(proxies)
+        if proxies is None:
+            raise requests.exceptions.ConnectionError("connection refused")
+        return FakeResponse(b"<rss><channel><title>OK</title></channel></rss>", status_code=200)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    feed_info, error = RSSService.parse_feed("https://example.com/feed.xml")
+
+    assert error is None
+    assert feed_info["title"] == "OK"
+    assert calls == [None, {"http": "http://127.0.0.1:7891", "https": "http://127.0.0.1:7891"}]
+
+
+def test_parse_feed_retries_via_proxy_on_403(monkeypatch):
+    from app.services import rss_service as rss_module
+
+    monkeypatch.setattr(rss_module.Config, "YOUTUBE_PROXY", "http://127.0.0.1:7891")
+    calls = []
+
+    def fake_get(url, headers=None, timeout=None, proxies=None):
+        calls.append(proxies)
+        if proxies is None:
+            return FakeResponse(status_code=403)
+        return FakeResponse(b"<rss><channel><title>OK</title></channel></rss>", status_code=200)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    feed_info, error = RSSService.parse_feed("https://example.com/feed.xml")
+
+    assert error is None
+    assert feed_info["title"] == "OK"
+    assert len(calls) == 2
+
+
+def test_parse_feed_does_not_retry_404_via_proxy(monkeypatch):
+    from app.services import rss_service as rss_module
+
+    monkeypatch.setattr(rss_module.Config, "YOUTUBE_PROXY", "http://127.0.0.1:7891")
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        calls.append(1)
+        return FakeResponse(status_code=404)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    feed_info, error = RSSService.parse_feed("https://example.com/feed.xml")
+
+    assert feed_info is None
+    assert "not found" in error.lower()
+    assert len(calls) == 1
+
+
 def test_extract_transcript_url_ignores_transcript_only_in_tracking_query():
     html = (
         '<a href="https://lexfridman.com/jeff-kaplan/'
