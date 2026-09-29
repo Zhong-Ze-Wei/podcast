@@ -94,11 +94,13 @@ def test_admin_routes_require_admin_role():
         "password": "password123",
     }).get_json()["data"]
 
+    # 注册审批制：第二个注册用户为 pending，token 无法通过 admin 校验
     forbidden = client.get(
         "/api/admin/users",
         headers={"Authorization": f"Bearer {user['token']}"},
     )
-    assert forbidden.status_code == 403
+    # pending 用户 token 视同未认证
+    assert forbidden.status_code == 401
 
     allowed = client.get(
         "/api/admin/users",
@@ -106,3 +108,29 @@ def test_admin_routes_require_admin_role():
     )
     assert allowed.status_code == 200
     assert len(allowed.get_json()["data"]) == 2
+
+
+def test_registration_requires_admin_approval():
+    app = make_app()
+    client = app.test_client()
+
+    # 首个用户 = admin（直接可用）
+    admin = client.post("/api/auth/register", json={"email": "admin@example.com", "password": "password123"}).get_json()["data"]
+    # 第二个用户 = pending
+    client.post("/api/auth/register", json={"email": "newbie@example.com", "password": "password123"})
+
+    pending = client.post("/api/auth/login", json={"email": "newbie@example.com", "password": "password123"})
+    assert pending.status_code == 403
+    assert pending.get_json()["error_code"] == "ACCOUNT_PENDING"
+
+    # admin 审批
+    headers = {"Authorization": f"Bearer {admin['token']}"}
+    users = client.get("/api/admin/users", headers=headers).get_json()["data"]
+    newbie = next(u for u in users if u["email"] == "newbie@example.com")
+    assert newbie["status"] == "pending"
+
+    approved = client.patch(f"/api/admin/users/{newbie['id']}", json={"status": "active"}, headers=headers)
+    assert approved.status_code == 200
+
+    ok = client.post("/api/auth/login", json={"email": "newbie@example.com", "password": "password123"})
+    assert ok.status_code == 200

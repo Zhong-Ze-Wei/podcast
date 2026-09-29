@@ -40,11 +40,11 @@ def update_user(user_id):
     data = request.get_json() or {}
     updates = {}
     if "status" in data:
-        if data["status"] not in {User.STATUS_ACTIVE, User.STATUS_DISABLED}:
+        if data["status"] not in {User.STATUS_ACTIVE, User.STATUS_DISABLED, User.STATUS_PENDING}:
             return error_response("Invalid status", "INVALID_STATUS", 400)
         updates["status"] = data["status"]
     if "role" in data:
-        if data["role"] not in {User.ROLE_USER, User.ROLE_ADMIN}:
+        if data["role"] not in {User.ROLE_USER, User.ROLE_VIEWER, User.ROLE_ADMIN}:
             return error_response("Invalid role", "INVALID_ROLE", 400)
         updates["role"] = data["role"]
 

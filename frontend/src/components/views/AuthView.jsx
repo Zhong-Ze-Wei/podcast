@@ -10,7 +10,8 @@ const AuthView = ({ onAuthenticated }) => {
   const [identity, setIdentity] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState('');
 
   const submit = async (event) => {
     event.preventDefault();
@@ -19,10 +20,15 @@ const AuthView = ({ onAuthenticated }) => {
     try {
       const response = mode === 'login'
         ? await authApi.login({ username: identity, password })
-        : await authApi.register({ email: identity, password });
-      const payload = response.data || response;
-      setAuthToken(payload.token);
-      onAuthenticated(payload.user);
+        : await authApi.register({ email: identity, password }).then(() => null);
+      if (mode === 'login') {
+        const payload = response.data || response;
+        setAuthToken(payload.token);
+        onAuthenticated(payload.user);
+      } else {
+        setNotice('注册成功，等待管理员审批后即可登录');
+        setMode('login');
+      }
     } catch (err) {
       setError(err.message || err.error || t('auth.failed'));
     } finally {
@@ -41,6 +47,10 @@ const AuthView = ({ onAuthenticated }) => {
           <h1 className="text-3xl font-semibold tracking-tight text-white">Podcast Manager</h1>
           <p className="mt-2 text-sm text-zinc-400">{t('auth.subtitle')}</p>
         </div>
+        {notice && (
+          <div className="mb-3 rounded-lg border border-green-700/40 bg-green-900/20 px-3 py-2 text-sm text-green-300">{notice}</div>
+        )}
+
 
         <form onSubmit={submit} className="border border-zinc-800 bg-zinc-900/60 rounded-lg p-6 shadow-2xl shadow-black/30">
           <div className="flex gap-2 mb-6 bg-zinc-950 p-1 rounded-lg">
