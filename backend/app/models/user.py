@@ -8,10 +8,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 class User:
     ROLE_USER = "user"
+    ROLE_VIEWER = "viewer"
     ROLE_ADMIN = "admin"
 
     STATUS_ACTIVE = "active"
     STATUS_DISABLED = "disabled"
+    STATUS_PENDING = "pending"
 
     @staticmethod
     def create(email: str, password: str, role: str = ROLE_USER, **kwargs) -> dict:
@@ -20,7 +22,7 @@ class User:
         return {
             "email": normalized_email,
             "password_hash": generate_password_hash(password),
-            "role": role if role in {User.ROLE_USER, User.ROLE_ADMIN} else User.ROLE_USER,
+            "role": role if role in {User.ROLE_USER, User.ROLE_VIEWER, User.ROLE_ADMIN} else User.ROLE_USER,
             "status": kwargs.get("status", User.STATUS_ACTIVE),
             "created_at": now,
             "updated_at": now,

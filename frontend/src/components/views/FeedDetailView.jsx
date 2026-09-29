@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, Loader2 } from 'lucide-react';
+import FeedImage from '../common/FeedImage';
 import { decodeHtmlEntities } from '../../utils/helpers';
 import EpisodeCard from '../cards/EpisodeCard';
 import ViewToolbar from '../common/ViewToolbar';
@@ -29,17 +30,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
           </button>
 
           {/* 封面 */}
-          <img
-            src={feed.image || '/placeholder.png'}
-            alt={feed.title}
-            className="w-32 h-32 rounded-2xl object-cover shadow-xl shadow-black/50"
-            onError={(e) => {
-              if (!e.target.dataset.fallback) {
-                e.target.dataset.fallback = 'true';
-                e.target.src = '/placeholder.png';
-              }
-            }}
-          />
+          <FeedImage feed={feed} className="w-32 h-32 rounded-2xl object-cover shadow-xl shadow-black/50" />
 
           {/* 信息区 */}
           <div className="flex-1 min-w-0">

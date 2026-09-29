@@ -14,7 +14,16 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
 import logging
 
+from app.config import Config
+
 logger = logging.getLogger(__name__)
+
+
+def _curl_fetch(url: str, headers: dict, timeout: int, proxies=None):
+    """curl_cffi chrome 指纹请求（与 B站服务同款的反爬绕行手段），线程内使用函数级调用"""
+    from curl_cffi import requests as curl_requests
+
+    return curl_requests.get(url, headers=headers, timeout=timeout, impersonate="chrome", proxies=proxies)
 
 
 class RSSService:
@@ -48,8 +57,7 @@ class RSSService:
         """
         try:
             # 使用requests获取RSS内容 (更好的浏览器模拟)
-            response = requests.get(rss_url, headers=cls.HEADERS, timeout=timeout)
-            response.raise_for_status()
+            response = cls._fetch(rss_url, timeout)
 
             # 解析RSS内容
             feed = feedparser.parse(response.content)
@@ -81,6 +89,38 @@ class RSSService:
                 return None, classified_error
             logger.exception(f"Failed to parse RSS: {rss_url}")
             return None, f"Failed to parse RSS: {str(e)}"
+
+    @classmethod
+    def _fetch(cls, rss_url: str, timeout: int):
+        """拉取 RSS：requests 直连优先；被反爬/地域拦截（超时/连接失败/403）时降级 chrome 指纹重试（直连 → 本地代理）"""
+        try:
+            response = requests.get(rss_url, headers=cls.HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except Exception as first_error:
+            if not cls._retryable(first_error):
+                raise
+            attempts = [None]
+            if Config.YOUTUBE_PROXY:
+                attempts.append({"http": Config.YOUTUBE_PROXY, "https": Config.YOUTUBE_PROXY})
+            for proxies in attempts:
+                try:
+                    response = _curl_fetch(rss_url, cls.HEADERS, timeout, proxies)
+                    response.raise_for_status()
+                    logger.info(f"RSS fetched via chrome fingerprint (proxied={bool(proxies)}): {rss_url}")
+                    return response
+                except Exception:
+                    continue
+            raise first_error
+
+    @staticmethod
+    def _retryable(error: Exception) -> bool:
+        """超时/连接失败/403 多为反爬或地域拦截，换 chrome 指纹或代理出口通常有效；404/5xx/证书错误换了也没用"""
+        if isinstance(error, requests.exceptions.SSLError):
+            return False
+        if isinstance(error, requests.exceptions.HTTPError):
+            return getattr(getattr(error, "response", None), "status_code", None) == 403
+        return isinstance(error, (requests.exceptions.Timeout, requests.exceptions.ConnectionError))
 
     @staticmethod
     def _classify_request_error(error: Exception) -> Optional[str]:

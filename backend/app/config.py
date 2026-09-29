@@ -36,6 +36,10 @@ class Config:
 
     # Whisper配置 (后续AI功能)
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+    # 视频源配置 (YouTube 字幕/元数据获取的代理，空=直连)
+    YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "")
+    # B站登录态 Cookie（SESSDATA），用于 UP 主投稿列表与 AI 字幕；从浏览器 Cookie 手动复制
+    BILI_SESSDATA = os.getenv("BILI_SESSDATA", "")
     WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", "")
     WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
     WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")

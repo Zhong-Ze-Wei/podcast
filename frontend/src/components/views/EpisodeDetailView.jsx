@@ -7,8 +7,33 @@ import {
   Languages, TrendingUp, AlertTriangle, Quote, Download
 } from 'lucide-react';
 import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
-import { decodeHtmlEntities, AI_ANALYSIS_ENABLED } from '../../utils/helpers';
+import { decodeHtmlEntities } from '../../utils/helpers';
+import { settingsApi } from '../../services/api';
 import TaskProgress from '../common/TaskProgress';
+
+/**
+ * EpisodeStatusBadge - 剧集处理状态徽标（标题区，一眼可见）
+ */
+const STATUS_BADGES = {
+  new: { label: '未转录', cls: 'bg-zinc-700/60 text-zinc-300' },
+  downloading: { label: '下载中', cls: 'bg-blue-500/15 text-blue-300 animate-pulse' },
+  downloaded: { label: '已下载', cls: 'bg-blue-500/15 text-blue-300' },
+  transcribing: { label: '转录中', cls: 'bg-purple-500/15 text-purple-300 animate-pulse' },
+  transcribed: { label: '已转录', cls: 'bg-green-500/15 text-green-300' },
+  summarizing: { label: '摘要中', cls: 'bg-indigo-500/15 text-indigo-300 animate-pulse' },
+  summarized: { label: '已摘要', cls: 'bg-green-500/15 text-green-300' },
+  error: { label: '出错', cls: 'bg-red-500/15 text-red-300' },
+};
+
+const EpisodeStatusBadge = ({ status }) => {
+  const badge = STATUS_BADGES[status];
+  if (!badge) return null;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
+      {badge.label}
+    </span>
+  );
+};
 
 /**
  * EpisodeDetailView - 节目详情页
@@ -20,6 +45,10 @@ import TaskProgress from '../common/TaskProgress';
  */
 const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
   const { t } = useTranslation();
+  const [aiEnabled, setAiEnabled] = useState(true);
+  useEffect(() => {
+    settingsApi.getAiAnalysis().then(r => setAiEnabled(!!(r.enabled))).catch(() => {});
+  }, []);
   const [activeTab, setActiveTab] = useState('transcript');
   const [transcript, setTranscript] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -44,6 +73,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateBlocks, setTemplateBlocks] = useState([]);
+  const [templateParams, setTemplateParams] = useState({ length: '', language: '' });
+  const [paramOptions, setParamOptions] = useState({});
   const [enabledBlocks, setEnabledBlocks] = useState([]);
   const [showChinese, setShowChinese] = useState(false);
 
@@ -71,6 +102,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             .map(b => b.id) || [];
           setEnabledBlocks(defaultEnabled);
           setTemplateBlocks(detail.optional_blocks || []);
+          setParamOptions(detail.parameters || {});
         }
       } catch (err) {
         console.error('Failed to load templates:', err);
@@ -388,8 +420,21 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     }
   };
 
+  const isVideoEpisode = episode?.guid?.startsWith('youtube:') || episode?.guid?.startsWith('bilibili:');
+
+  const transcribeVideoNow = async () => {
+    setError(null);
+    setLocalTranscribing(true);
+    try {
+      await transcriptsApi.transcribeVideo(episode.id);
+    } catch (err) {
+      setError(err?.message || 'Failed to start transcription');
+      setLocalTranscribing(false);
+    }
+  };
+
   const generateSummary = async (force = false) => {
-    if (!AI_ANALYSIS_ENABLED) {
+    if (!aiEnabled) {
       setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
       return;
     }
@@ -401,9 +446,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setLocalSummarizing(true);
     setError(null);
     try {
+      const params = {};
+      if (templateParams.length) params.length = templateParams.length;
+      if (templateParams.language) params.language = templateParams.language;
       await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
         enabled_blocks: enabledBlocks,
+        params,
         force
       });
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
@@ -412,7 +461,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       // 任务已提交，TaskProgress 组件会轮询状态
     } catch (err) {
       console.error('Failed to generate summary:', err);
-      const errorCode = err?.code || '';
+      // 拦截器 reject 的是后端响应体，错误码在 error_code 字段
+      const errorCode = err?.error_code || err?.code || '';
       if (errorCode === 'SUMMARY_EXISTS' && !force) {
         await loadSummary();
         setLocalSummarizing(false);
@@ -431,7 +481,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setSelectedTemplate(template);
     setSummary(null);
     setShowChinese(false);
-    // 获取模板详情并设置默认启用的块
+    setTemplateParams({ length: '', language: '' });
+    // 获取模板详情并设置默认启用的块与参数选项
     try {
       const response = await promptTemplatesApi.get(template.id);
       const detail = response.data || response;
@@ -439,7 +490,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         ?.filter(b => b.enabled_by_default)
         .map(b => b.id) || [];
       setEnabledBlocks(defaultEnabled);
-      setTemplateBlocks(detail.optional_blocks || []);
+      setTemplateBlocks(detail.optional_blocks || [])
+          setParamOptions(detail.parameters || {});
     } catch (err) {
       console.error('Failed to load template detail:', err);
     }
@@ -464,7 +516,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden animate-in">
-      <div className="px-8 py-6 border-b border-zinc-800 flex items-start gap-6 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-6 border-b border-zinc-800 flex items-start gap-4 md:gap-6 bg-zinc-900/20">
         <button onClick={onBack} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
           <ChevronLeft size={24} />
         </button>
@@ -475,9 +527,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             </span>
             <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
             <span className="text-zinc-500 text-sm">{new Date(episode.published_at).toLocaleDateString()}</span>
+            <EpisodeStatusBadge status={episode.status} />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
-          <div className="flex items-center gap-4">
+          <h1 className="text-xl md:text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <button
               onClick={() => onPlay && onPlay(episode)}
               className="flex items-center gap-2 bg-white text-black px-6 py-2.5 rounded-full font-semibold hover:scale-105 transition-transform shadow-lg shadow-white/10"
@@ -505,15 +558,15 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
-                disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing}
+                disabled={!aiEnabled || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
                     ? 'border-indigo-500 bg-indigo-900/30 text-indigo-400 cursor-not-allowed'
-                    : !AI_ANALYSIS_ENABLED
+                    : !aiEnabled
                       ? 'border-zinc-800 text-zinc-600 cursor-not-allowed'
                       : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
+                title={!aiEnabled ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
               >
                 {isCurrentlySummarizing ? (
                   <div className="animate-spin"><Sparkles size={20} /></div>
@@ -526,7 +579,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         </div>
       </div>
 
-      <div className="px-8 border-b border-zinc-800 flex items-center gap-8 bg-zinc-950/50 backdrop-blur sticky top-0 z-10">
+      <div className="px-4 md:px-8 border-b border-zinc-800 flex items-center gap-4 md:gap-8 bg-zinc-950/50 backdrop-blur sticky top-0 z-10 overflow-x-auto">
         {['transcript', 'summary', 'info'].map(tab => (
           <button
             key={tab}
@@ -619,13 +672,51 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   );
                 })
               ) : transcript?.text ? (
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">{transcript.text}</p>
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    {transcript.source === 'bilibili' && (
+                      <span className="rounded-full bg-pink-500/15 px-2.5 py-0.5 text-[11px] font-medium text-pink-300">
+                        B站 AI 字幕 · 已通过内容校验
+                      </span>
+                    )}
+                    {transcript.source === 'youtube' && (
+                      <span className="rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-medium text-red-300">
+                        YouTube 字幕
+                      </span>
+                    )}
+                    {(transcript.source === 'local_whisperx' || transcript.source === 'whisper') && (
+                      <span className="rounded-full bg-purple-500/15 px-2.5 py-0.5 text-[11px] font-medium text-purple-300">
+                        本地 Whisper 转写{transcript.segments?.some(s => s.speaker) ? ' · 含说话人分离' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="prose prose-invert max-w-none">
+                    <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">{transcript.text}</p>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-zinc-500 border-2 border-dashed border-zinc-800 rounded-2xl">
                   <Mic2 size={48} className="mb-4 text-zinc-700" />
                   <p className="text-lg font-medium mb-4">{t('detail.noTranscript')}</p>
+
+                  {isVideoEpisode && !localTranscribing && (
+                    <div className="mb-6 max-w-md rounded-lg border border-amber-700/40 bg-amber-900/10 px-4 py-3 text-left">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 text-amber-400">ⓘ</span>
+                        <div>
+                          <p className="text-sm text-amber-200">
+                            {episode.transcript_fetch_error || t('detail.videoNoSubtitleReason')}
+                          </p>
+                          <button
+                            onClick={transcribeVideoNow}
+                            className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                          >
+                            {t('detail.transcribeVideoNow')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 显示错误信息 */}
                   {error && (
@@ -773,17 +864,51 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     </button>
                   ))}
                 </div>
+
+                  {/* 参数快捷调节（覆盖模板默认） */}
+                  {paramOptions.length && (
+                    <div className="mt-3 flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-xs text-zinc-400">
+                        {paramOptions.length.label_zh || '摘要长度'}
+                        <select
+                          value={templateParams.length}
+                          onChange={(e) => setTemplateParams(prev => ({ ...prev, length: e.target.value }))}
+                          className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
+                        >
+                          <option value="">跟随模板默认</option>
+                          {(paramOptions.length.options || []).map(o => (
+                            <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {paramOptions.language && (
+                        <label className="flex items-center gap-2 text-xs text-zinc-400">
+                          {paramOptions.language.label_zh || '输出语言'}
+                          <select
+                            value={templateParams.language}
+                            onChange={(e) => setTemplateParams(prev => ({ ...prev, language: e.target.value }))}
+                            className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
+                          >
+                            <option value="">跟随模板默认</option>
+                            {(paramOptions.language.options || []).map(o => (
+                              <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  )}
                 <div className="flex gap-2">
                   {/* 有摘要时显示强制重新生成按钮 */}
                   {summary && !isCurrentlySummarizing && (
                     <button
                       onClick={() => generateSummary(true)}
-                      disabled={!AI_ANALYSIS_ENABLED || loading}
+                      disabled={!aiEnabled || loading}
                       className="flex items-center gap-1 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 text-zinc-400 hover:text-white rounded-lg transition-colors"
-                      title={AI_ANALYSIS_ENABLED ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
+                      title={aiEnabled ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
                     >
                       <Sparkles size={13} />
-                      {AI_ANALYSIS_ENABLED ? '重新生成' : '已冻结'}
+                      {aiEnabled ? '重新生成' : '已冻结'}
                     </button>
                   )}
                   {/* 有翻译时显示语言切换 */}
@@ -1092,10 +1217,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={!AI_ANALYSIS_ENABLED || loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={!aiEnabled || loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {!AI_ANALYSIS_ENABLED ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
+                      {!aiEnabled ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
                     </button>
                   )}
                 </div>

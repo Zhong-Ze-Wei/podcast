@@ -72,11 +72,68 @@ def test_episode_mutations_do_not_cross_owner_boundary():
     read = client.post(f"/api/episodes/{episode_id}/read", json={"is_read": True}, headers=headers)
     download = client.post(f"/api/episodes/{episode_id}/download", headers=headers)
 
-    assert update.status_code == 404
-    assert star.status_code == 404
-    assert read.status_code == 404
-    assert download.status_code == 404
+    assert update.status_code == 200  # 共享库
+    assert star.status_code == 200
+    assert read.status_code == 200  # 共享库
+    assert download.status_code == 200  # 共享库：member 可下载
+    # 个人状态按用户隔离：写入 user_episode_states，剧集文档不动
+    state = app.db.user_episode_states.find_one(
+        {"user_id": str(user1["_id"]), "episode_id": episode_id}
+    )
+    assert state is not None
+    assert state["is_read"] is True
+    assert state["is_starred"] is True
     episode = app.db.episodes.find_one({"_id": episode_id})
-    assert episode["is_read"] is False
-    assert episode["is_starred"] is False
-    assert episode["status"] == "new"
+    assert episode["is_read"] is False  # 文档保留默认值，不影响其他用户
+    assert episode["status"] == "downloading"  # 共享库：下载已排队
+
+
+def test_stream_endpoint_auth_and_routing(monkeypatch):
+    from app.api import episodes as episodes_module
+    from app.services.youtube_service import YouTubeService
+    from tests.auth_helpers import token_for
+
+    app = make_episodes_app()
+    user = add_user(app.db, "user@example.com")
+    feed_id = add_feed(app.db, str(user["_id"]))
+    yt_id = add_episode(app.db, str(user["_id"]), feed_id, "YT Episode")
+    app.db.episodes.update_one(
+        {"_id": yt_id}, {"$set": {"audio_type": "video/youtube", "guid": "youtube:abc123"}}
+    )
+    rss_id = add_episode(app.db, str(user["_id"]), feed_id, "RSS Episode")
+    app.db.episodes.update_one(
+        {"_id": rss_id}, {"$set": {"audio_url": "https://example.com/ep.mp3"}}
+    )
+
+    client = app.test_client()
+
+    # 令牌只能从 query 参数取（<audio> 标签带不了请求头）
+    assert client.get(f"/api/episodes/{yt_id}/stream").status_code == 401
+
+    token = token_for(user)
+
+    # RSS 剧集：302 到原始音频地址
+    resp = client.get(f"/api/episodes/{rss_id}/stream?token={token}")
+    assert resp.status_code == 302
+    assert "ep.mp3" in resp.headers["Location"]
+
+    # YouTube 剧集：解析直链后代理转发，透传头
+    class FakeUpstream:
+        status_code = 200
+        headers = {"Content-Type": "audio/mp4", "Content-Length": "10", "Accept-Ranges": "bytes"}
+
+        def iter_content(self, chunk_size):
+            return iter([b"0123456789"])
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        YouTubeService, "resolve_stream_url", classmethod(lambda cls, vid: ("https://media.example.com/a.m4a", None))
+    )
+    monkeypatch.setattr(episodes_module.requests, "get", lambda *a, **kw: FakeUpstream())
+
+    resp = client.get(f"/api/episodes/{yt_id}/stream?token={token}")
+    assert resp.status_code == 200
+    assert resp.headers["Content-Type"] == "audio/mp4"
+    assert resp.data == b"0123456789"

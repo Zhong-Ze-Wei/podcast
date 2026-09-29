@@ -1,226 +1,205 @@
 # API 接口文档
 
-> 基于当前 `backend/app/api/` 代码整理，更新于 2026-05-20。
+> 从 `backend/app/api/` 源码提取：12 个蓝图 64 个路由 + media。字段与权限以代码为准；本文档是查阅真源，不是教程。
 
-## 基础信息
+## 通用约定
 
-| 项目 | 值 |
-| --- | --- |
-| Base URL | `http://localhost:5000/api` |
-| 数据格式 | JSON |
-| 编码 | UTF-8 |
+**Base URL**: `http://localhost:5000/api`
 
-## 通用响应
+**认证**: `Authorization: Bearer <JWT>`（有效期默认 168 小时，`JWT_EXPIRES_HOURS` 可改）。例外：`/episodes/<id>/stream` 供 `<audio>` 标签使用，无法带请求头，令牌从 query 参数取：`?token=<JWT>`。
 
-```json
-{ "success": true, "data": {}, "message": null }
-```
+**角色**: `admin` > `user` > `viewer`。注册默认 `pending`，需 admin 批准才能登录（403 `ACCOUNT_PENDING`）。首个注册用户自动 `admin`。
+
+**响应格式**:
 
 ```json
-{ "success": false, "data": null, "message": "...", "error_code": "..." }
+{ "success": true,  "data": { ... }, "message": "..." }
+{ "success": false, "data": null, "message": "错误信息", "error_code": "ERROR_CODE" }
 ```
 
-## Feeds API
+**分页**: GET 列表端点支持 `page`（默认 1）/ `per_page`（默认 20）。
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/feeds` | 获取订阅列表，支持分页和筛选 |
-| `GET` | `/api/feeds/<id>` | 获取单个订阅详情 |
-| `POST` | `/api/feeds` | 添加订阅并解析 RSS |
-| `PUT` | `/api/feeds/<id>` | 更新订阅状态、标签、备注 |
-| `DELETE` | `/api/feeds/<id>` | 删除订阅并级联删除相关数据 |
-| `POST` | `/api/feeds/<id>/refresh` | 异步刷新订阅，返回 `task_id` |
-| `POST` | `/api/feeds/<id>/favorite` | 收藏或取消收藏订阅 |
-| `GET` | `/api/feeds/<id>/episodes` | 获取订阅下的单集 |
+**任务型端点**（刷新/下载/转写/摘要/翻译）均为异步：立即返回 `task_id`，进度查 `/tasks`，`progress_message` 为人话进度（"频道名 · 拉取字幕 2/25"）。
 
-## Episodes API
+---
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/episodes` | 获取单集列表 |
-| `GET` | `/api/episodes/<id>` | 获取单集详情 |
-| `PUT` | `/api/episodes/<id>` | 更新已读、收藏、播放位置等字段 |
-| `POST` | `/api/episodes/<id>/star` | 标星或取消标星 |
-| `POST` | `/api/episodes/<id>/read` | 标记已读或未读 |
-| `POST` | `/api/episodes/<id>/download` | 异步下载音频，返回 `task_id` |
+## Auth — `/api/auth`（3 路由）
 
-`GET /api/episodes` 支持 `status` 逗号多值筛选，例如：
-
-```text
-/api/episodes?status=downloading,downloaded,transcribing,transcribed
-```
-
-## Transcripts API
-
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/transcripts/<episode_id>` | 获取已有转录 |
-| `POST` | `/api/transcripts/<episode_id>` | 创建异步转录任务 |
-| `DELETE` | `/api/transcripts/<episode_id>` | 删除已有转录 |
-| `POST` | `/api/transcripts/<episode_id>/fetch` | 手动抓取官方/外部字幕 |
-| `GET` | `/api/transcripts/<episode_id>/check-external` | 检查是否存在外部字幕 |
-
-创建转录任务：
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/auth/register` | 注册；返回的用户 status=pending | 公开 |
+| POST | `/auth/login` | 登录；pending/disabled 拒绝（403） | 公开 |
+| GET | `/auth/me` | 当前用户信息（含 role） | 登录 |
 
 ```json
-{
-  "provider": "local_whisper",
-  "language": "zh"
-}
+// POST /auth/register
+{ "email": "user@example.com", "password": "至少8位" }
+→ 201 { "data": { "user": {...}, "token": "jwt..." } }
 ```
 
-`provider` 可选值：
+## Admin — `/api/admin`（4 路由，全部 admin）
 
-| 值 | 说明 |
-| --- | --- |
-| `official` | 使用 RSS 暴露的官方字幕 URL |
-| `local_whisper` | 使用本地 faster-whisper，需要本地音频 |
-| `local_whisperx` | 使用本地 WhisperX，需要本地音频 |
-| `assemblyai` | 使用 AssemblyAI 云端转录，需要显式开启云端配置 |
-| `auto` | 后端辅助模式，有官方字幕时使用官方字幕，不自动 fallback 到付费云端 |
-| `manual` | 预留，当前接口不支持直接创建 |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/users` | 用户列表（含 pending） |
+| PATCH | `/admin/users/<id>` | 更新 status: `pending/active/disabled`、role: `admin/user/viewer` |
+| GET | `/admin/tasks` | 按状态统计任务数 |
+| GET | `/admin/health` | MongoDB 状态 + 集合计数 |
 
-`language` 可选值：
+## Feeds — `/api/feeds`（9 路由）
 
-```text
-auto, zh, en, en_us, en_uk, ja, ko, es, fr, de
-```
-
-中文播客建议显式传：
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/feeds` | 列表；筛选 `status` `is_starred` `is_favorite`；`unread_count` 按当前用户实时计算 | 登录 |
+| GET | `/feeds/<id>` | 详情 | 登录 |
+| POST | `/feeds` | 添加订阅，自动识别类型（RSS / YouTube 频道页 / B站空间页）；按规范化 URL 全局去重，重复返回 409 `FEED_EXISTS` | user+ |
+| PUT | `/feeds/<id>` | 更新 tags/status/note | user+ |
+| DELETE | `/feeds/<id>` | 删除订阅 + 关联 episodes/transcripts/summaries | user+ |
+| POST | `/feeds/<id>/refresh` | 刷新（异步，按 type 三路分流） | user+ |
+| POST | `/feeds/<id>/star` | `{ "starred": bool }` | 登录 |
+| POST | `/feeds/<id>/favorite` | `{ "favorite": bool }` | 登录 |
+| GET | `/feeds/<id>/episodes` | 该订阅剧集列表；筛选同 episodes | 登录 |
 
 ```json
-{ "provider": "local_whisper", "language": "zh" }
+// POST /feeds —— 三种地址等价支持
+{ "rss_url": "https://lexfridman.com/feed/podcast/" }
+{ "rss_url": "https://www.youtube.com/@DwarkeshPatel" }
+{ "rss_url": "https://space.bilibili.com/508452265" }
+→ 201 { "data": { "feed": { "type": "youtube|bilibili|rss", ... } } }
 ```
 
-所有 provider 保存前都会经过统一转录后处理：
+## Episodes — `/api/episodes`（7 路由）
 
-- 清理中文字符之间的异常空格。
-- 清理中文标点前后的异常空格。
-- 如果安装了 OpenCC，会尝试繁体转简体。
-- 如果 `TRANSCRIPTION_AI_NORMALIZE_ENABLED=1`，会调用当前 LLM 配置做 AI 文本规范化。
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/episodes` | 全局列表；筛选 `status`（逗号分隔多值）`is_read` `is_starred` `feed_id` `has_transcript` `has_summary`；is_read/is_starred 按当前用户的个人状态过滤 | 登录 |
+| GET | `/episodes/<id>` | 详情（含 feed_title；个人状态已合并进响应） | 登录 |
+| PUT | `/episodes/<id>` | 写个人状态 `{is_read, is_starred, play_position}`（存 user_episode_states，不影响他人） | user+ |
+| POST | `/episodes/<id>/star` | 切换加星（个人） | user+ |
+| POST | `/episodes/<id>/read` | 切换已读（个人） | user+ |
+| POST | `/episodes/<id>/download` | 下载音频（异步，上限 500MB） | 登录 |
+| GET | `/episodes/<id>/stream` | 在线音频流：YouTube 剧集实时代理音频直链（透传 Range，不落盘）；RSS 剧集 302 到原地址。**令牌走 query：`?token=`** | 登录（含 viewer） |
 
-进入单集详情页不会自动抓取外部字幕或启动转录；必须由用户主动点击。
+## Transcripts — `/api/transcripts`（6 路由）
 
-## Summaries API
-
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/summaries/<episode_id>` | 获取摘要，支持 `template_name` |
-| `POST` | `/api/summaries/<episode_id>` | 创建异步摘要任务 |
-| `DELETE` | `/api/summaries/<episode_id>` | 删除摘要 |
-| `POST` | `/api/summaries/<episode_id>/translate` | 翻译摘要为中文 |
-
-创建摘要任务：
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/transcripts/<episode_id>` | 获取转录 | 登录 |
+| POST | `/transcripts/<episode_id>` | 创建转录任务（异步） | 登录 |
+| DELETE | `/transcripts/<episode_id>` | 删除转录 | 登录 |
+| POST | `/transcripts/<episode_id>/fetch` | 从 transcript_url 拉取外部转录 | 登录 |
+| GET | `/transcripts/<episode_id>/check-external` | 检查外部转录源 | 登录 |
+| POST | `/transcripts/<episode_id>/fetch-video-audio` | **"立即转写"**：下载视频音频 → WhisperX 本地转写（异步；纯音乐等无人声结果会清空转录并打 no_speech 标记） | user+ |
 
 ```json
+// POST /transcripts/<episode_id>
+{ "provider": "auto|official|local_whisper|local_whisperx|assemblyai", "language": "auto" }
+→ 200 { "data": { "task_id": "...", "provider": "...", "language": "..." } }
+```
+
+## Summaries — `/api/summaries`（5 路由）
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/summaries/<episode_id>` | 获取摘要 | 登录 |
+| POST | `/summaries/<episode_id>` | 生成摘要（异步，模板+参数；AI 冻结时 423） | 登录 |
+| POST | `/summaries/<episode_id>/translate` | 翻译为中文（异步） | 登录 |
+| DELETE | `/summaries/<episode_id>` | 删除摘要 | user+ |
+| GET | `/summaries/templates` | 可用模板列表 | 登录 |
+
+```json
+// POST /summaries/<episode_id>
 {
   "template_name": "learning",
-  "enabled_blocks": ["key_points", "action_items"],
+  "enabled_blocks": ["key_points", "quotes"],
   "params": { "length": "long", "language": "zh" },
   "force": false
 }
 ```
 
-## Tasks API
+## Tasks — `/api/tasks`（3 路由）
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/tasks` | 获取任务列表，支持筛选 |
-| `GET` | `/api/tasks/<task_id>` | 获取任务详情 |
-| `POST` | `/api/tasks/<task_id>/cancel` | 取消 pending 任务 |
-
-查询示例：
-
-```text
-/api/tasks?status=pending,processing&type=transcribe&episode_id=<episode_id>
-```
-
-任务响应会带上关联内容信息，供前端任务历史跳转：
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/tasks` | 任务列表；筛选 `status` `type` `episode_id` `feed_id` | 登录 |
+| GET | `/tasks/<id>` | 任务详情（含 episode/feed 标题元数据） | 登录 |
+| POST | `/tasks/<id>/cancel` | 取消 pending 任务 | 登录 |
 
 ```json
+// Task 结构
 {
-  "id": "task-id",
-  "type": "transcribe",
-  "status": "processing",
-  "progress": 42,
-  "episode_id": "...",
-  "feed_id": "...",
-  "episode_title": "Episode title",
-  "episode_status": "transcribing",
-  "feed_title": "Podcast title",
-  "target_type": "episode",
-  "target_id": "...",
-  "target_exists": true
+  "id": "uuid", "type": "download|transcribe|summarize|translate|refresh",
+  "status": "pending|processing|completed|failed",
+  "progress": 42, "progress_message": "硅谷101 · 拉取字幕 2/25",
+  "result": {}, "error_message": null,
+  "episode_id": "...", "episode_title": "...", "feed_id": "...", "feed_title": "..."
 }
 ```
 
-任务类型：
+completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任务标记为"请重试"。
 
-```text
-download, transcribe, summarize, translate, refresh
+## Settings — `/api/settings`（13 路由）
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET / PUT | `/settings/llm` | 全局 LLM 配置（providers + models + routes） | admin |
+| PUT | `/settings/llm/active` | 旧版活动配置切换 | admin |
+| POST | `/settings/llm/test` | 测试连接（body 传待测配置） | admin |
+| POST | `/settings/llm/fetch-models` | 从服务商拉取模型列表 | admin |
+| GET / PUT | `/settings/tavily` | Tavily 搜索配置 | admin |
+| POST | `/settings/tavily/test` | 测试 Tavily | admin |
+| GET / PUT | `/settings/prompts/search-query` | 自定义搜索片段 | admin |
+| GET / PUT | `/settings/ai-analysis` | AI 功能总开关 `{enabled}` | admin |
+| GET | `/settings/bilibili-status` | B站登录态（实时校验 SESSDATA 有效性） | 登录 |
+
+```json
+// GET /settings/llm
+{
+  "providers": [{ "id": "...", "name": "...", "api_format": "openai_compatible|anthropic_messages",
+                  "base_url": "...", "has_api_key": true, "enabled": true }],
+  "models": [{ "id": "...", "provider_id": "...", "model": "...", "enabled": true }],
+  "default_model_id": "...",
+  "task_routes": { "summary": "model-id", "briefing": "model-id", "transcript_normalize": "model-id" }
+}
 ```
 
-任务状态：
+`api_key` 读时始终为空，以 `has_api_key` 标记；写入空值不覆盖已有密钥。
 
-```text
-pending, processing, completed, failed
-```
+## Prompt Templates — `/api/prompt-templates`（9 路由）
 
-## Settings API
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/prompt-templates/` | 列出模板（无尾斜杠同样命中，strict_slashes 关闭） |
+| GET / PUT | `/prompt-templates/<id>` | 详情 / 更新（系统模板不可改） |
+| POST | `/prompt-templates/` | 创建 |
+| POST | `/prompt-templates/<id>/duplicate` | 复制 |
+| DELETE | `/prompt-templates/<id>` | 删除（系统模板不可删） |
+| GET | `/prompt-templates/<id>/blocks` | 可选块 |
+| GET | `/prompt-templates/<id>/parameters` | 参数定义 |
+| POST | `/prompt-templates/init` | 初始化系统模板（幂等） |
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/settings/llm` | 获取 LLM 配置列表 |
-| `PUT` | `/api/settings/llm` | 保存 LLM 配置列表 |
-| `PUT` | `/api/settings/llm/active` | 设置当前激活 LLM |
-| `POST` | `/api/settings/llm/test` | 测试 OpenAI-compatible LLM 连接 |
-| `GET` | `/api/settings/tavily` | 获取 Tavily 配置 |
-| `PUT` | `/api/settings/tavily` | 保存 Tavily 配置 |
-| `POST` | `/api/settings/tavily/test` | 测试 Tavily 连接 |
+## Insights — `/api/insights`（3 路由）
 
-LLM 配置保存在 MongoDB：
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/insights/briefing` | 今日简报（有缓存不调 LLM） | ⚠️ 无认证装饰器（已知缺口，见 backlog） |
+| POST | `/insights/briefing` | 强制重新生成 | ⚠️ 同上 |
+| GET | `/insights/briefing/export` | 导出 PDF | ⚠️ 同上 |
 
-```text
-database: podcast
-collection: settings
-key: llm_configs
-key: llm_active_index
-```
+## Video Import — `/api/video-import`（1 路由）
 
-接口返回时不会返回完整 `api_key`，只返回 `has_api_key`。当前数据库仍是明文保存 key，本地 demo 可接受；上线前应改为环境变量、加密保存或 secret manager。
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| POST | `/video-import/youtube` | 单个 YouTube 视频 URL 直接导入（建 feed + episode + transcript） | 登录 |
 
-## Prompt Templates API
+## Stats — `/api`（1 路由）
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/prompt-templates` | 获取模板列表 |
-| `GET` | `/api/prompt-templates/<id_or_name>` | 获取单个模板 |
-| `POST` | `/api/prompt-templates` | 创建模板 |
-| `PUT` | `/api/prompt-templates/<id>` | 更新模板 |
-| `DELETE` | `/api/prompt-templates/<id>` | 删除模板 |
-| `POST` | `/api/prompt-templates/<id>/duplicate` | 复制模板 |
-| `POST` | `/api/prompt-templates/init` | 初始化系统模板 |
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/stats` | 统计：feeds / episodes（未读按当前用户计）/ tasks | 登录 |
 
-## Insights API
+## Media（非蓝图，app/__init__.py 注册）
 
-| 方法 | 端点 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/insights/briefing` | 获取每日简报 |
-| `POST` | `/api/insights/briefing` | 重新生成每日简报 |
-| `GET` | `/api/insights/briefing/export` | 导出 PDF |
-
-## 常见错误码
-
-| 错误码 | 说明 |
-| --- | --- |
-| `EPISODE_NOT_FOUND` | 单集不存在 |
-| `TRANSCRIPT_NOT_FOUND` | 转录不存在 |
-| `SUMMARY_NOT_FOUND` | 摘要不存在 |
-| `TASK_NOT_FOUND` | 任务不存在 |
-| `TASK_IN_PROGRESS` | 任务正在进行中 |
-| `ALREADY_TRANSCRIBING` | 单集正在转录 |
-| `ALREADY_TRANSCRIBED` | 单集已有转录 |
-| `LOCAL_AUDIO_NOT_FOUND` | 本地音频文件不存在 |
-| `CLOUD_TRANSCRIPTION_DISABLED` | 云端转录未开启 |
-| `UNSUPPORTED_TRANSCRIPTION_PROVIDER` | 不支持的转录 provider |
-| `UNSUPPORTED_TRANSCRIPTION_LANGUAGE` | 不支持的转录语言 |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/media/<path:filename>` | 本地音频/图片文件，7 天浏览器缓存 |

@@ -381,6 +381,6 @@ def get_summarization_engine(db, llm_client=None) -> SummarizationEngine:
     """
     if llm_client is None:
         from app.services.llm_client import get_llm_client
-        llm_client = get_llm_client()
+        llm_client = get_llm_client(task="summary")
 
     return SummarizationEngine(db, llm_client)

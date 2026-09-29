@@ -14,6 +14,8 @@ class Transcript:
     SOURCE_WHISPER = "whisper"
     SOURCE_OFFICIAL = "official"
     SOURCE_MANUAL = "manual"
+    SOURCE_YOUTUBE = "youtube"
+    SOURCE_BILIBILI = "bilibili"
 
     @staticmethod
     def create(episode_id: ObjectId, text: str, segments: list = None, **kwargs) -> dict:

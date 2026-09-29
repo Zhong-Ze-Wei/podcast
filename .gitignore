@@ -99,8 +99,12 @@ pip-delete-this-directory.txt
 # Whisper models cache
 whisper_models/
 
+# Labs (experiments)
+labs/
+
 # Frontend specific
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
+backups/

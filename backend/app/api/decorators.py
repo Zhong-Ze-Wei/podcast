@@ -138,11 +138,11 @@ def current_owner_id():
 
 
 def owner_filter(extra=None):
-    query = dict(extra or {})
-    owner_id = current_owner_id()
-    if owner_id:
-        query["owner_id"] = owner_id
-    return query
+    """
+    共享库模式：登录用户可见全部内容（按角色限制写操作，见 require_role）。
+    owner_id 仅作为归属记录，不作为读取隔离。
+    """
+    return dict(extra or {})
 
 
 def require_auth(fn):
@@ -155,6 +155,31 @@ def require_auth(fn):
         return fn(*args, **kwargs)
 
     return decorated
+
+
+def require_role(*roles):
+    """限制端点仅特定角色可用（如 require_role(User.ROLE_USER, User.ROLE_ADMIN) 拒绝 viewer）"""
+    from ..models.user import User
+
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user = current_user()
+            if not user:
+                from .utils import error_response
+
+                return error_response("Authentication required", "AUTH_REQUIRED", 401)
+            if user.get("role") not in roles:
+                from .utils import error_response
+
+                return error_response(
+                    "Insufficient role for this action", "ROLE_DENIED", 403
+                )
+            return f(*args, **kwargs)
+
+        return decorated
+
+    return decorator
 
 
 def require_admin(fn):

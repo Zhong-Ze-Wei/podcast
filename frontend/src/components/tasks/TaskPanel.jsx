@@ -297,11 +297,16 @@ const TaskPanel = ({
           )}
 
           {isActive ? (
-            <div className="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${task.status === 'processing' ? 'bg-sky-500' : 'bg-zinc-600'}`}
-                style={{ width: `${Math.max(task.progress || 0, task.status === 'processing' ? 8 : 0)}%` }}
-              />
+            <div className="mt-2">
+              {task.progress_message && (
+                <p className="mb-1 truncate text-[11px] text-sky-300">{task.progress_message}</p>
+              )}
+              <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${task.status === 'processing' ? 'bg-sky-500' : 'bg-zinc-600'}`}
+                  style={{ width: `${Math.max(task.progress || 0, task.status === 'processing' ? 8 : 0)}%` }}
+                />
+              </div>
             </div>
           ) : (
             <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">

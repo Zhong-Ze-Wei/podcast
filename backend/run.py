@@ -187,7 +187,11 @@ def main():
     # ② 再创建 Flask 应用
     from app import create_app
     from app.services.task_queue import task_queue
+    from app.services.bilibili_service import BilibiliService
     app = create_app()
+
+    # ③ 主线程预热 curl_cffi（B站请求在工作线程依赖其全局初始化）
+    BilibiliService.warmup()
 
     # 获取配置
     host = os.environ.get("FLASK_HOST", "0.0.0.0")

@@ -104,7 +104,10 @@ class BriefingService:
             return []
 
         # 查询最近的单集，优先选有 AI 摘要的
-        base_query = {"feed_id": {"$in": feed_ids}}
+        base_query = {
+            "feed_id": {"$in": feed_ids},
+            "published": {"$gte": cutoff},  # 严格时间窗：窗口外内容不进入简报
+        }
 
         # 先取有 AI 摘要的单集（质量高）
         summarized_episodes = list(
@@ -239,7 +242,7 @@ class BriefingService:
 
         logger.info("开始生成 AI 简报，输入 %d 条单集", len(episodes))
 
-        llm = get_llm_client()
+        llm = get_llm_client(task="briefing")
         result = llm.chat_json(
             messages=messages,
             temperature=0.3,

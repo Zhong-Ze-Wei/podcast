@@ -96,11 +96,14 @@ export const episodesApi = {
   get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),
-  download: (id) => api.post(`/episodes/${id}/download`)
+  download: (id) => api.post(`/episodes/${id}/download`),
+  // <audio> 标签带不了 Authorization 头，流地址经 query 参数携带令牌
+  getStreamUrl: (id) => `${API_BASE}/episodes/${id}/stream?token=${getAuthToken()}`
 };
 
 // Transcripts API
 export const transcriptsApi = {
+  transcribeVideo: (episodeId) => api.post(`/transcripts/${episodeId}/fetch-video-audio`),
   get: (episodeId) => api.get(`/transcripts/${episodeId}`),
   create: (episodeId, options = {}) => api.post(`/transcripts/${episodeId}`, options),
   delete: (episodeId) => api.delete(`/transcripts/${episodeId}`),
@@ -137,17 +140,24 @@ export const tasksApi = {
 export const settingsApi = {
   getLlmConfigs: () => api.get('/settings/llm'),
   saveLlmConfigs: (data) => api.put('/settings/llm', data),
-  testLlmConnection: (config) => api.post('/settings/llm/test', config)
+  testLlmConnection: (config) => api.post('/settings/llm/test', config),
+  fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
+  getAiAnalysis: () => api.get('/settings/ai-analysis'),
+  getBilibiliStatus: () => api.get('/settings/bilibili-status'),
+  setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 
 // Insights API (AI Briefing)
 export const insightsApi = {
   getBriefing: () => api.get('/insights/briefing'),
   regenerateBriefing: () => api.post('/insights/briefing'),
-  exportPdf: () => {
-    // 直接下载 PDF 文件
+  exportPdf: async () => {
+    // 经 axios 携带登录令牌取 PDF blob 再触发保存（<a> 直链不带 Authorization 会被 401 拒绝）
+    const resp = await api.get('/insights/briefing/export', { responseType: 'blob' });
+    const blob = resp instanceof Blob ? resp : new Blob([resp], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = '/api/insights/briefing/export';
+    link.href = url;
     link.download = 'podcast-briefing.pdf';
     document.body.appendChild(link);
     link.click();
