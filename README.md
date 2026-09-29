@@ -25,6 +25,10 @@ uv run python run.py        # → http://localhost:5000
 cd frontend
 npm install
 npm run dev                 # configured port 3000; auto-increments if occupied
+
+# Optional: local AI transcription components (torch/WhisperX, ~1-3GB,
+# auto-detects CUDA vs CPU build per your machine)
+python setup_local_ai.py
 ```
 
 First-run walkthrough, all config vars (including `YOUTUBE_PROXY` / `BILI_SESSDATA` required for video sources in CN networks), and troubleshooting: **[docs/getting-started.md](./docs/getting-started.md)** (Chinese).
