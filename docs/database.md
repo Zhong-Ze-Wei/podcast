@@ -10,12 +10,13 @@
 | 集合 | 模型文件 | 主要用途 |
 |------|---------|---------|
 | `users` | `models/user.py` | 用户认证 |
-| `feeds` | `models/feed.py` | RSS 订阅源 |
+| `feeds` | `models/feed.py` | 订阅源（RSS / YouTube / B站，`type` 分流） |
 | `episodes` | `models/episode.py` | 播客单集 |
+| `user_episode_states` | `services/user_episode_state.py` | 剧集个人状态（已读/加星/播放进度，按用户隔离） |
 | `transcripts` | `models/transcript.py` | 转录文本 |
 | `summaries` | `models/summary.py` | AI 摘要 |
 | `tasks` | `models/task.py` | 异步任务 |
-| `settings` | `models/setting.py` | 应用配置 |
+| `settings` | `models/setting.py` | 应用配置（全局一套，无 owner） |
 | `prompt_templates` | `models/prompt_template.py` | 提示词模板 |
 | `briefings` | 无独立模型 | AI 简报缓存 |
 
@@ -244,3 +245,32 @@ KV 存储，按 `owner_id` 隔离。
 | `created_at` | datetime | |
 
 **索引**: `date` unique
+
+---
+
+## user_episode_states
+
+共享库模式下剧集全员可见，个人状态按用户隔离存储（`services/user_episode_state.py`）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | string | 用户 id（users._id 字符串） |
+| `episode_id` | ObjectId | 剧集 id |
+| `is_read` | bool | 已读 |
+| `is_starred` | bool | 加星 |
+| `play_position` | int | 播放进度（秒） |
+| `updated_at` | datetime | |
+
+**索引**: `(user_id, episode_id)` unique, `episode_id`
+
+---
+
+## 数据治理决策（2026-09-30）
+
+演进过程中确立的原则，改动相关逻辑前先读这里：
+
+1. **订阅全局唯一**：按规范化 URL（去 `utm_*`/`spm*` 参数、去尾斜杠、小写）去重，共享库下不允许同一来源重复订阅（入口校验在 `api/feeds.py` `_normalize_feed_url`）。
+2. **个人状态不入剧集文档**：`episodes.is_read / is_starred / play_position` 已弃用（仅历史数据保留），读写走 `user_episode_states`；feeds 列表的未读数按请求用户实时计算，`feeds.unread_count` 不再落库维护。
+3. **settings 只存全局键**：LLM 配置全员共用一套（管理员维护），不允许 per-user 键；`_id: "ai_analysis"` 的文档是 AI 总开关，按 `_id` 字符串存取。
+4. **弃用字段**：`episodes.transcript_source`（文稿来源唯一真源是 `transcripts.source`）；上一条中的三个个人状态字段。
+5. **viewer 只读**：个人状态写入接口要求 user/admin 角色。
