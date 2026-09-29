@@ -242,6 +242,21 @@ class LLMClient:
             result["data"] = data
             return result
         except json.JSONDecodeError as e:
+            # 字符串未闭合或输出顶到 max_tokens 上限 → 输出被截断，翻倍上限重试一次
+            effective_cap = max_tokens or config.LLM_MAX_TOKENS
+            completion_tokens = (result.get("usage") or {}).get("completion", 0)
+            truncated = "Unterminated" in str(e) or completion_tokens >= effective_cap > 0
+            if truncated and effective_cap < 16384:
+                logger.warning(
+                    f"LLM JSON output truncated (completion={completion_tokens}, "
+                    f"cap={effective_cap}); retrying with doubled max_tokens"
+                )
+                return self.chat_json(
+                    messages=messages,
+                    model=model,
+                    max_tokens=effective_cap * 2,
+                    temperature=temperature,
+                )
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Content length: {len(content) if content else 0}")
             logger.error(

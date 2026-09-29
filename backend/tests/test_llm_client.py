@@ -2,6 +2,52 @@ from app.services import llm_client as llm_module
 from app.services.llm_client import LLMClient
 
 
+def _chat_result(content, completion):
+    return {
+        "content": content,
+        "usage": {"prompt": 10, "completion": completion, "total": 10 + completion},
+        "model": "test-model",
+        "elapsed_seconds": 1,
+    }
+
+
+def test_chat_json_retries_once_when_output_truncated(monkeypatch):
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    caps = []
+
+    def fake_chat(**kwargs):
+        caps.append(kwargs["max_tokens"])
+        if len(caps) == 1:
+            # 输出顶到 max_tokens 上限，JSON 字符串被截断
+            return _chat_result('{"summary": "半截', 100)
+        return _chat_result('{"summary": "完整输出"}', 6)
+
+    monkeypatch.setattr(client, "chat", fake_chat)
+
+    result = client.chat_json(messages=[{"role": "user", "content": "hi"}], max_tokens=100)
+
+    assert result["data"] == {"summary": "完整输出"}
+    assert caps == [100, 200]
+
+
+def test_chat_json_does_not_retry_on_malformed_json(monkeypatch):
+    import pytest
+
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    calls = []
+
+    def fake_chat(**kwargs):
+        calls.append(1)
+        return _chat_result("这不是 JSON", 3)
+
+    monkeypatch.setattr(client, "chat", fake_chat)
+
+    with pytest.raises(ValueError):
+        client.chat_json(messages=[{"role": "user", "content": "hi"}], max_tokens=100)
+
+    assert len(calls) == 1
+
+
 def test_openai_compatible_client_uses_openai_sdk(monkeypatch):
     created = {}
 
