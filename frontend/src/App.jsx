@@ -81,7 +81,13 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
-  const getPlayableAudioUrl = (episode) => episode?.local_audio_url || episode?.audio_url || '';
+  // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
+  const getPlayableAudioUrl = (episode) => {
+    if (episode?.audio_type?.startsWith('video/youtube')) {
+      return episodesApi.getStreamUrl(episode.id);
+    }
+    return episode?.local_audio_url || episode?.audio_url || '';
+  };
   const lastSavedPositionRef = useRef(0); // 上次保存的位置，避免频繁保存
   const feedRequestIdRef = useRef(0); // 用于取消过期的feed episodes请求
   const hasInAppNavigationRef = useRef(false);

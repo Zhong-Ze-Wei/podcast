@@ -96,7 +96,9 @@ export const episodesApi = {
   get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),
-  download: (id) => api.post(`/episodes/${id}/download`)
+  download: (id) => api.post(`/episodes/${id}/download`),
+  // <audio> 标签带不了 Authorization 头，流地址经 query 参数携带令牌
+  getStreamUrl: (id) => `${API_BASE}/episodes/${id}/stream?token=${getAuthToken()}`
 };
 
 // Transcripts API
