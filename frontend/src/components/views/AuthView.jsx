@@ -32,6 +32,7 @@ const AuthView = ({ onAuthenticated }) => {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center px-6">
+      <div className="fixed bottom-2 right-3 text-[10px] text-zinc-600">build: mobile-v2</div>
       <div className="w-full max-w-md">
         <div className="mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 mb-5">
