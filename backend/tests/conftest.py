@@ -49,8 +49,8 @@ class MockCollection:
     def insert_many(self, docs):
         for doc in docs:
             self.insert_one(doc)
-        from pymongo.results import InsertManyResults
-        return InsertManyResults([d["_id"] for d in docs], acknowledged=True)
+        from pymongo.results import InsertManyResult
+        return InsertManyResult([d["_id"] for d in docs], acknowledged=True)
 
     def find_one(self, query, *args, **kwargs):
         from bson import ObjectId
@@ -109,6 +109,9 @@ class MockCollection:
                 if isinstance(value, ObjectId):
                     if doc_val != value:
                         return False
+                elif isinstance(value, dict):
+                    if not self._match_operator(doc_val, value):
+                        return False
                 elif isinstance(value, str):
                     if str(doc_val) != value:
                         return False
@@ -150,6 +153,9 @@ class MockCollection:
                 return False
         if "$in" in ops:
             if val not in ops["$in"]:
+                return False
+        if "$nin" in ops:
+            if val in ops["$nin"]:
                 return False
         if "$ne" in ops:
             if val == ops["$ne"]:

@@ -6,6 +6,7 @@ import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
 import AccountPanel from './settings/AccountPanel';
+import AdminUsersPanel from './settings/AdminUsersPanel';
 
 const SettingsView = ({ onBack, currentUser, onLogout }) => {
   const { t } = useTranslation();
@@ -18,17 +19,25 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       description: t('settings.account.description'),
       icon: UserCircle
     },
+    ...(currentUser?.role === 'admin' ? [
+      {
+        id: 'users',
+        label: '用户管理',
+        description: '注册审批与角色分配',
+        icon: UserCircle
+      },
+      {
+        id: 'llm',
+        label: t('settings.llmTab'),
+        description: t('settings.llmDesc'),
+        icon: Server
+      }
+    ] : []),
     {
       id: 'app',
       label: t('settings.appTab'),
       description: t('settings.app.description'),
       icon: Sliders
-    },
-    {
-      id: 'llm',
-      label: t('settings.llmTab'),
-      description: t('settings.llmDesc'),
-      icon: Server
     },
     {
       id: 'templates',
@@ -42,7 +51,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Header */}
-      <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={onBack}
@@ -81,8 +90,9 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
+        {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}
-        {activeTab === 'llm' && <LlmConfigPanel />}
+        {activeTab === 'llm' && currentUser?.role === 'admin' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
       </div>
     </div>

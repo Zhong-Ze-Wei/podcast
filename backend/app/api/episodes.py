@@ -7,7 +7,9 @@ Episodes API
 
 import os
 
-from flask import Blueprint, request, current_app
+import requests
+
+from flask import Blueprint, request, current_app, redirect
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -15,6 +17,13 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
+from ..services.user_episode_state import (
+    apply_to_response,
+    get_states,
+    upsert,
+    user_filter_condition,
+)
+from ..services.youtube_service import YouTubeService
 from .utils import (
     success_response,
     error_response,
@@ -22,7 +31,7 @@ from .utils import (
     get_pagination_params,
     get_bool_param,
 )
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, current_user, owner_filter, require_auth
 
 episodes_bp = Blueprint("episodes", __name__)
 
@@ -68,13 +77,16 @@ def list_episodes():
         if status_query is not None:
             query["status"] = status_query
 
-    is_read = get_bool_param("is_read")
-    if is_read is not None:
-        query["is_read"] = is_read
-
-    is_starred = get_bool_param("is_starred")
-    if is_starred is not None:
-        query["is_starred"] = is_starred
+    # 已读/加星是用户个人状态（存 user_episode_states），转为 _id 条件过滤
+    user = current_user()
+    state_condition = user_filter_condition(
+        db,
+        user["id"],
+        is_read=get_bool_param("is_read"),
+        is_starred=get_bool_param("is_starred"),
+    )
+    if state_condition:
+        query.update(state_condition)
 
     feed_id = request.args.get("feed_id")
     if feed_id:
@@ -109,7 +121,11 @@ def list_episodes():
         feed = feeds.get(ep.get("feed_id"))
         ep["feed_title"] = feed.get("title", "") if feed else ""
 
-    data = [Episode.to_response(ep, include_feed_title=True) for ep in episodes]
+    states = get_states(db, user["id"], [ep["_id"] for ep in episodes])
+    data = [
+        apply_to_response(Episode.to_response(ep, include_feed_title=True), states.get(ep["_id"]))
+        for ep in episodes
+    ]
 
     return paginated_response(data, page, per_page, total)
 
@@ -133,13 +149,15 @@ def get_episode(episode_id):
     feed = db.feeds.find_one(owner_filter({"_id": episode.get("feed_id")}))
     episode["feed_title"] = feed.get("title", "") if feed else ""
 
-    return success_response(Episode.to_response(episode, include_feed_title=True))
+    user_id = current_user()["id"]
+    state = get_states(db, user_id, [oid]).get(oid)
+    return success_response(apply_to_response(Episode.to_response(episode, include_feed_title=True), state))
 
 
 @episodes_bp.route("/<episode_id>", methods=["PUT"])
-@require_auth
+@require_role("user", "admin")
 def update_episode(episode_id):
-    """更新单集"""
+    """更新单集（个人状态：已读/加星/播放进度，按用户隔离）"""
     db = get_db()
 
     try:
@@ -153,41 +171,22 @@ def update_episode(episode_id):
 
     data = request.get_json() or {}
 
-    # 允许更新的字段
-    update_fields = {}
-    allowed_fields = ["is_read", "is_starred", "play_position"]
+    # 个人状态只写 user_episode_states，不再动剧集文档
+    user_id = current_user()["id"]
+    upsert(db, user_id, oid, data)
 
-    for field in allowed_fields:
-        if field in data:
-            update_fields[field] = data[field]
-
-    if update_fields:
-        update_fields["updated_at"] = datetime.utcnow()
-        db.episodes.update_one(owner_filter({"_id": oid}), {"$set": update_fields})
-
-        # 如果更新了is_read，同步更新feed的未读计数
-        if "is_read" in update_fields:
-            feed_id = episode.get("feed_id")
-            if feed_id:
-                unread_count = db.episodes.count_documents(
-                    owner_filter({"feed_id": feed_id, "is_read": False})
-                )
-                db.feeds.update_one(
-                    owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}}
-                )
-
-    # 返回更新后的episode
     updated = db.episodes.find_one(owner_filter({"_id": oid}))
     feed = db.feeds.find_one(owner_filter({"_id": updated.get("feed_id")}))
     updated["feed_title"] = feed.get("title", "") if feed else ""
 
-    return success_response(Episode.to_response(updated, include_feed_title=True))
+    state = get_states(db, user_id, [oid]).get(oid)
+    return success_response(apply_to_response(Episode.to_response(updated, include_feed_title=True), state))
 
 
 @episodes_bp.route("/<episode_id>/star", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def star_episode(episode_id):
-    """标星/取消标星"""
+    """标星/取消标星（按用户隔离）"""
     db = get_db()
 
     try:
@@ -200,19 +199,19 @@ def star_episode(episode_id):
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
     data = request.get_json() or {}
-    starred = data.get("starred", not episode.get("is_starred", False))
+    user_id = current_user()["id"]
+    current_state = get_states(db, user_id, [oid]).get(oid) or {}
+    starred = data.get("starred", not current_state.get("is_starred", False))
 
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
-    )
+    upsert(db, user_id, oid, {"is_starred": starred})
 
     return success_response({"id": episode_id, "is_starred": starred})
 
 
 @episodes_bp.route("/<episode_id>/read", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def mark_read(episode_id):
-    """标记已读/未读"""
+    """标记已读/未读（按用户隔离）"""
     db = get_db()
 
     try:
@@ -225,21 +224,81 @@ def mark_read(episode_id):
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
     data = request.get_json() or {}
-    is_read = data.get("is_read", not episode.get("is_read", False))
+    user_id = current_user()["id"]
+    current_state = get_states(db, user_id, [oid]).get(oid) or {}
+    is_read = data.get("is_read", not current_state.get("is_read", False))
 
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
-    )
-
-    # 更新feed未读计数
-    feed_id = episode.get("feed_id")
-    if feed_id:
-        unread_count = db.episodes.count_documents(
-            owner_filter({"feed_id": feed_id, "is_read": False})
-        )
-        db.feeds.update_one(owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}})
+    upsert(db, user_id, oid, {"is_read": is_read})
 
     return success_response({"id": episode_id, "is_read": is_read})
+
+
+def _proxy_stream(url, use_proxy=False):
+    """转发上游音频流给浏览器，透传 Range 请求头实现进度拖动"""
+    headers = {}
+    if request.headers.get("Range"):
+        headers["Range"] = request.headers["Range"]
+    proxies = None
+    if use_proxy:
+        proxy = YouTubeService._proxy()
+        if proxy:
+            proxies = {"http": proxy, "https": proxy}
+
+    upstream = requests.get(url, headers=headers, proxies=proxies, stream=True, timeout=20)
+
+    passthrough = {}
+    for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+        if upstream.headers.get(name):
+            passthrough[name] = upstream.headers[name]
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                yield chunk
+        finally:
+            upstream.close()
+
+    return current_app.response_class(
+        generate(), status=upstream.status_code, headers=passthrough
+    )
+
+
+@episodes_bp.route("/<episode_id>/stream", methods=["GET"])
+def stream_episode_audio(episode_id):
+    """音频流：供 <audio> 标签直接播放（标签带不了 Authorization 头，令牌从 query 取）。
+    YouTube 剧集实时解析音频直链后代理转发，不落盘；RSS 剧集 302 到原地址。"""
+    from ..services.jwt_auth import verify_token
+
+    token = request.args.get("token", "")
+    payload = verify_token(token, current_app.config.get("JWT_SECRET", ""))
+    if not payload:
+        return error_response("Authentication required", "AUTH_REQUIRED", 401)
+
+    db = get_db()
+    try:
+        oid = ObjectId(episode_id)
+    except InvalidId:
+        return error_response("Invalid episode ID", "INVALID_ID", 400)
+
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
+    if not episode:
+        return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+
+    audio_type = episode.get("audio_type") or ""
+    if audio_type.startswith("video/youtube"):
+        guid = episode.get("guid") or ""
+        video_id = guid.split(":", 1)[1] if guid.startswith("youtube:") else ""
+        if not video_id:
+            return error_response("Episode has no YouTube video id", "NO_VIDEO_ID", 404)
+        stream_url, error = YouTubeService.resolve_stream_url(video_id)
+        if error:
+            return error_response(error, "STREAM_RESOLVE_FAILED", 502)
+        return _proxy_stream(stream_url, use_proxy=True)
+
+    if episode.get("audio_url"):
+        return redirect(episode["audio_url"])
+
+    return error_response("No playable audio for this episode", "NO_AUDIO", 404)
 
 
 @episodes_bp.route("/<episode_id>/download", methods=["POST"])

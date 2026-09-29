@@ -7,6 +7,8 @@ Stats API
 from flask import Blueprint
 
 from ..models.episode import Episode
+from ..services.user_episode_state import episode_ids_with
+from .decorators import current_user, require_auth
 from .utils import success_response
 
 stats_bp = Blueprint("stats", __name__)
@@ -18,6 +20,7 @@ def get_db():
 
 
 @stats_bp.route("", methods=["GET"])
+@require_auth
 def get_stats():
     """获取统计信息"""
     db = get_db()
@@ -26,9 +29,10 @@ def get_stats():
     total_feeds = db.feeds.count_documents({})
     active_feeds = db.feeds.count_documents({"status": "active"})
 
-    # Episode统计
+    # Episode统计（未读按用户隔离：全库减去当前用户已读）
     total_episodes = db.episodes.count_documents({})
-    unread_episodes = db.episodes.count_documents({"is_read": False})
+    read_ids = episode_ids_with(db, current_user()["id"], "is_read")
+    unread_episodes = db.episodes.count_documents({"_id": {"$nin": read_ids}})
 
     # 按状态统计
     downloaded = db.episodes.count_documents({

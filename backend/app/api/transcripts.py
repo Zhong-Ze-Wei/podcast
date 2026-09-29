@@ -14,10 +14,12 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.transcript import Transcript, to_bson_safe
 from ..services.task_queue import task_queue
+from ..services.youtube_service import YouTubeService
+from ..services.bilibili_service import BilibiliService
 from ..services.transcript_fetcher import TranscriptFetcher
 from ..services.transcript_postprocessor import normalize_transcript
 from .utils import success_response, error_response
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, owner_filter, require_auth
 
 transcripts_bp = Blueprint("transcripts", __name__)
 
@@ -286,6 +288,127 @@ def create_transcript(episode_id):
         "provider": provider,
         "language": requested_language or "auto"
     })
+
+
+@transcripts_bp.route("/<episode_id>/fetch-video-audio", methods=["POST"])
+@require_auth
+def transcribe_video_episode(episode_id):
+    """
+    视频剧集"立即转写"：yt-dlp 下载音轨 → 本地 Whisper 转写。
+
+    适用于无字幕/字幕被禁用/字幕被串台校验拒收的 YouTube / B站剧集。
+    """
+    db = get_db()
+
+    try:
+        oid = ObjectId(episode_id)
+    except InvalidId:
+        return error_response("Invalid episode ID", "INVALID_ID", 400)
+
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
+    if not episode:
+        return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+
+    guid = episode.get("guid", "")
+    if guid.startswith("youtube:"):
+        service, vid = YouTubeService, guid.replace("youtube:", "")
+    elif guid.startswith("bilibili:"):
+        service, vid = BilibiliService, guid.replace("bilibili:", "")
+    else:
+        return error_response(
+            "Episode is not a video episode", "NOT_VIDEO_EPISODE", 400
+        )
+
+    if db.transcripts.find_one({"episode_id": oid}):
+        return error_response("Episode already has a transcript", "ALREADY_TRANSCRIBED", 400)
+
+    episode_status = episode.get("status", "new")
+    if episode_status == Episode.STATUS_TRANSCRIBING:
+        return error_response("Episode is already being transcribed", "ALREADY_TRANSCRIBING", 400)
+    if episode_status in Episode.PROCESSING_STATUSES:
+        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
+
+    existing_task = db.tasks.find_one({
+        "episode_id": str(oid),
+        "owner_id": current_owner_id(),
+        "task_type": "transcribe",
+        "status": {"$in": ["pending", "processing"]}
+    })
+    if existing_task:
+        return error_response("Transcribe task already in progress", "TASK_IN_PROGRESS", 409)
+
+    def do_fetch_and_transcribe(progress_callback=None):
+        return _transcribe_video_sync(str(oid), service, vid, progress_callback)
+
+    def rollback(error):
+        db.episodes.update_one(
+            {"_id": oid},
+            {"$set": {
+                "status": episode_status,
+                "last_transcript_error": str(error),
+                "updated_at": datetime.utcnow(),
+            }}
+        )
+
+    db.episodes.update_one(
+        owner_filter({"_id": oid}),
+        {"$set": {
+            "status": Episode.STATUS_TRANSCRIBING,
+            "last_transcript_error": None,
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+
+    task_id = task_queue.submit(
+        task_type="transcribe",
+        func=do_fetch_and_transcribe,
+        episode_id=str(oid),
+        owner_id=current_owner_id(),
+        on_failure=rollback,
+    )
+    return success_response({"task_id": task_id, "status": "queued"})
+
+
+def _transcribe_video_sync(episode_id, service, vid, progress_callback=None):
+    """下载视频音轨并本地转写（复用现有 _transcribe_sync）。
+
+    转写结果为空时（无人声视频，如纯音乐画面）清理空 transcript、
+    回退状态并打 no_speech 标记，避免摘要管线与自动兜底反复尝试。
+    """
+    db = get_db()
+    oid = ObjectId(episode_id)
+
+    if progress_callback:
+        progress_callback(5)
+
+    audio_path, error = service.download_audio(vid)
+    if error:
+        raise ValueError(error)
+    if progress_callback:
+        progress_callback(20)
+
+    db.episodes.update_one(
+        {"_id": oid},
+        {"$set": {"local_path": audio_path, "updated_at": datetime.utcnow()}},
+    )
+
+    provider = TRANSCRIPTION_PROVIDER_LOCAL_WHISPERX
+    result = _transcribe_sync(
+        episode_id,
+        provider=provider,
+        language=None,
+        progress_callback=lambda p: progress_callback(20 + int(p * 0.8)) if progress_callback else None,
+    )
+
+    transcript = db.transcripts.find_one({"episode_id": oid})
+    if transcript and not (transcript.get("text") or "").strip():
+        db.transcripts.delete_one({"_id": transcript["_id"]})
+        db.episodes.update_one(
+            {"_id": oid},
+            {"$set": {"status": Episode.STATUS_NEW, "no_speech": True, "updated_at": datetime.utcnow()}},
+        )
+        return {"no_speech": True}
+    return result
 
 
 def _download_official_transcript(url: str, progress_callback=None):
@@ -658,7 +781,7 @@ def _transcribe_with_assemblyai(audio_url: str, episode_oid, episode: dict, prog
 
 
 @transcripts_bp.route("/<episode_id>", methods=["DELETE"])
-@require_auth
+@require_role("user", "admin")
 def delete_transcript(episode_id):
     """删除转录"""
     db = get_db()

@@ -23,7 +23,7 @@ def get_db():
     return _get_db()
 
 
-@prompt_templates_bp.route("/", methods=["GET"])
+@prompt_templates_bp.route("/", methods=["GET"], strict_slashes=False)
 def list_templates():
     """
     List all active templates.
@@ -69,7 +69,7 @@ def get_template(template_id):
     return success_response(PromptTemplate.to_response(template))
 
 
-@prompt_templates_bp.route("/", methods=["POST"])
+@prompt_templates_bp.route("/", methods=["POST"], strict_slashes=False)
 def create_template():
     """
     Create a new template.

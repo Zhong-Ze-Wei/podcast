@@ -3,48 +3,52 @@
 设置API路由
 """
 
+from datetime import datetime
+
 from flask import Blueprint, request, jsonify, current_app
 from ..models.setting import SettingModel
-from .decorators import current_owner_id, require_auth
+from .decorators import current_owner_id, require_auth, require_admin
 
 settings_bp = Blueprint("settings", __name__)
+
+
+def mask_api_key(key):
+    """部分掩码 API Key：保留前6后4，中间用 ... 替代。"""
+    if not key or len(key) < 12:
+        return key or ""
+    return key[:6] + "..." + key[-4:]
 
 
 def get_setting_model():
     """获取设置模型实例"""
     from .. import get_db
 
-    return SettingModel(get_db(), owner_id=current_owner_id())
+    # LLM 配置全局唯一（管理员维护，全员共用）；不再按账号各存一套
+    return SettingModel(get_db())
 
 
 @settings_bp.route("/llm", methods=["GET"])
-@require_auth
+@require_admin
 def get_llm_configs():
     """获取LLM配置列表"""
     try:
         model = get_setting_model()
         data = model.get_llm_configs()
 
-        # 标记有API密钥但不返回完整值
         configs = []
         for config in data["configs"]:
             safe_config = config.copy()
-            if safe_config.get("api_key"):
-                # 返回占位符，表示有密钥
-                safe_config["api_key"] = ""
-                safe_config["has_api_key"] = True
-            else:
-                safe_config["has_api_key"] = False
+            raw_key = safe_config.get("api_key", "")
+            safe_config["api_key"] = mask_api_key(raw_key)
+            safe_config["has_api_key"] = bool(raw_key)
             configs.append(safe_config)
 
         providers = []
         for provider in data.get("providers", []):
             safe_provider = provider.copy()
-            if safe_provider.get("api_key"):
-                safe_provider["api_key"] = ""
-                safe_provider["has_api_key"] = True
-            else:
-                safe_provider["has_api_key"] = False
+            raw_key = safe_provider.get("api_key", "")
+            safe_provider["api_key"] = mask_api_key(raw_key)
+            safe_provider["has_api_key"] = bool(raw_key)
             providers.append(safe_provider)
 
         return jsonify({
@@ -61,7 +65,7 @@ def get_llm_configs():
 
 
 @settings_bp.route("/llm", methods=["PUT"])
-@require_auth
+@require_admin
 def save_llm_configs():
     """保存LLM配置列表"""
     try:
@@ -98,7 +102,8 @@ def save_llm_configs():
                 if provider.get("id")
             }
             for provider in providers:
-                if not provider.get("api_key") and provider.get("has_api_key"):
+                api_key = provider.get("api_key", "")
+                if not api_key or "..." in api_key:
                     existing = existing_provider_by_id.get(provider.get("id"))
                     if existing:
                         provider["api_key"] = existing.get("api_key", "")
@@ -116,10 +121,9 @@ def save_llm_configs():
             if config.get("id")
         }
 
-        # 如果新配置的 api_key 为空但标记有 has_api_key，保留原来的值
         for i, config in enumerate(configs):
-            if not config.get("api_key") and config.get("has_api_key"):
-                # 尝试从现有配置中恢复 API key
+            api_key = config.get("api_key", "")
+            if not api_key or "..." in api_key:
                 existing = existing_by_id.get(config.get("id"))
                 if existing is None and i < len(existing_configs):
                     existing = existing_configs[i]
@@ -142,7 +146,7 @@ def save_llm_configs():
 
 
 @settings_bp.route("/llm/active", methods=["PUT"])
-@require_auth
+@require_admin
 def set_active_llm():
     """设置激活的LLM配置"""
     try:
@@ -163,7 +167,7 @@ def set_active_llm():
 
 
 @settings_bp.route("/llm/test", methods=["POST"])
-@require_auth
+@require_admin
 def test_llm_connection():
     """测试LLM连接"""
     try:
@@ -244,7 +248,7 @@ def test_llm_connection():
 
 
 @settings_bp.route("/tavily", methods=["GET"])
-@require_auth
+@require_admin
 def get_tavily_config():
     """获取Tavily配置"""
     try:
@@ -267,7 +271,7 @@ def get_tavily_config():
 
 
 @settings_bp.route("/tavily", methods=["PUT"])
-@require_auth
+@require_admin
 def save_tavily_config():
     """保存Tavily配置"""
     try:
@@ -324,7 +328,7 @@ def save_tavily_config():
 
 
 @settings_bp.route("/tavily/test", methods=["POST"])
-@require_auth
+@require_admin
 def test_tavily_connection():
     """测试Tavily API连接"""
     data = request.get_json()
@@ -348,7 +352,7 @@ def test_tavily_connection():
 
 
 @settings_bp.route("/prompts/search-query", methods=["GET"])
-@require_auth
+@require_admin
 def get_search_query_fragment():
     """获取搜索查询片段"""
     try:
@@ -363,7 +367,7 @@ def get_search_query_fragment():
 
 
 @settings_bp.route("/prompts/search-query", methods=["PUT"])
-@require_auth
+@require_admin
 def save_search_query_fragment():
     """保存搜索查询片段"""
     try:
@@ -386,3 +390,98 @@ def save_search_query_fragment():
     except Exception as e:
         current_app.logger.error(f"Failed to save search query fragment: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@settings_bp.route("/llm/fetch-models", methods=["POST"])
+@require_auth
+def fetch_provider_models():
+    """从服务商拉取可用模型列表"""
+    data = request.get_json() or {}
+    provider_id = data.get("provider_id")
+    if not provider_id:
+        return jsonify({"error": "provider_id is required"}), 400
+
+    model = get_setting_model()
+    settings = model.get_llm_settings()
+    provider = next(
+        (p for p in settings["providers"] if p["id"] == provider_id), None
+    )
+    if not provider:
+        return jsonify({"error": "Provider not found"}), 404
+
+    if provider.get("api_format") == "anthropic_messages":
+        return jsonify({
+            "models": [],
+            "hint": "Anthropic API 不支持模型列表接口，请手动输入模型名称。",
+        })
+
+    base_url = provider["base_url"].rstrip("/")
+    api_key = provider.get("api_key", "")
+
+    try:
+        import requests as http_requests
+
+        resp = http_requests.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        model_list = sorted(
+            [{"id": m.get("id", ""), "name": m.get("id", "")} for m in body.get("data", []) if m.get("id")],
+            key=lambda x: x["id"],
+        )
+        return jsonify({"models": model_list})
+    except Exception as e:
+        current_app.logger.error(f"Failed to fetch models from {base_url}: {e}")
+        return jsonify({"models": [], "error": f"拉取模型列表失败: {str(e)}"})
+
+
+@settings_bp.route("/ai-analysis", methods=["GET"])
+@require_admin
+def get_ai_analysis_switch():
+    """AI 分析总开关状态"""
+    from ..services.ai_control import is_ai_analysis_enabled
+
+    return jsonify({"enabled": is_ai_analysis_enabled()})
+
+
+@settings_bp.route("/ai-analysis", methods=["PUT"])
+@require_admin
+def save_ai_analysis_switch():
+    """更新 AI 分析总开关（写入数据库，运行时生效）"""
+    data = request.get_json() or {}
+    if "enabled" not in data:
+        return jsonify({"error": "enabled is required"}), 400
+
+    db = current_app.db
+    db.settings.update_one(
+        {"_id": "ai_analysis"},
+        {"$set": {"enabled": bool(data["enabled"]), "updated_at": datetime.utcnow()}},
+        upsert=True,
+    )
+    from ..services.ai_control import is_ai_analysis_enabled
+
+    return jsonify({"enabled": is_ai_analysis_enabled()})
+
+
+@settings_bp.route("/bilibili-status", methods=["GET"])
+@require_auth
+def get_bilibili_status():
+    """B站登录态：验证 SESSDATA 是否配置且有效（调 nav 接口实时校验）"""
+    from ..config import Config
+    from ..services.bilibili_service import BilibiliService
+
+    if not Config.BILI_SESSDATA:
+        return jsonify({"configured": False, "valid": False})
+
+    data, error = BilibiliService._get("/x/web-interface/nav")
+    if error:
+        return jsonify({"configured": True, "valid": False, "error": error})
+    return jsonify({
+        "configured": True,
+        "valid": bool(data and data.get("isLogin")),
+        "nickname": (data or {}).get("uname", ""),
+        "mid": (data or {}).get("mid"),
+    })
