@@ -19,23 +19,25 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       description: t('settings.account.description'),
       icon: UserCircle
     },
-    ...(currentUser?.role === 'admin' ? [{
-      id: 'users',
-      label: '用户管理',
-      description: '注册审批与角色分配',
-      icon: UserCircle
-    }] : []),
+    ...(currentUser?.role === 'admin' ? [
+      {
+        id: 'users',
+        label: '用户管理',
+        description: '注册审批与角色分配',
+        icon: UserCircle
+      },
+      {
+        id: 'llm',
+        label: t('settings.llmTab'),
+        description: t('settings.llmDesc'),
+        icon: Server
+      }
+    ] : []),
     {
       id: 'app',
       label: t('settings.appTab'),
       description: t('settings.app.description'),
       icon: Sliders
-    },
-    {
-      id: 'llm',
-      label: t('settings.llmTab'),
-      description: t('settings.llmDesc'),
-      icon: Server
     },
     {
       id: 'templates',
@@ -90,7 +92,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
         {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}
-        {activeTab === 'llm' && <LlmConfigPanel />}
+        {activeTab === 'llm' && currentUser?.role === 'admin' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
       </div>
     </div>
