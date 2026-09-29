@@ -23,6 +23,7 @@ from ..services.rss_service import RSSService
 from ..services.task_queue import task_queue
 from ..services.youtube_service import YouTubeService
 from ..services.bilibili_service import BilibiliService
+from ..services.user_episode_state import episode_ids_with, user_filter_condition
 from .utils import (
     success_response,
     error_response,
@@ -31,7 +32,7 @@ from .utils import (
     get_bool_param,
 )
 from .decorators import validate_object_id
-from .decorators import current_owner_id, owner_filter, require_auth, require_role
+from .decorators import current_owner_id, current_user, owner_filter, require_auth, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,16 @@ def list_feeds():
 
     feeds = list(db.feeds.find(query).sort("created_at", -1).skip(skip).limit(per_page))
 
-    # 转换响应格式
-    data = [Feed.to_response(f) for f in feeds]
+    # 转换响应格式；未读数按当前用户计算（已读状态按用户隔离）
+    user_id = current_user()["id"]
+    read_ids = episode_ids_with(db, user_id, "is_read")
+    data = []
+    for f in feeds:
+        resp = Feed.to_response(f)
+        resp["unread_count"] = db.episodes.count_documents(
+            {"feed_id": f["_id"], "_id": {"$nin": read_ids}}
+        )
+        data.append(resp)
 
     return paginated_response(data, page, per_page, total)
 
@@ -454,9 +463,8 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
     if progress_callback:
         progress_callback(90)
 
-    # 更新Feed状态
+    # 更新Feed状态（未读数不再落库：已读按用户隔离，列表接口实时计算）
     total_count = db.episodes.count_documents({"owner_id": owner_id, "feed_id": oid})
-    unread_count = db.episodes.count_documents({"owner_id": owner_id, "feed_id": oid, "is_read": False})
 
     db.feeds.update_one(
         {"_id": oid},
@@ -469,7 +477,6 @@ def _refresh_feed_sync(feed_id: str, progress_callback=None):
                 if new_episodes
                 else feed.get("last_updated"),
                 "episode_count": total_count,
-                "unread_count": unread_count,
             }
         },
     )
@@ -831,13 +838,15 @@ def list_feed_episodes(feed_id):
     if status:
         query["status"] = status
 
-    is_read = get_bool_param("is_read")
-    if is_read is not None:
-        query["is_read"] = is_read
-
-    is_starred = get_bool_param("is_starred")
-    if is_starred is not None:
-        query["is_starred"] = is_starred
+    # 已读/加星是用户个人状态，转为 _id 条件过滤
+    state_condition = user_filter_condition(
+        db,
+        current_user()["id"],
+        is_read=get_bool_param("is_read"),
+        is_starred=get_bool_param("is_starred"),
+    )
+    if state_condition:
+        query.update(state_condition)
 
     # 查询
     total = db.episodes.count_documents(query)

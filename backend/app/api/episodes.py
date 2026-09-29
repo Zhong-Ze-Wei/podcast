@@ -15,6 +15,12 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
+from ..services.user_episode_state import (
+    apply_to_response,
+    get_states,
+    upsert,
+    user_filter_condition,
+)
 from .utils import (
     success_response,
     error_response,
@@ -22,7 +28,7 @@ from .utils import (
     get_pagination_params,
     get_bool_param,
 )
-from .decorators import require_role, current_owner_id, owner_filter, require_auth
+from .decorators import require_role, current_owner_id, current_user, owner_filter, require_auth
 
 episodes_bp = Blueprint("episodes", __name__)
 
@@ -68,13 +74,16 @@ def list_episodes():
         if status_query is not None:
             query["status"] = status_query
 
-    is_read = get_bool_param("is_read")
-    if is_read is not None:
-        query["is_read"] = is_read
-
-    is_starred = get_bool_param("is_starred")
-    if is_starred is not None:
-        query["is_starred"] = is_starred
+    # 已读/加星是用户个人状态（存 user_episode_states），转为 _id 条件过滤
+    user = current_user()
+    state_condition = user_filter_condition(
+        db,
+        user["id"],
+        is_read=get_bool_param("is_read"),
+        is_starred=get_bool_param("is_starred"),
+    )
+    if state_condition:
+        query.update(state_condition)
 
     feed_id = request.args.get("feed_id")
     if feed_id:
@@ -109,7 +118,11 @@ def list_episodes():
         feed = feeds.get(ep.get("feed_id"))
         ep["feed_title"] = feed.get("title", "") if feed else ""
 
-    data = [Episode.to_response(ep, include_feed_title=True) for ep in episodes]
+    states = get_states(db, user["id"], [ep["_id"] for ep in episodes])
+    data = [
+        apply_to_response(Episode.to_response(ep, include_feed_title=True), states.get(ep["_id"]))
+        for ep in episodes
+    ]
 
     return paginated_response(data, page, per_page, total)
 
@@ -133,13 +146,15 @@ def get_episode(episode_id):
     feed = db.feeds.find_one(owner_filter({"_id": episode.get("feed_id")}))
     episode["feed_title"] = feed.get("title", "") if feed else ""
 
-    return success_response(Episode.to_response(episode, include_feed_title=True))
+    user_id = current_user()["id"]
+    state = get_states(db, user_id, [oid]).get(oid)
+    return success_response(apply_to_response(Episode.to_response(episode, include_feed_title=True), state))
 
 
 @episodes_bp.route("/<episode_id>", methods=["PUT"])
-@require_auth
+@require_role("user", "admin")
 def update_episode(episode_id):
-    """更新单集"""
+    """更新单集（个人状态：已读/加星/播放进度，按用户隔离）"""
     db = get_db()
 
     try:
@@ -153,41 +168,22 @@ def update_episode(episode_id):
 
     data = request.get_json() or {}
 
-    # 允许更新的字段
-    update_fields = {}
-    allowed_fields = ["is_read", "is_starred", "play_position"]
+    # 个人状态只写 user_episode_states，不再动剧集文档
+    user_id = current_user()["id"]
+    upsert(db, user_id, oid, data)
 
-    for field in allowed_fields:
-        if field in data:
-            update_fields[field] = data[field]
-
-    if update_fields:
-        update_fields["updated_at"] = datetime.utcnow()
-        db.episodes.update_one(owner_filter({"_id": oid}), {"$set": update_fields})
-
-        # 如果更新了is_read，同步更新feed的未读计数
-        if "is_read" in update_fields:
-            feed_id = episode.get("feed_id")
-            if feed_id:
-                unread_count = db.episodes.count_documents(
-                    owner_filter({"feed_id": feed_id, "is_read": False})
-                )
-                db.feeds.update_one(
-                    owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}}
-                )
-
-    # 返回更新后的episode
     updated = db.episodes.find_one(owner_filter({"_id": oid}))
     feed = db.feeds.find_one(owner_filter({"_id": updated.get("feed_id")}))
     updated["feed_title"] = feed.get("title", "") if feed else ""
 
-    return success_response(Episode.to_response(updated, include_feed_title=True))
+    state = get_states(db, user_id, [oid]).get(oid)
+    return success_response(apply_to_response(Episode.to_response(updated, include_feed_title=True), state))
 
 
 @episodes_bp.route("/<episode_id>/star", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def star_episode(episode_id):
-    """标星/取消标星"""
+    """标星/取消标星（按用户隔离）"""
     db = get_db()
 
     try:
@@ -200,19 +196,19 @@ def star_episode(episode_id):
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
     data = request.get_json() or {}
-    starred = data.get("starred", not episode.get("is_starred", False))
+    user_id = current_user()["id"]
+    current_state = get_states(db, user_id, [oid]).get(oid) or {}
+    starred = data.get("starred", not current_state.get("is_starred", False))
 
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"is_starred": starred, "updated_at": datetime.utcnow()}}
-    )
+    upsert(db, user_id, oid, {"is_starred": starred})
 
     return success_response({"id": episode_id, "is_starred": starred})
 
 
 @episodes_bp.route("/<episode_id>/read", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def mark_read(episode_id):
-    """标记已读/未读"""
+    """标记已读/未读（按用户隔离）"""
     db = get_db()
 
     try:
@@ -225,19 +221,11 @@ def mark_read(episode_id):
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
     data = request.get_json() or {}
-    is_read = data.get("is_read", not episode.get("is_read", False))
+    user_id = current_user()["id"]
+    current_state = get_states(db, user_id, [oid]).get(oid) or {}
+    is_read = data.get("is_read", not current_state.get("is_read", False))
 
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"is_read": is_read, "updated_at": datetime.utcnow()}}
-    )
-
-    # 更新feed未读计数
-    feed_id = episode.get("feed_id")
-    if feed_id:
-        unread_count = db.episodes.count_documents(
-            owner_filter({"feed_id": feed_id, "is_read": False})
-        )
-        db.feeds.update_one(owner_filter({"_id": feed_id}), {"$set": {"unread_count": unread_count}})
+    upsert(db, user_id, oid, {"is_read": is_read})
 
     return success_response({"id": episode_id, "is_read": is_read})
 

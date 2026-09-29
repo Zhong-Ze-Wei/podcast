@@ -76,7 +76,13 @@ def test_episode_mutations_do_not_cross_owner_boundary():
     assert star.status_code == 200
     assert read.status_code == 200  # 共享库
     assert download.status_code == 200  # 共享库：member 可下载
+    # 个人状态按用户隔离：写入 user_episode_states，剧集文档不动
+    state = app.db.user_episode_states.find_one(
+        {"user_id": str(user1["_id"]), "episode_id": episode_id}
+    )
+    assert state is not None
+    assert state["is_read"] is True
+    assert state["is_starred"] is True
     episode = app.db.episodes.find_one({"_id": episode_id})
-    assert episode["is_read"] is True  # 共享库：标记生效
-    assert episode["is_starred"] is True  # 共享库：标记生效
+    assert episode["is_read"] is False  # 文档保留默认值，不影响其他用户
     assert episode["status"] == "downloading"  # 共享库：下载已排队

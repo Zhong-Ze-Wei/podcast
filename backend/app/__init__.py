@@ -100,6 +100,10 @@ def ensure_indexes(db):
     db.episodes.create_index("has_summary")
     db.episodes.create_index([("feed_id", 1), ("is_read", 1)])
 
+    # 剧集个人状态（已读/加星/播放进度按用户隔离）
+    db.user_episode_states.create_index([("user_id", 1), ("episode_id", 1)], unique=True)
+    db.user_episode_states.create_index("episode_id")
+
     # transcripts索引
     try:
         db.transcripts.drop_index("episode_id_1")
