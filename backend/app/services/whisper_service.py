@@ -18,6 +18,15 @@ _model_dir = None
 _model_runtime = None
 
 
+def is_available() -> bool:
+    """本地转写组件是可选依赖（根目录 setup_local_ai.py 安装）"""
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _parse_int_env(name: str, default: int) -> int:
     value = os.getenv(name, str(default)).strip()
     try:

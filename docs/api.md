@@ -89,7 +89,7 @@
 | DELETE | `/transcripts/<episode_id>` | 删除转录 | 登录 |
 | POST | `/transcripts/<episode_id>/fetch` | 从 transcript_url 拉取外部转录 | 登录 |
 | GET | `/transcripts/<episode_id>/check-external` | 检查外部转录源 | 登录 |
-| POST | `/transcripts/<episode_id>/fetch-video-audio` | **"立即转写"**：下载视频音频 → WhisperX 本地转写（异步；纯音乐等无人声结果会清空转录并打 no_speech 标记） | user+ |
+| POST | `/transcripts/<episode_id>/fetch-video-audio` | **"立即转写"**：下载视频音频 → WhisperX 本地转写（异步；纯音乐等无人声结果会清空转录并打 no_speech 标记）。组件未装时 400 `LOCAL_AI_NOT_INSTALLED` | user+ |
 
 ```json
 // POST /transcripts/<episode_id>

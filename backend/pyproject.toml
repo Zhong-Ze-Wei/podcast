@@ -16,12 +16,6 @@ dependencies = [
     "markdown>=3.5.0",
     "weasyprint>=60.0",
     "assemblyai>=0.35.0",
-    "faster-whisper>=1.1.0",
-    "whisperx>=3.8.5",
-    "torch==2.8.0+cu128",
-    "torchvision==0.23.0+cu128",
-    "torchaudio==2.8.0+cu128",
-    "imageio-ffmpeg>=0.6.0",
     "yt-dlp",
     "youtube-transcript-api",
     "curl-cffi",
@@ -31,12 +25,24 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+# 本地 AI 转写组件（可选，约 1-3GB）：CPU / Apple Silicon / Linux 默认轮子。
+# NVIDIA GPU 用户改用仓库根目录的 setup_local_ai.py 安装 CUDA 12.8 轮子。
+local-ai = [
+    "faster-whisper>=1.1.0",
+    "whisperx>=3.8.5",
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
+    "imageio-ffmpeg>=0.6.0",
+]
 
 [tool.uv]
 package = false
 
+# CUDA 轮子专用索引：仅 setup_local_ai.py 的 uv pip 显式使用，不参与默认解析
 [[tool.uv.index]]
+name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
