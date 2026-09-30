@@ -31,6 +31,11 @@ STRATEGY_METADATA = "metadata"    # 元数据雷达：标题 + RSS 简介，零�
 
 STRATEGIES = (STRATEGY_SUMMARY, STRATEGY_TRANSCRIPT, STRATEGY_METADATA)
 
+# 时间窗口（天）允许范围；缓存键含 days，同一天同策略不同窗口各一份
+MIN_WINDOW_DAYS = 1
+MAX_WINDOW_DAYS = 30
+DEFAULT_WINDOW_DAYS = 7
+
 # 文稿直析策略中，允许逐集调 LLM 压缩的最大单集数（超出部分退回 RSS 元数据）
 MAX_CONDENSE_CALLS = 10
 
@@ -45,43 +50,49 @@ class BriefingService:
     # 公开接口
     # ------------------------------------------------------------------
 
-    def get_or_generate(self, force: bool = False, strategy: str = STRATEGY_SUMMARY) -> Dict[str, Any]:
+    def get_or_generate(
+        self,
+        force: bool = False,
+        strategy: str = STRATEGY_SUMMARY,
+        days: int = DEFAULT_WINDOW_DAYS,
+    ) -> Dict[str, Any]:
         """
-        获取今日简报；如无缓存则自动生成。每种策略独立缓存（date + strategy）。
+        获取今日简报；如无缓存则自动生成。缓存键 = date + strategy + days。
         """
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        cache_query = {"date": today, "strategy": strategy}
+        cache_query = {"date": today, "strategy": strategy, "days": days}
 
         # 1. 检查缓存
         if not force:
             cached = self.db.briefings.find_one(cache_query)
             if cached:
                 cached["_id"] = str(cached["_id"])
-                logger.info("返回缓存简报 %s/%s", today, strategy)
+                logger.info("返回缓存简报 %s/%s/%dd", today, strategy, days)
                 return {"success": True, "briefing": cached, "cached": True}
 
         # 2. 按策略取材
         if strategy == STRATEGY_TRANSCRIPT:
-            episodes = self._collect_transcript_material(days=7)
+            episodes = self._collect_transcript_material(days=days)
         elif strategy == STRATEGY_METADATA:
-            episodes = self._collect_metadata_material(days=7)
+            episodes = self._collect_metadata_material(days=days)
         else:
-            episodes = self._collect_recent_episodes(days=7)
+            episodes = self._collect_recent_episodes(days=days)
 
         if len(episodes) < 1:
             return {
                 "success": True,
                 "briefing": None,
-                "message": "近 7 天没有可分析的剧集，请先订阅或刷新",
+                "message": f"近 {days} 天没有可分析的剧集，请先订阅或刷新",
             }
 
         # 3. 生成简报
         briefing_data = self._generate(episodes, strategy=strategy)
 
-        # 4. 存入 MongoDB（按策略隔离）
+        # 4. 存入 MongoDB（按策略与窗口隔离）
         doc = {
             "date": today,
             "strategy": strategy,
+            "days": days,
             "briefing": briefing_data,
             "episode_count": len(episodes),
             "created_at": datetime.utcnow(),
@@ -93,13 +104,31 @@ class BriefingService:
 
         return {"success": True, "briefing": saved, "cached": False}
 
-    def get_cached(self, strategy: str = STRATEGY_SUMMARY) -> Optional[Dict[str, Any]]:
+    def get_cached(
+        self,
+        strategy: str = STRATEGY_SUMMARY,
+        days: int = DEFAULT_WINDOW_DAYS,
+    ) -> Optional[Dict[str, Any]]:
         """仅获取缓存，不触发生成"""
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        cached = self.db.briefings.find_one({"date": today, "strategy": strategy})
+        cached = self.db.briefings.find_one({"date": today, "strategy": strategy, "days": days})
         if cached:
             cached["_id"] = str(cached["_id"])
         return cached
+
+    def window_counts(self, days: int = DEFAULT_WINDOW_DAYS) -> Dict[str, int]:
+        """时间窗口内剧集统计（滑块预览用，零 LLM 成本）"""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        feed_ids = [f["_id"] for f in self.db.feeds.find({"status": "active"}, {"_id": 1})]
+        if not feed_ids:
+            return {"days": days, "total": 0, "with_transcript": 0, "with_summary": 0}
+        base = {"feed_id": {"$in": feed_ids}, "published": {"$gte": cutoff}}
+        return {
+            "days": days,
+            "total": self.db.episodes.count_documents(base),
+            "with_transcript": self.db.episodes.count_documents({**base, "has_transcript": True}),
+            "with_summary": self.db.episodes.count_documents({**base, "has_summary": True}),
+        }
 
     # ------------------------------------------------------------------
     # 内部方法

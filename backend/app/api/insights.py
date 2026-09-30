@@ -4,9 +4,16 @@ AI 简报 API 路由：三种策略（摘要聚合 / 文稿直析 / 元数据雷
 """
 
 from flask import Blueprint, request, jsonify, current_app, Response
-from ..services.briefing_service import BriefingService, STRATEGIES
+from ..services.briefing_service import (
+    BriefingService,
+    STRATEGIES,
+    MIN_WINDOW_DAYS,
+    MAX_WINDOW_DAYS,
+    DEFAULT_WINDOW_DAYS,
+)
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from .decorators import require_auth
+from .utils import success_response
 
 insights_bp = Blueprint("insights", __name__)
 
@@ -29,17 +36,56 @@ def _requested_strategy():
     return strategy, None, None
 
 
+def _requested_days():
+    raw = request.args.get("days")
+    if raw is None or raw == "":
+        return DEFAULT_WINDOW_DAYS, None, None
+    try:
+        days = int(raw)
+    except ValueError:
+        return None, jsonify({
+            "success": False,
+            "error_code": "INVALID_DAYS",
+            "message": f"days 必须是整数（{MIN_WINDOW_DAYS}-{MAX_WINDOW_DAYS}）",
+        }), 400
+    if not (MIN_WINDOW_DAYS <= days <= MAX_WINDOW_DAYS):
+        return None, jsonify({
+            "success": False,
+            "error_code": "INVALID_DAYS",
+            "message": f"days 超出范围：允许 {MIN_WINDOW_DAYS}-{MAX_WINDOW_DAYS} 天",
+        }), 400
+    return days, None, None
+
+
+@insights_bp.route("/briefing/count", methods=["GET"])
+@require_auth
+def briefing_window_count():
+    """窗口内剧集统计（滑块预览用）：总数 / 有文稿 / 有摘要"""
+    days, error_resp, code = _requested_days()
+    if error_resp:
+        return error_resp, code
+    try:
+        service = get_briefing_service()
+        return jsonify({"success": True, "data": service.window_counts(days)})
+    except Exception as e:
+        current_app.logger.error(f"Failed to count briefing window: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @insights_bp.route("/briefing", methods=["GET"])
 @require_auth
 def get_briefing():
-    """获取今日 AI 简报（有缓存则返回缓存；strategy 决定取材路线）"""
+    """获取今日 AI 简报（有缓存则返回缓存；strategy + days 决定取材路线与窗口）"""
     strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
+    days, error_resp, code = _requested_days()
     if error_resp:
         return error_resp, code
     try:
         service = get_briefing_service()
         if not is_ai_analysis_enabled():
-            cached = service.get_cached(strategy)
+            cached = service.get_cached(strategy, days)
             if cached:
                 return jsonify({
                     "success": True,
@@ -53,7 +99,7 @@ def get_briefing():
                 "message": AI_DISABLED_MESSAGE,
                 "ai_analysis_enabled": False,
             })
-        result = service.get_or_generate(force=False, strategy=strategy)
+        result = service.get_or_generate(force=False, strategy=strategy, days=days)
         return jsonify(result)
     except Exception as e:
         current_app.logger.error(f"Failed to get briefing: {e}")
@@ -63,8 +109,11 @@ def get_briefing():
 @insights_bp.route("/briefing", methods=["POST"])
 @require_auth
 def regenerate_briefing():
-    """强制重新生成今日 AI 简报（可指定 strategy）"""
+    """强制重新生成今日 AI 简报（可指定 strategy 与 days）"""
     strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
+    days, error_resp, code = _requested_days()
     if error_resp:
         return error_resp, code
     try:
@@ -75,7 +124,7 @@ def regenerate_briefing():
                 "message": AI_DISABLED_MESSAGE,
             }), 423
         service = get_briefing_service()
-        result = service.get_or_generate(force=True, strategy=strategy)
+        result = service.get_or_generate(force=True, strategy=strategy, days=days)
         return jsonify(result)
     except Exception as e:
         current_app.logger.error(f"Failed to regenerate briefing: {e}")
@@ -85,13 +134,16 @@ def regenerate_briefing():
 @insights_bp.route("/briefing/export", methods=["GET"])
 @require_auth
 def export_briefing_pdf():
-    """导出今日简报为 PDF（可指定 strategy）"""
+    """导出今日简报为 PDF（可指定 strategy 与 days）"""
     strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
+    days, error_resp, code = _requested_days()
     if error_resp:
         return error_resp, code
     try:
         service = get_briefing_service()
-        cached = service.get_cached(strategy)
+        cached = service.get_cached(strategy, days)
 
         if not cached:
             return jsonify({"error": "暂无简报数据，请先生成简报"}), 404
@@ -141,11 +193,12 @@ def export_briefing_pdf():
 
         date_str = cached.get("date", "today")
         strategy_tag = f"-{strategy}" if strategy != "summary" else ""
+        days_tag = f"-{days}d" if days != 7 else ""
         return Response(
             pdf_bytes,
             mimetype="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="podcast-briefing-{date_str}{strategy_tag}.pdf"'
+                "Content-Disposition": f'attachment; filename="podcast-briefing-{date_str}{strategy_tag}{days_tag}.pdf"'
             },
         )
 
