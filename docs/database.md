@@ -225,17 +225,18 @@ B站字幕入库前过四重校验（时间轴/密度/字数/标题词窗）+ �
 
 ## briefings
 
-无独立模型，由 `services/briefing_service.py` 直接操作。
+无独立模型，由 `services/briefing_service.py` 直接操作。**按策略独立缓存**：同一天每个策略各一份。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `_id` | ObjectId | |
-| `date` | string | `"YYYY-MM-DD"` (UTC)，按天缓存键 |
-| `briefing` | object | LLM 简报内容 |
+| `date` | string | `"YYYY-MM-DD"` (UTC) |
+| `strategy` | string | `summary` / `transcript` / `metadata` |
+| `briefing` | object | LLM 简报内容（`_meta.material_note` 记录取材构成） |
 | `episode_count` | int | |
 | `created_at` | datetime | |
 
-**索引**: `date` unique
+**索引**: `(date, strategy)` unique
 
 生成窗口：仅聚合近 7 天内**发布**且有摘要的剧集。
 

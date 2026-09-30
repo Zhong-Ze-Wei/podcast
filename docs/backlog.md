@@ -49,7 +49,6 @@
 
 已完成（决策记录见[数据库设计·数据治理决策](./database.md#数据治理决策)）：重复订阅合并 + 入口 URL 去重、个人状态按用户隔离（user_episode_states）、settings 遗留清理、文档治理章节。动库前已有全量 mongodump（`backups/`，不入 Git）。
 
-- [ ] **P1 · insights 路由补认证**：`/api/insights/briefing*` 三端点无认证装饰器，开了 AUTH_REQUIRED 的部署下是裸奔面（修复时注意 PDF 导出改 blob 下载的先例——带 token）
 - [ ] **P1 · 定时备份**：mongodump 挂 Windows 计划任务，每日一份留 7 天。B站字幕等 AI 产物不可再生（SESSDATA 失效后拉不回来），值得自动化
 - [ ] **P2 · 时区统一**：全库 naive `utcnow()`（Python 已 DeprecationWarning，测试里 250+ 条警告），新代码用 timezone-aware，存量随迭代迁移
 - [ ] **P2 · check_error 错误码化**：现为英文自由文本 + 前端人话映射（`_humanize_subtitle_error` 已做一半），理想形态后端存错误码、文案归 i18n

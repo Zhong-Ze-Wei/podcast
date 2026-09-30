@@ -147,18 +147,18 @@ export const settingsApi = {
   setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 
-// Insights API (AI Briefing)
+// Insights API (AI Briefing) —— strategy: summary | transcript | metadata
 export const insightsApi = {
-  getBriefing: () => api.get('/insights/briefing'),
-  regenerateBriefing: () => api.post('/insights/briefing'),
-  exportPdf: async () => {
+  getBriefing: (strategy) => api.get('/insights/briefing', { params: strategy ? { strategy } : {} }),
+  regenerateBriefing: (strategy) => api.post('/insights/briefing', null, { params: strategy ? { strategy } : {} }),
+  exportPdf: async (strategy) => {
     // 经 axios 携带登录令牌取 PDF blob 再触发保存（<a> 直链不带 Authorization 会被 401 拒绝）
-    const resp = await api.get('/insights/briefing/export', { responseType: 'blob' });
+    const resp = await api.get('/insights/briefing/export', { responseType: 'blob', params: strategy ? { strategy } : {} });
     const blob = resp instanceof Blob ? resp : new Blob([resp], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'podcast-briefing.pdf';
+    link.download = `podcast-briefing${strategy && strategy !== 'summary' ? `-${strategy}` : ''}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
