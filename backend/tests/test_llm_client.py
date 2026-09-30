@@ -30,6 +30,23 @@ def test_chat_json_retries_once_when_output_truncated(monkeypatch):
     assert caps == [100, 200]
 
 
+def test_chat_json_salvages_trailing_extra_data(monkeypatch):
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    calls = []
+
+    def fake_chat(**kwargs):
+        calls.append(1)
+        # 完整 JSON 后模型又输出了收尾碎语（实测 transcript 策略出现过）
+        return _chat_result('{"summary": {"totalEpisodes": 2}} 以上就是全部内容。', 3000)
+
+    monkeypatch.setattr(client, "chat", fake_chat)
+
+    result = client.chat_json(messages=[{"role": "user", "content": "hi"}], max_tokens=4096)
+
+    assert result["data"] == {"summary": {"totalEpisodes": 2}}
+    assert len(calls) == 1  # 截取成功，无需重试
+
+
 def test_chat_json_does_not_retry_on_malformed_json(monkeypatch):
     import pytest
 
