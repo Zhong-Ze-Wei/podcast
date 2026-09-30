@@ -143,12 +143,13 @@ def ensure_indexes(db):
         name="tasks_completed_at_ttl",
     )
 
-    # briefings索引（AI简报，按策略独立缓存：同一天可有多策略各一份）
-    try:
-        db.briefings.drop_index("date_1")
-    except Exception:
-        pass
-    db.briefings.create_index([("date", 1), ("strategy", 1)], unique=True)
+    # briefings索引（AI简报，按策略+时间窗口独立缓存）
+    for legacy in ("date_1", "date_1_strategy_1"):
+        try:
+            db.briefings.drop_index(legacy)
+        except Exception:
+            pass
+    db.briefings.create_index([("date", 1), ("strategy", 1), ("days", 1)], unique=True)
 
 
 def register_media_routes(app):

@@ -54,7 +54,7 @@ def seed_week(db):
     db.episodes._data.append({
         "_id": summarized_id, "feed_id": feed_id, "guid": "ep1", "title": "已摘要单集",
         "status": "new", "published": now - timedelta(days=1), "created_at": now,
-        "summary": "RSS简介一", "duration": 3600,
+        "summary": "RSS简介一", "duration": 3600, "has_summary": True,
     })
     db.summaries._data.append({
         "_id": ObjectId(), "episode_id": summarized_id,
@@ -67,7 +67,7 @@ def seed_week(db):
     db.episodes._data.append({
         "_id": transcript_id, "feed_id": feed_id, "guid": "ep2", "title": "文稿单集",
         "status": "new", "published": now - timedelta(days=2), "created_at": now,
-        "summary": "RSS简介二", "duration": 2400,
+        "summary": "RSS简介二", "duration": 2400, "has_transcript": True,
     })
     db.transcripts._data.append({
         "_id": ObjectId(), "episode_id": transcript_id,
@@ -137,3 +137,36 @@ def test_metadata_strategy_needs_no_condense(monkeypatch):
     assert meta["strategy"] == "metadata"
     assert fake.chat_calls == 0  # 元数据策略不做逐集压缩
     assert sum(meta["source_counts"].values()) == 2
+
+
+def test_days_param_validation_and_window_count():
+    app = make_briefing_app()
+    user = add_user(app.db, "u@example.com")
+    client = app.test_client()
+
+    for bad in ("0", "99", "abc"):
+        resp = client.get(f"/api/insights/briefing?days={bad}", headers=auth_headers(user))
+        assert resp.status_code == 400
+        assert resp.get_json()["error_code"] == "INVALID_DAYS"
+
+    seed_week(app.db)
+    resp = client.get("/api/insights/briefing/count?days=7", headers=auth_headers(user))
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert data["total"] == 2
+    assert data["with_transcript"] == 1
+    assert data["with_summary"] == 1
+
+
+def test_cache_isolated_by_window_days(monkeypatch):
+    app = make_briefing_app()
+    user = add_user(app.db, "u@example.com")
+    seed_week(app.db)
+    monkeypatch.setattr(briefing_module, "get_llm_client", lambda task=None: FakeLLM())
+
+    client = app.test_client()
+    assert client.post("/api/insights/briefing?strategy=metadata&days=7", headers=auth_headers(user)).status_code == 200
+    assert client.post("/api/insights/briefing?strategy=metadata&days=14", headers=auth_headers(user)).status_code == 200
+
+    docs = list(app.db.briefings.find({}, {"strategy": 1, "days": 1}))
+    assert {d.get("days") for d in docs} == {7, 14}
