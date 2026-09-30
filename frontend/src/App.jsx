@@ -245,6 +245,14 @@ export default function App() {
     });
   }, [updateBrowserPath]);
 
+  // 简报是核心模式切换：切入时把界面带回首屏，避免停在详情/设置页时切换"无感"
+  const handleViewModeChange = useCallback((mode) => {
+    setViewMode(mode);
+    if (mode === 'ai-briefing') {
+      navigateToView('list');
+    }
+  }, [navigateToView]);
+
   const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true } = {}) => {
     const episodeId = typeof episodeOrId === 'string' ? episodeOrId : episodeOrId?.id;
     if (!episodeId) return;
@@ -538,7 +546,7 @@ export default function App() {
         hasPlayer={!!currentPlaying}
         currentView={view}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={handleViewModeChange}
       />
 
       {mobileSidebarOpen && (
