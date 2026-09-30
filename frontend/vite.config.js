@@ -9,7 +9,8 @@ export default defineConfig({
     allowedHosts: ['.ts.net'],
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        // 写死 IPv4：Node 会把 localhost 解析成 ::1，而后端只监听 IPv4 时代理会连不上
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true
       }
     }
