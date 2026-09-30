@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, TrendingUp, Lightbulb, BookOpen, Play, ChevronRight, Target, Zap, RefreshCw, Download, AlertCircle } from 'lucide-react';
 import { insightsApi } from '../../services/api';
@@ -29,12 +29,17 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [strategy, setStrategy] = useState('summary');
+  const [days, setDays] = useState(7);
+  const [stats, setStats] = useState(null);
+  // 滑块只改 days 并实时预览数量，不自动触发生成；生成时读最新值
+  const daysRef = useRef(7);
+  daysRef.current = days;
 
   const loadBriefing = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await insightsApi.getBriefing(strategy);
+      const res = await insightsApi.getBriefing(strategy, daysRef.current);
       if (res.success && res.briefing) {
         setBriefing(res.briefing);
       } else {
@@ -53,6 +58,20 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
     loadBriefing();
   }, [loadBriefing]);
 
+  // 窗口内剧集数实时预览（防抖，零 LLM 成本）
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await insightsApi.windowCount(days);
+        if (!cancelled) setStats(res.data || res);
+      } catch {
+        if (!cancelled) setStats(null);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [days]);
+
   const handleRegenerate = async () => {
     if (!aiEnabled) {
       setError('AI 分析已冻结：已有缓存可查看，但暂时不再生成今日简报。');
@@ -61,7 +80,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await insightsApi.regenerateBriefing(strategy);
+      const res = await insightsApi.regenerateBriefing(strategy, daysRef.current);
       if (res.success && res.briefing) {
         setBriefing(res.briefing);
       } else {
@@ -81,7 +100,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
       return;
     }
     try {
-      await insightsApi.exportPdf(strategy);
+      await insightsApi.exportPdf(strategy, daysRef.current);
     } catch (err) {
       setError('PDF 导出失败，请重试');
     }
@@ -96,6 +115,8 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const meta = data._meta || {};
   const activeTab = STRATEGY_TABS.find(tab => tab.id === strategy);
   const hasContent = !!(data.summary || data.hotTopics || data.recommended);
+  const briefingDays = briefing?.days || 7;
+  const daysDirty = !!briefing && briefingDays !== days && !loading;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-black">
@@ -119,10 +140,33 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-zinc-600 mt-2 mb-3">
+          <p className="text-xs text-zinc-600 mt-2">
             {activeTab?.hint}
             {strategy === 'transcript' && ' · 两步生成（先逐集压缩再聚合），首次较慢'}
           </p>
+          {/* 时间窗口滑块 + 实时剧集数预览 */}
+          <div className="flex items-center gap-3 text-sm flex-wrap pb-3">
+            <span className="text-zinc-500 shrink-0">时间窗口</span>
+            <input
+              type="range"
+              min={1}
+              max={30}
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="w-36 md:w-48 accent-indigo-500"
+            />
+            <span className="text-zinc-200 font-medium w-10">{days} 天</span>
+            {stats && (
+              <span className="text-xs text-zinc-500">
+                窗口内 <span className="text-zinc-300">{stats.total}</span> 集 · 有文稿 {stats.with_transcript} · 有摘要 {stats.with_summary}
+              </span>
+            )}
+          </div>
+          {daysDirty && (
+            <p className="text-xs text-amber-400/90 pb-3 -mt-1">
+              当前简报基于 {briefingDays} 天窗口，窗口已调为 {days} 天——点上方 ↻ 按新窗口生成
+            </p>
+          )}
         </div>
       </div>
 
@@ -183,7 +227,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
             </div>
           </div>
           <p className="text-zinc-500 text-lg">
-            {briefing.date} · 分析了 {summary.totalEpisodes || 0} 个单集 · 提取了 {summary.keyInsights || 0} 个核心洞察
+            {briefing.date} · 近 {briefingDays} 天 · 分析了 {summary.totalEpisodes || 0} 个单集 · 提取了 {summary.keyInsights || 0} 个核心洞察
             {meta.material_note && (
               <span className="text-zinc-600"> · {meta.material_note}</span>
             )}

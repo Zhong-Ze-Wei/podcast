@@ -232,11 +232,12 @@ B站字幕入库前过四重校验（时间轴/密度/字数/标题词窗）+ �
 | `_id` | ObjectId | |
 | `date` | string | `"YYYY-MM-DD"` (UTC) |
 | `strategy` | string | `summary` / `transcript` / `metadata` |
+| `days` | int | 生成时的时间窗口（1-30，默认 7） |
 | `briefing` | object | LLM 简报内容（`_meta.material_note` 记录取材构成） |
 | `episode_count` | int | |
 | `created_at` | datetime | |
 
-**索引**: `(date, strategy)` unique
+**索引**: `(date, strategy, days)` unique
 
 生成窗口：仅聚合近 7 天内**发布**且有摘要的剧集。
 

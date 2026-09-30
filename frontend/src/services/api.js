@@ -147,18 +147,27 @@ export const settingsApi = {
   setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 
-// Insights API (AI Briefing) —— strategy: summary | transcript | metadata
+// Insights API (AI Briefing) —— strategy: summary | transcript | metadata；days: 时间窗口(1-30)
 export const insightsApi = {
-  getBriefing: (strategy) => api.get('/insights/briefing', { params: strategy ? { strategy } : {} }),
-  regenerateBriefing: (strategy) => api.post('/insights/briefing', null, { params: strategy ? { strategy } : {} }),
-  exportPdf: async (strategy) => {
+  getBriefing: (strategy, days) => api.get('/insights/briefing', {
+    params: { ...(strategy && { strategy }), ...(days && { days }) },
+  }),
+  regenerateBriefing: (strategy, days) => api.post('/insights/briefing', null, {
+    params: { ...(strategy && { strategy }), ...(days && { days }) },
+  }),
+  windowCount: (days) => api.get('/insights/briefing/count', { params: { days } }),
+  exportPdf: async (strategy, days) => {
     // 经 axios 携带登录令牌取 PDF blob 再触发保存（<a> 直链不带 Authorization 会被 401 拒绝）
-    const resp = await api.get('/insights/briefing/export', { responseType: 'blob', params: strategy ? { strategy } : {} });
+    const resp = await api.get('/insights/briefing/export', {
+      responseType: 'blob',
+      params: { ...(strategy && { strategy }), ...(days && { days }) },
+    });
     const blob = resp instanceof Blob ? resp : new Blob([resp], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
+    const tags = [strategy && strategy !== 'summary' ? strategy : '', days && Number(days) !== 7 ? `${days}d` : ''].filter(Boolean);
     link.href = url;
-    link.download = `podcast-briefing${strategy && strategy !== 'summary' ? `-${strategy}` : ''}.pdf`;
+    link.download = `podcast-briefing${tags.length ? '-' + tags.join('-') : ''}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
