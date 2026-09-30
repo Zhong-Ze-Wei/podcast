@@ -84,11 +84,11 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
       if (res.success && res.briefing) {
         setBriefing(res.briefing);
       } else {
-        setError(res.message || '生成简报失败');
+        setError(res.message || res.error || '生成简报失败');
       }
     } catch (err) {
       console.error('Failed to regenerate briefing:', err);
-      setError('生成简报失败，请检查 LLM 配置');
+      setError(err?.response?.data?.error || err?.message || '生成简报失败，请检查 LLM 配置');
     } finally {
       setLoading(false);
     }

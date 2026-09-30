@@ -242,6 +242,15 @@ class LLMClient:
             result["data"] = data
             return result
         except json.JSONDecodeError as e:
+            # 完整 JSON 之后附带多余文字（模型常见的收尾碎语）：截取首个完整 JSON 值
+            if "Extra data" in str(e):
+                try:
+                    data, _ = json.JSONDecoder().raw_decode(content.lstrip())
+                    logger.warning("LLM JSON 后有多余内容（char %s），已截取首个 JSON 对象", e.pos)
+                    result["data"] = data
+                    return result
+                except json.JSONDecodeError:
+                    pass
             # 字符串未闭合或输出顶到 max_tokens 上限 → 输出被截断，翻倍上限重试一次
             effective_cap = max_tokens or config.LLM_MAX_TOKENS
             completion_tokens = (result.get("usage") or {}).get("completion", 0)
