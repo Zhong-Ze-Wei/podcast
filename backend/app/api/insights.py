@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-AI 紞报 API 路由
+AI 简报 API 路由：三种策略（摘要聚合 / 文稿直析 / 元数据雷达），按策略独立缓存
 """
 
 from flask import Blueprint, request, jsonify, current_app, Response
-from ..services.briefing_service import BriefingService
+from ..services.briefing_service import BriefingService, STRATEGIES
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
+from .decorators import require_auth
 
 insights_bp = Blueprint("insights", __name__)
 
@@ -17,13 +18,28 @@ def get_briefing_service():
     return BriefingService(db)
 
 
+def _requested_strategy():
+    strategy = (request.args.get("strategy") or "summary").strip().lower()
+    if strategy not in STRATEGIES:
+        return None, jsonify({
+            "success": False,
+            "error_code": "INVALID_STRATEGY",
+            "message": f"未知简报策略：{strategy}（可选：{'、'.join(STRATEGIES)}）",
+        }), 400
+    return strategy, None, None
+
+
 @insights_bp.route("/briefing", methods=["GET"])
+@require_auth
 def get_briefing():
-    """获取今日 AI 简报（有缓存则返回缓存）"""
+    """获取今日 AI 简报（有缓存则返回缓存；strategy 决定取材路线）"""
+    strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
     try:
         service = get_briefing_service()
         if not is_ai_analysis_enabled():
-            cached = service.get_cached()
+            cached = service.get_cached(strategy)
             if cached:
                 return jsonify({
                     "success": True,
@@ -37,7 +53,7 @@ def get_briefing():
                 "message": AI_DISABLED_MESSAGE,
                 "ai_analysis_enabled": False,
             })
-        result = service.get_or_generate(force=False)
+        result = service.get_or_generate(force=False, strategy=strategy)
         return jsonify(result)
     except Exception as e:
         current_app.logger.error(f"Failed to get briefing: {e}")
@@ -45,8 +61,12 @@ def get_briefing():
 
 
 @insights_bp.route("/briefing", methods=["POST"])
+@require_auth
 def regenerate_briefing():
-    """强制重新生成今日 AI 简报"""
+    """强制重新生成今日 AI 简报（可指定 strategy）"""
+    strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
     try:
         if not is_ai_analysis_enabled():
             return jsonify({
@@ -55,7 +75,7 @@ def regenerate_briefing():
                 "message": AI_DISABLED_MESSAGE,
             }), 423
         service = get_briefing_service()
-        result = service.get_or_generate(force=True)
+        result = service.get_or_generate(force=True, strategy=strategy)
         return jsonify(result)
     except Exception as e:
         current_app.logger.error(f"Failed to regenerate briefing: {e}")
@@ -63,11 +83,15 @@ def regenerate_briefing():
 
 
 @insights_bp.route("/briefing/export", methods=["GET"])
+@require_auth
 def export_briefing_pdf():
-    """导出今日简报为 PDF"""
+    """导出今日简报为 PDF（可指定 strategy）"""
+    strategy, error_resp, code = _requested_strategy()
+    if error_resp:
+        return error_resp, code
     try:
         service = get_briefing_service()
-        cached = service.get_cached()
+        cached = service.get_cached(strategy)
 
         if not cached:
             return jsonify({"error": "暂无简报数据，请先生成简报"}), 404
@@ -116,11 +140,12 @@ def export_briefing_pdf():
         pdf_bytes = HTML(string=full_html).write_pdf()
 
         date_str = cached.get("date", "today")
+        strategy_tag = f"-{strategy}" if strategy != "summary" else ""
         return Response(
             pdf_bytes,
             mimetype="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="podcast-briefing-{date_str}.pdf"'
+                "Content-Disposition": f'attachment; filename="podcast-briefing-{date_str}{strategy_tag}.pdf"'
             },
         )
 

@@ -8,8 +8,17 @@ import { settingsApi } from '../../services/api';
 /**
  * AIBriefingView - AI每日简报视图
  *
- * 基于用户订阅的播客数据，由后端 LLM 生成每日简报。
+ * 三种取材策略并列（tab 切换，独立缓存独立生成）：
+ * - summary    摘要聚合：AI 摘要优先，RSS 简介兜底（原有逻辑）
+ * - transcript 文稿直析：无摘要的单集从文稿两步提取要点（先逐集压缩再聚合）
+ * - metadata   元数据雷达：标题 + 简介，零依赖最快
  */
+const STRATEGY_TABS = [
+  { id: 'summary', label: '摘要聚合', hint: 'AI 摘要优先，RSS 简介兜底（原有逻辑）' },
+  { id: 'transcript', label: '文稿直析', hint: '无摘要的单集自动从文稿现场提取要点' },
+  { id: 'metadata', label: '元数据雷达', hint: '只看标题 + 简介，零依赖最快出结果' },
+];
+
 const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const { t } = useTranslation();
   const [aiEnabled, setAiEnabled] = useState(true);
@@ -19,12 +28,13 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [strategy, setStrategy] = useState('summary');
 
   const loadBriefing = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await insightsApi.getBriefing();
+      const res = await insightsApi.getBriefing(strategy);
       if (res.success && res.briefing) {
         setBriefing(res.briefing);
       } else {
@@ -37,7 +47,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [strategy]);
 
   useEffect(() => {
     loadBriefing();
@@ -51,7 +61,7 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await insightsApi.regenerateBriefing();
+      const res = await insightsApi.regenerateBriefing(strategy);
       if (res.success && res.briefing) {
         setBriefing(res.briefing);
       } else {
@@ -71,53 +81,76 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
       return;
     }
     try {
-      await insightsApi.exportPdf();
+      await insightsApi.exportPdf(strategy);
     } catch (err) {
       setError('PDF 导出失败，请重试');
     }
   };
 
-  // Loading 状态
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-black">
-        <div className="text-center">
-          <Sparkles className="w-12 h-12 text-indigo-500 animate-pulse mx-auto mb-4" />
-          <p className="text-zinc-400">AI 正在分析你订阅的播客...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // 错误或无数据
-  if (error || !briefing?.briefing) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-black">
-        <div className="text-center max-w-md">
-          <AlertCircle className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
-          <p className="text-zinc-400 mb-4">{error || '暂无简报数据'}</p>
-          <button
-            onClick={handleRegenerate}
-            disabled={!aiEnabled}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-lg transition-colors"
-          >
-            {aiEnabled ? '生成今日简报' : 'AI 分析已冻结'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const data = briefing.briefing;
+  const data = briefing?.briefing || {};
   const summary = data.summary || {};
   const hotTopics = data.hotTopics || [];
   const newConcepts = data.newConcepts || [];
   const trends = data.trends || { topics: [] };
   const recommended = data.recommended || [];
   const meta = data._meta || {};
+  const activeTab = STRATEGY_TABS.find(tab => tab.id === strategy);
+  const hasContent = !!(data.summary || data.hotTopics || data.recommended);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-black custom-scrollbar">
+    <div className="flex-1 flex flex-col overflow-hidden bg-black">
+      {/* 策略 tab */}
+      <div className="border-b border-zinc-900 bg-zinc-950/70 px-4 md:px-8 pt-5 shrink-0">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Sparkles className="w-5 h-5 text-indigo-400 shrink-0" />
+            {STRATEGY_TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setStrategy(tab.id)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  strategy === tab.id
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+                title={tab.hint}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-zinc-600 mt-2 mb-3">
+            {activeTab?.hint}
+            {strategy === 'transcript' && ' · 两步生成（先逐集压缩再聚合），首次较慢'}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Sparkles className="w-12 h-12 text-indigo-500 animate-pulse mx-auto mb-4" />
+            <p className="text-zinc-400">
+              {strategy === 'transcript' ? '两步生成中：先逐集压缩文稿，再聚合分析…' : 'AI 正在分析你订阅的播客...'}
+            </p>
+          </div>
+        </div>
+      ) : (error || !hasContent) ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <AlertCircle className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
+            <p className="text-zinc-400 mb-4">{error || '暂无简报数据'}</p>
+            <button
+              onClick={handleRegenerate}
+              disabled={!aiEnabled}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-lg transition-colors"
+            >
+              {aiEnabled ? '生成今日简报' : 'AI 分析已冻结'}
+            </button>
+          </div>
+        </div>
+      ) : (
+      <div className="flex-1 overflow-y-auto bg-black custom-scrollbar">
       <div className="max-w-4xl mx-auto px-8 py-12">
         {/* 头部 */}
         <div className="mb-10">
@@ -151,8 +184,8 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
           </div>
           <p className="text-zinc-500 text-lg">
             {briefing.date} · 分析了 {summary.totalEpisodes || 0} 个单集 · 提取了 {summary.keyInsights || 0} 个核心洞察
-            {meta.ai_summarized_count > 0 && (
-              <span className="text-zinc-600"> · 其中 {meta.ai_summarized_count} 个含 AI 深度摘要</span>
+            {meta.material_note && (
+              <span className="text-zinc-600"> · {meta.material_note}</span>
             )}
           </p>
         </div>
@@ -340,6 +373,8 @@ const AIBriefingView = ({ onEpisodeClick, onPlay }) => {
           </section>
         )}
       </div>
+      </div>
+      )}
     </div>
   );
 };
