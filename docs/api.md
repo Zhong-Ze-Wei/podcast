@@ -180,12 +180,13 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 
 ## Insights — `/api/insights`（3 路由）
 
-三端点均需登录，支持 `strategy` 参数（默认 `summary`）：`summary`（摘要聚合，原有逻辑）/ `transcript`（文稿直析：无摘要单集逐集 LLM 压缩再聚合，两步较慢）/ `metadata`（元数据雷达：标题+简介，零依赖最快）。缓存按 `date + strategy` 独立。
+三端点均需登录，支持 `strategy`（默认 `summary`：摘要聚合 / `transcript` 文稿直析 / `metadata` 元数据雷达）与 `days`（时间窗口 1-30，默认 7）参数。缓存按 `date + strategy + days` 独立。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
 | GET | `/insights/briefing` | 今日简报（无缓存自动生成） | 登录 |
 | POST | `/insights/briefing` | 强制重新生成 | 登录 |
+| GET | `/insights/briefing/count` | 窗口内剧集统计（滑块预览用）：`{total, with_transcript, with_summary}`，零 LLM | 登录 |
 | GET | `/insights/briefing/export` | 导出 PDF | 登录 |
 
 ## Video Import — `/api/video-import`（1 路由）

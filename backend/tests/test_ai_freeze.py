@@ -37,10 +37,10 @@ def test_get_briefing_returns_cached_briefing_when_ai_analysis_is_disabled(monke
     cached = {"date": "2026-05-17", "briefing": {"summary": {"totalEpisodes": 1}}}
 
     class FakeService:
-        def get_cached(self, strategy="summary"):
+        def get_cached(self, strategy="summary", days=7):
             return cached
 
-        def get_or_generate(self, force=False, strategy="summary"):
+        def get_or_generate(self, force=False, strategy="summary", days=7):
             raise AssertionError("generation should not be used")
 
     monkeypatch.setattr(insights, "get_briefing_service", lambda: FakeService())
@@ -58,10 +58,10 @@ def test_get_briefing_does_not_generate_when_ai_analysis_is_disabled(monkeypatch
     app = make_app(enabled=False)
 
     class FakeService:
-        def get_cached(self, strategy="summary"):
+        def get_cached(self, strategy="summary", days=7):
             return None
 
-        def get_or_generate(self, force=False, strategy="summary"):
+        def get_or_generate(self, force=False, strategy="summary", days=7):
             raise AssertionError("generation should not be used")
 
     monkeypatch.setattr(insights, "get_briefing_service", lambda: FakeService())
