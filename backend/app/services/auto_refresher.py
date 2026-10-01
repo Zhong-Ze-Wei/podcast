@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from .task_queue import task_queue
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class FeedAutoRefresher:
     - 使用后台线程，不阻塞主服务
     """
 
-    def __init__(self, db, interval_hours=1, stale_threshold_hours=6):
+    def __init__(self, db, interval_hours=1, stale_threshold_hours=6, queue=task_queue):
         """
         Args:
             db: MongoDB数据库实例
@@ -32,6 +33,7 @@ class FeedAutoRefresher:
             stale_threshold_hours: 超过多久视为需要更新（小时）
         """
         self.db = db
+        self.queue = queue
         self.interval_hours = interval_hours
         self.stale_threshold = timedelta(hours=stale_threshold_hours)
         self._running = False
@@ -102,23 +104,35 @@ class FeedAutoRefresher:
             try:
                 self._refresh_single_feed(feed)
             except Exception as e:
-                self.db.feeds.update_one(
-                    {"_id": feed["_id"]},
-                    {"$set": {
-                        "status": Feed.STATUS_ERROR,
-                        "check_error": str(e),
-                        "last_checked": datetime.utcnow(),
-                    }},
-                )
                 logger.error(
                     f"Failed to refresh feed {feed.get('title', 'Unknown')}: {e}"
                 )
 
     def _refresh_single_feed(self, feed):
-        """Use the same synchronization workflow as a manual refresh."""
+        """Queue the same synchronization operation as a manual refresh."""
         from .feed_sync_service import FeedSyncService
 
-        return FeedSyncService(self.db).refresh(str(feed["_id"]))
+        from app.models.feed import Feed
+
+        feed_id = str(feed["_id"])
+
+        def refresh(progress_callback=None):
+            return FeedSyncService(self.db).refresh(feed_id, progress_callback)
+
+        def record_failure(error):
+            self.db.feeds.update_one(
+                {"_id": feed["_id"]},
+                {"$set": {
+                    "status": Feed.STATUS_ERROR,
+                    "check_error": str(error),
+                    "last_checked": datetime.utcnow(),
+                }},
+            )
+
+        return self.queue.submit_unique(
+            "refresh", refresh, dedup_key=f"refresh:{feed_id}",
+            feed_id=feed_id, owner_id=feed.get("owner_id"), on_failure=record_failure,
+        )
 
 
 # 全局实例
