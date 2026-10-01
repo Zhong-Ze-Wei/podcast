@@ -92,7 +92,7 @@ class EpisodeQueryService:
         states = get_states(self.db, user_id, ids)
         feeds = {doc["_id"]: doc for doc in self.db.feeds.find({"_id": {"$in": list({doc["feed_id"] for doc in documents if doc.get("feed_id")})}}, {"title": 1})}
         tasks = {}
-        for task in self.db.tasks.find({"episode_id": {"$in": [str(value) for value in ids]}, "status": {"$in": ACTIVE_STATUSES}, "task_type": {"$in": ["download", "transcribe", "summarize"]}}, {"task_id": 1, "episode_id": 1, "task_type": 1, "status": 1, "progress": 1, "progress_message": 1}):
+        for task in self.db.tasks.find({"episode_id": {"$in": [str(value) for value in ids]}, "status": {"$in": ACTIVE_STATUSES}, "task_type": {"$in": ["download", "transcribe", "summarize", "translate"]}}, {"task_id": 1, "episode_id": 1, "task_type": 1, "status": 1, "progress": 1, "progress_message": 1}):
             tasks.setdefault(task["episode_id"], []).append({key: task.get(key) for key in ("task_id", "task_type", "status", "progress", "progress_message")})
         result = []
         for doc in documents:

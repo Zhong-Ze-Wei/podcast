@@ -12,6 +12,7 @@ OPERATIONS = {
     "download": (Episode.STATUS_DOWNLOADING, "last_download_error"),
     "transcribe": (Episode.STATUS_TRANSCRIBING, "last_transcript_error"),
     "summarize": (Episode.STATUS_SUMMARIZING, "last_summary_error"),
+    "translate": (Episode.STATUS_SUMMARIZING, "last_summary_error"),
 }
 
 

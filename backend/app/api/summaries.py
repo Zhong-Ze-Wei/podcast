@@ -263,19 +263,36 @@ def translate_summary(episode_id):
             "summary": Summary.to_response(summary, template)
         })
 
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
+    if not episode:
+        return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+    processing = EpisodeProcessingService(db, task_queue)
+    dedup_key = f"translate:{oid}:{summary.get('template_name', '')}"
+    try:
+        existing = processing.active_task_id(oid, "translate", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued", "message": "Translation started"})
+
     def do_translate(progress_callback=None):
-        return _translate_sync(
+        result = _translate_sync(
             episode_id=str(oid),
             template_name=summary.get("template_name"),
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
         )
+        processing.restore_status(oid, "translate", None)
+        return result
 
-    task_id = task_queue.submit(
-        task_type="translate",
-        func=do_translate,
-        episode_id=str(oid),
-        owner_id=current_owner_id()
-    )
+    try:
+        task_id = processing.submit(
+            episode, "translate", dedup_key, do_translate, current_owner_id(),
+            on_failure=lambda error: processing.restore_status(oid, "translate", error),
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({
         "task_id": task_id,
