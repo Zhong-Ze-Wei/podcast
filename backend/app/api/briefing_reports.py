@@ -6,7 +6,7 @@ from flask import Blueprint, Response, current_app, request, send_file
 from urllib.parse import urlsplit
 from pymongo.errors import PyMongoError
 
-from .decorators import current_owner_id, require_auth
+from .decorators import current_owner_id, require_auth, require_role
 from .utils import error_response, success_response, get_pagination_params, paginated_response
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from ..services.briefing_report_service import BriefingReportService, INTERESTS, VARIANTS
@@ -91,7 +91,7 @@ def favorites():
 
 
 @briefing_reports_bp.route("/favorites/<item_id>", methods=["PUT", "DELETE"])
-@require_auth
+@require_role("user", "admin")
 def favorite(item_id):
     if not valid_item_id(item_id):
         return error_response("条目编号无效", "INVALID_ITEM_ID", 400)
@@ -109,7 +109,7 @@ def favorite(item_id):
 
 
 @briefing_reports_bp.route("/favorites/import", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def import_favorites():
     options = request.get_json(silent=True)
     if not isinstance(options, dict):
