@@ -20,7 +20,7 @@ import SettingsView from './components/views/SettingsView';
 import BriefingReportsView from './components/views/BriefingReportsView';
 import { getExternalPlaybackUrl, getPlaybackPosition } from './utils/briefingPlayback';
 import { parseAppPath } from './utils/appRoutes';
-import { readBriefingRoute, briefingPath, settingsReturnContext } from './utils/readingContext';
+import { readBriefingRoute, briefingPath, settingsReturnContext, mergeBriefingNavigation } from './utils/readingContext';
 import { createFeedRefreshAction } from './utils/taskActions';
 import AuthView from './components/views/AuthView';
 // Card components
@@ -292,7 +292,7 @@ export default function App() {
 
   const handleBriefingNavigate = (section, options = {}) => {
     if (section === 'settings') { openSettings({ context: briefingContextRef.current, section: 'briefing' }); return; }
-    const context = { ...briefingContextRef.current, ...options, ...(options.periodType && options.periodType !== briefingContextRef.current.periodType ? { periodStart: null } : {}) };
+    const context = mergeBriefingNavigation(briefingContextRef.current, options);
     navigateToView(section === 'saved' ? 'briefingSaved' : 'briefing', { path: briefingPath(section, context) });
     setBriefingNavigation({ ...context });
     setMobileSidebarOpen(false);
