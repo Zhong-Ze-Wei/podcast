@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { parseAppPath } from './appRoutes.js';
 import assert from 'node:assert/strict';
-import { briefingPath, readBriefingRoute, captureReadingPosition, restoreReadingPosition, settingsReturnContext } from './readingContext.js';
+import { briefingPath, readBriefingRoute, captureReadingPosition, restoreReadingPosition, settingsReturnContext, mergeBriefingNavigation } from './readingContext.js';
 
 test('简报链接完整保留周期、内容模式、标签和单篇阅读，可独立刷新', () => {
   const context = { periodType: 'month', periodStart: '2026-09-01', mode: 'quotes', selectedTag: 'AI', showAll: true, readingSource: 'source-9' };
@@ -38,4 +38,11 @@ test('旧简报设置与实验路由进入统一设置 AI 分类，节目详情�
   assert.deepEqual(parseAppPath('/briefing/settings'), {type:'view',view:'settings',section:'briefing',mode:'ai-briefing'});
   assert.deepEqual(parseAppPath('/briefing-lab/settings'), {type:'view',view:'settings',section:'briefing',mode:'ai-briefing'});
   assert.deepEqual(parseAppPath('/episodes/e1'), {type:'episode',id:'e1'});
+});
+
+test('任务导航切换月报时显式周期起点优先；侧栏只选择类型时回到该类型当前周期', () => {
+  const current = {periodType:'week',periodStart:'2026-09-21',mode:'core'};
+  assert.equal(mergeBriefingNavigation(current,{periodType:'month',periodStart:'2026-09-01',mode:'quotes'}).periodStart,'2026-09-01');
+  assert.equal(mergeBriefingNavigation(current,{periodType:'month'}).periodStart,null);
+  assert.equal(mergeBriefingNavigation(current,{mode:'concepts'}).periodStart,'2026-09-21');
 });
