@@ -298,6 +298,53 @@ def test_generation_queues_frozen_scope_and_active_interests_not_inline_model(cl
     assert captured["scope"]["interests"] == ["LLM"]
     assert captured["scope"]["period"]["total_count"] == 1
     assert captured["scope"]["corpus"]["sources"][0]["full_text"] == TEXT
+    assert captured["report_period"] == captured["scope"]["period"]
+
+
+@pytest.mark.parametrize("active_period,active_owner,status,expected", [
+    ({"type": "month", "start": "2026-10-01"}, "same", "processing", 202),
+    ({"type": "week", "start": "2026-09-28"}, "same", "pending", 202),
+    ({"type": "month", "start": "2026-09-01"}, "same", "processing", 409),
+    ({"type": "month", "start": "2026-09-01"}, "same", "pending", 409),
+    ({"type": "month", "start": "2026-09-01"}, "same", "failed", 202),
+    ({"type": "month", "start": "2026-09-01"}, "other", "processing", 202),
+    (None, "same", "processing", 409),
+])
+def test_other_period_generation_does_not_block_september(client, monkeypatch, active_period, active_owner, status, expected):
+    app, http, headers, service = client
+    add_episode(app.db, datetime(2026, 9, 29), "september", TEXT)
+    monkeypatch.setattr(api, "is_ai_analysis_enabled", lambda: True)
+    active_task = {"owner_id": service.owner_id if active_owner == "same" else "other-owner", "status": status}
+    if active_period is not None:
+        active_task["report_period"] = active_period
+    monkeypatch.setattr(api.task_queue, "get_all_tasks", lambda **kwargs: [active_task])
+    submitted = []
+    monkeypatch.setattr(api.task_queue, "submit", lambda **kwargs: submitted.append(kwargs) or "september-task")
+    response = http.post("/api/briefing-reports/modes/generate", headers=headers,
+                         json={"mode": "core", "period_type": "month", "period_start": "2026-09-01"})
+    assert response.status_code == expected
+    assert len(submitted) == (1 if expected == 202 else 0)
+    if submitted:
+        assert submitted[0]["scope"]["period"]["start"] == "2026-09-01"
+
+
+def test_october_generation_preserves_september_reports_and_fingerprint(tmp_path, monkeypatch):
+    service = scope_service(tmp_path)
+    add_episode(service.db, datetime(2026, 9, 29), "september", TEXT)
+    monkeypatch.setattr(service.report_service.lab, "_model_call", lambda system, prompt, validator, **kwargs: (validator({"matches": []}), {"usage": {"total": 1}}))
+    modes = BriefingModesService(owner_id=service.owner_id, report_service=service.report_service, scope_service=service)
+    september = service.collect("month", "2026-09-01", ["历史"])
+    september_reports = modes.generate(scope=september)["reports"]
+    files = {report["id"]: (modes.root / "reports" / f"{report['id']}.json").read_bytes() for report in september_reports.values()}
+    add_episode(service.db, datetime(2026, 10, 1), "october", "这是十月的节目正文，讨论完全不同的内容。")
+    october = service.collect("month", "2026-10-01", ["历史"])
+    october_reports = modes.generate(scope=october)["reports"]
+    unchanged = service.collect("month", "2026-09-01", ["历史"])
+    assert unchanged["selection_key"] == september["selection_key"] != october["selection_key"]
+    assert {report["id"] for report in september_reports.values()}.isdisjoint(report["id"] for report in october_reports.values())
+    for mode, report in modes.snapshot(scope=unchanged)["reports"].items():
+        assert report["id"] == september_reports[mode]["id"]
+        assert (modes.root / "reports" / f"{report['id']}.json").read_bytes() == files[report["id"]]
 
 
 def test_scoped_validation_and_no_text_do_not_create_task(client, monkeypatch):
