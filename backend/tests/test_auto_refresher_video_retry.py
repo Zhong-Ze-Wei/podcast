@@ -32,6 +32,7 @@ class FeedCollection(MockCollection):
 
 def make_db(monkeypatch):
     monkeypatch.setattr("app.services.auto_refresher.datetime", FrozenDatetime)
+    monkeypatch.setattr("app.services.feed_sync_service.datetime", FrozenDatetime)
     db = MockDB()
     db.feeds = FeedCollection("feeds")
     return db

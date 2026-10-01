@@ -143,6 +143,9 @@ def test_create_feed_routes_youtube_channel_url(monkeypatch):
 
 
 def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
+    monkeypatch.setenv("BILI_SESSDATA", "test-session")
+    monkeypatch.setattr("app.services.bilibili_service.Config.BILI_SESSDATA", "test-session")
+    monkeypatch.setattr(BilibiliService, "_wbi_key_cache", {"key": None, "fetched_at": 0})
     """串台校验：字幕时间轴超出视频时长 → 拒收"""
     app = make_auth_app()
 
