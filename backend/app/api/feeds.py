@@ -193,7 +193,7 @@ def _queue_initial_refresh(feed_id, owner_id):
     def do_refresh(progress_callback=None):
         return _refresh_feed_sync(str(feed_id), progress_callback)
 
-    task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id)
+    task_queue.submit_unique(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id, dedup_key=f"refresh:{feed_id}")
 
 
 
@@ -355,7 +355,7 @@ def refresh_feed(feed_id):
     def do_refresh(progress_callback=None):
         return _refresh_feed_sync(str(oid), progress_callback)
 
-    task_id = task_queue.submit(task_type="refresh", func=do_refresh, feed_id=str(oid), owner_id=current_owner_id())
+    task_id = task_queue.submit_unique(task_type="refresh", func=do_refresh, feed_id=str(oid), owner_id=current_owner_id(), dedup_key=f"refresh:{oid}")
 
     return success_response({"task_id": task_id, "status": "queued"})
 

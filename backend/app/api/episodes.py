@@ -17,6 +17,7 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
+from ..services.download_service import DownloadService
 from ..services.user_episode_state import (
     apply_to_response,
     get_states,
@@ -365,117 +366,19 @@ def download_episode(episode_id):
     def do_download(progress_callback=None):
         return _download_episode_sync(str(oid), progress_callback)
 
-    task_id = task_queue.submit(
-        task_type="download", func=do_download, episode_id=str(oid), owner_id=current_owner_id()
-    )
-
-    # 更新状态为下载中
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"status": Episode.STATUS_DOWNLOADING}}
+    # Record processing before submission so a fast worker cannot be overwritten.
+    db.episodes.update_one({"_id": oid}, {"$set": {"status": Episode.STATUS_DOWNLOADING}})
+    task_id = task_queue.submit_unique(
+        task_type="download", func=do_download, episode_id=str(oid), owner_id=current_owner_id(),
+        dedup_key=f"download:{oid}",
+        on_failure=lambda error: DownloadService(db).restore_episode_status(str(oid), error),
     )
 
     return success_response({"task_id": task_id, "status": "queued"})
 
 
 def _download_episode_sync(episode_id: str, progress_callback=None):
-    """同步执行下载"""
-    import os
-    import requests
-    from ..config import Config
-
-    # 限制最大下载文件大小 (500MB)
-    MAX_FILE_SIZE = 500 * 1024 * 1024
-
-    db = get_db()
-    oid = ObjectId(episode_id)
-
-    episode = db.episodes.find_one({"_id": oid})
-    if not episode:
-        raise ValueError("Episode not found")
-
-    audio_url = episode.get("audio_url")
-    if not audio_url:
-        raise ValueError("No audio URL")
-
-    if progress_callback:
-        progress_callback(10)
-
-    # 创建保存目录
-    feed_id = str(episode.get("feed_id"))
-    save_dir = os.path.join(Config.MEDIA_ROOT, "audio", feed_id)
-    os.makedirs(save_dir, exist_ok=True)
-
-    # 生成文件名
-    ext = ".mp3"
-    if "m4a" in audio_url.lower():
-        ext = ".m4a"
-    elif "wav" in audio_url.lower():
-        ext = ".wav"
-    elif "ogg" in audio_url.lower():
-        ext = ".ogg"
-
-    filename = f"{episode_id}{ext}"
-    filepath = os.path.join(save_dir, filename)
-
-    # 下载文件
-    # 部分 CDN（如 Acast sphinx）会拒绝 python-requests 默认 User-Agent，
-    # 需要模拟标准播客客户端
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (compatible; PodcastManager/1.0; "
-            "+https://github.com/podcast-manager)"
-        )
-    }
-    response = requests.get(audio_url, stream=True, timeout=300, headers=headers)
-    response.raise_for_status()
-
-    total_size = int(response.headers.get("content-length", 0))
-
-    # 检查文件大小限制
-    if total_size > MAX_FILE_SIZE:
-        raise ValueError(
-            f"File too large: {total_size / 1024 / 1024:.1f}MB (max {MAX_FILE_SIZE / 1024 / 1024}MB)"
-        )
-
-    downloaded = 0
-
-    with open(filepath, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-                downloaded += len(chunk)
-
-                # 实时检查大小限制
-                if downloaded > MAX_FILE_SIZE:
-                    os.remove(filepath)
-                    raise ValueError(
-                        f"Download exceeded maximum size of {MAX_FILE_SIZE / 1024 / 1024}MB"
-                    )
-
-                if total_size > 0 and progress_callback:
-                    progress = 10 + int(80 * downloaded / total_size)
-                    progress_callback(min(progress, 90))
-
-    if progress_callback:
-        progress_callback(95)
-
-    # 更新episode状态
-    relative_path = os.path.join("audio", feed_id, filename)
-    db.episodes.update_one(
-        {"_id": oid},
-        {
-            "$set": {
-                "status": Episode.STATUS_DOWNLOADED,
-                "local_path": relative_path,
-                "updated_at": datetime.utcnow(),
-            }
-        },
-    )
-
-    if progress_callback:
-        progress_callback(100)
-
-    return {"local_path": relative_path}
+    return DownloadService(get_db()).download(episode_id, progress_callback)
 
 
 def _episode_status_query(status: str):
