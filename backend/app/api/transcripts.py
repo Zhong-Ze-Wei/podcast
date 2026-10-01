@@ -96,7 +96,7 @@ def get_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def create_transcript(episode_id):
     """创建转录任务 (异步) - 使用AssemblyAI直接转录音频URL"""
     db = get_db()
@@ -179,7 +179,7 @@ def create_transcript(episode_id):
     episode_status = episode.get("status", "new")
     dedup_key = f"transcribe:{oid}:{provider}:{requested_language or 'auto'}"
     existing_task = db.tasks.find_one({
-        "episode_id": str(oid), "task_type": "transcribe",
+        "episode_id": str(oid), "task_type": {"$in": ["download", "transcribe", "summarize"]},
         "status": {"$in": ["pending", "processing"]},
     })
     if existing_task:
@@ -188,8 +188,8 @@ def create_transcript(episode_id):
         return error_response("Transcribe task already in progress", "TASK_IN_PROGRESS", 409)
     if episode.get("has_transcript") or episode_status in [Episode.STATUS_TRANSCRIBED, Episode.STATUS_SUMMARIZING, Episode.STATUS_SUMMARIZED]:
         return error_response("Episode already has a transcript", "ALREADY_TRANSCRIBED", 400)
-    if episode_status == Episode.STATUS_DOWNLOADING:
-        return error_response("Episode is being downloaded", "TASK_IN_PROGRESS", 409)
+    if episode_status in Episode.PROCESSING_STATUSES:
+        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
 
     # 提交转录任务
     def do_transcribe(progress_callback=None):
@@ -232,7 +232,7 @@ def create_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>/fetch-video-audio", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def transcribe_video_episode(episode_id):
     """
     视频剧集"立即转写"：yt-dlp 下载音轨 → 本地 Whisper 转写。
@@ -276,8 +276,7 @@ def transcribe_video_episode(episode_id):
 
     existing_task = db.tasks.find_one({
         "episode_id": str(oid),
-        "owner_id": current_owner_id(),
-        "task_type": "transcribe",
+        "task_type": {"$in": ["download", "transcribe", "summarize"]},
         "status": {"$in": ["pending", "processing"]}
     })
     if existing_task:
@@ -366,7 +365,7 @@ def delete_transcript(episode_id):
 
 
 @transcripts_bp.route("/<episode_id>/fetch", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def fetch_external_transcript(episode_id):
     """从外部URL获取转录"""
     db = get_db()

@@ -18,6 +18,8 @@ from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
 from ..services.download_service import DownloadService
+from ..services.episode_query_service import EpisodeQueryService
+from ..services.ai_control import is_ai_analysis_enabled
 from ..services.user_episode_state import (
     apply_to_response,
     get_states,
@@ -68,67 +70,24 @@ def list_episodes():
     db = get_db()
     page, per_page = get_pagination_params()
 
-    # 构建查询条件
-    query = owner_filter()
-
-    # 支持多个状态值 (用逗号分隔: status=transcribing,transcribed)
-    status = request.args.get("status")
-    if status:
-        status_query = _episode_status_query(status)
-        if status_query is not None:
-            query["status"] = status_query
-
-    # 已读/加星是用户个人状态（存 user_episode_states），转为 _id 条件过滤
-    user = current_user()
-    state_condition = user_filter_condition(
-        db,
-        user["id"],
-        is_read=get_bool_param("is_read"),
-        is_starred=get_bool_param("is_starred"),
-    )
-    if state_condition:
-        query.update(state_condition)
-
     feed_id = request.args.get("feed_id")
     if feed_id:
         try:
-            query["feed_id"] = ObjectId(feed_id)
+            feed_id = ObjectId(feed_id)
         except InvalidId:
-            pass
-
-    # 转录/摘要筛选
-    has_transcript = get_bool_param("has_transcript")
-    if has_transcript is not None:
-        query["has_transcript"] = has_transcript
-
-    has_summary = get_bool_param("has_summary")
-    if has_summary is not None:
-        query["has_summary"] = has_summary
-
-    # 查询
-    total = db.episodes.count_documents(query)
-    skip = (page - 1) * per_page
-
-    episodes = list(
-        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
-    )
-
-    # 获取feed标题映射
-    feed_ids = list(set(ep.get("feed_id") for ep in episodes if ep.get("feed_id")))
-    feeds = {f["_id"]: f for f in db.feeds.find(owner_filter({"_id": {"$in": feed_ids}}))}
-
-    # 添加feed_title
-    for ep in episodes:
-        feed = feeds.get(ep.get("feed_id"))
-        ep["feed_title"] = feed.get("title", "") if feed else ""
-
-    states = get_states(db, user["id"], [ep["_id"] for ep in episodes])
-    data = [
-        apply_to_response(Episode.to_response(ep, include_feed_title=True), states.get(ep["_id"]))
-        for ep in episodes
-    ]
-
+            return error_response("Invalid feed ID", "INVALID_ID", 400)
+    service = _query_service(db)
+    try:
+        data, total = service.list(current_user()["id"], request.args, page, per_page, feed_id)
+    except ValueError as error:
+        return error_response(str(error), "INVALID_QUERY", 400)
     return paginated_response(data, page, per_page, total)
+
+
+def _query_service(db):
+    return EpisodeQueryService(db, current_app.config.get("MEDIA_ROOT", "."),
+                               current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False), is_ai_analysis_enabled(),
+                               current_user()["role"] in {"user", "admin"})
 
 
 @episodes_bp.route("/<episode_id>", methods=["GET"])
@@ -146,13 +105,7 @@ def get_episode(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    # 获取feed标题
-    feed = db.feeds.find_one(owner_filter({"_id": episode.get("feed_id")}))
-    episode["feed_title"] = feed.get("title", "") if feed else ""
-
-    user_id = current_user()["id"]
-    state = get_states(db, user_id, [oid]).get(oid)
-    return success_response(apply_to_response(Episode.to_response(episode, include_feed_title=True), state))
+    return success_response(_query_service(db).responses([episode], current_user()["id"])[0])
 
 
 @episodes_bp.route("/<episode_id>", methods=["PUT"])
@@ -303,7 +256,7 @@ def stream_episode_audio(episode_id):
 
 
 @episodes_bp.route("/<episode_id>/download", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def download_episode(episode_id):
     """下载单集音频 (异步)"""
     db = get_db()
@@ -317,50 +270,21 @@ def download_episode(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    # 检查是否可以下载
-    episode_status = episode.get("status", "new")
-    can_redownload_missing_file = (
-        episode_status in [
-            Episode.STATUS_DOWNLOADED,
-            Episode.STATUS_TRANSCRIBED,
-            Episode.STATUS_SUMMARIZED,
-        ]
-        and not _local_audio_file_exists(episode)
-    )
-    if not Episode.can_download(episode_status) and not can_redownload_missing_file:
-        # 如果已经下载过，返回更友好的提示
-        if episode_status in [
-            Episode.STATUS_DOWNLOADED,
-            Episode.STATUS_TRANSCRIBED,
-            Episode.STATUS_TRANSCRIBING,
-            Episode.STATUS_SUMMARIZED,
-            Episode.STATUS_SUMMARIZING,
-        ]:
-            return error_response(
-                "Episode already downloaded", "ALREADY_DOWNLOADED", 400
-            )
-        elif episode_status == Episode.STATUS_DOWNLOADING:
-            return error_response(
-                "Episode is currently downloading", "ALREADY_DOWNLOADING", 400
-            )
-        else:
-            return error_response(
-                "Episode cannot be downloaded in current state", "INVALID_STATE", 400
-            )
-
-    # 检查是否有进行中的任务
-    existing_task = db.tasks.find_one(
-        {
-            "episode_id": str(oid),
-            "owner_id": current_owner_id(),
-            "task_type": "download",
-            "status": {"$in": ["pending", "processing"]},
-        }
-    )
+    existing_task = db.tasks.find_one({
+        "episode_id": str(oid),
+        "task_type": {"$in": ["download", "transcribe", "summarize"]},
+        "status": {"$in": ["pending", "processing"]},
+    })
     if existing_task:
-        return error_response(
-            "Download task already in progress", "TASK_IN_PROGRESS", 409
-        )
+        if existing_task.get("task_type") == "download":
+            return success_response({"task_id": existing_task["task_id"], "status": "queued"})
+        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
+    if _local_audio_file_exists(episode):
+        return error_response("Episode already downloaded", "ALREADY_DOWNLOADED", 400)
+    if episode.get("status") in Episode.PROCESSING_STATUSES:
+        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
+    if not episode.get("audio_url") and not episode.get("guid", "").startswith(("youtube:", "bilibili:")):
+        return error_response("No downloadable audio available", "NO_AUDIO_URL", 400)
 
     # 提交下载任务
     def do_download(progress_callback=None):
