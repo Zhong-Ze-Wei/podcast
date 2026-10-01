@@ -37,3 +37,7 @@ export function restoreReadingPosition(container, position) {
   const top = item ? container.scrollTop + item.getBoundingClientRect().top - container.getBoundingClientRect().top - position.offset : position.top;
   container.scrollTo({ top, behavior: 'instant' });
 }
+
+export function mergeBriefingNavigation(current, options) {
+  return { ...current, ...options, ...(options.periodType && options.periodType !== current.periodType && !Object.hasOwn(options, 'periodStart') ? { periodStart: null } : {}) };
+}
