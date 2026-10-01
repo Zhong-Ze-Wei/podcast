@@ -280,13 +280,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   }, [userId]);
   const hasMaterials = (period?.transcript_count ?? sources.length) > 0;
   useEffect(() => { onNavigationStateChange({ periodType: periodScope.type, mode }); }, [periodScope.type, mode, onNavigationStateChange]);
-  useEffect(() => {
-    if (!navigation) return;
-    setReadingSource(null); setSelectedTag(''); setSelection(null); setEvidenceSelection(null); setPreview(false);
-    if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
-    if (['week', 'month'].includes(navigation.periodType)) setPeriodScope(current => current.type === navigation.periodType ? current : { owner: userId, type: navigation.periodType, start: null });
-    viewRef.current?.scrollTo({ top: 0 });
-  }, [navigation]);
   useEffect(() => { setReadingSource(null); setSelectedTag(''); }, [section]);
   const closeSource = useCallback(() => setSelection(null), []);
   const closePreview = useCallback(() => setPreview(false), []);
@@ -333,6 +326,20 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     const saved = readStored(localStorage, `${storagePrefix}:quotes`, []);
     setSavedQuotes(saved);
   }, [storagePrefix]);
+  useEffect(() => {
+    if (!navigation) return;
+    setReadingSource(null); setSelectedTag(''); setSelection(null); setEvidenceSelection(null); setPreview(false);
+    if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
+    if (['week', 'month'].includes(navigation.periodType)) {
+      const start = navigation.periodStart || null;
+      if (periodScope.owner === userId && periodScope.type === navigation.periodType && (!start || periodScope.start === start)) {
+        reload().catch(err => setError(err.message || '简报暂时无法加载。'));
+      }
+      setPeriodScope(current => current.type === navigation.periodType && (!start || current.start === start)
+        ? current : { owner: userId, type: navigation.periodType, start });
+    }
+    viewRef.current?.scrollTo({ top: 0 });
+  }, [navigation]);
   useEffect(() => {
     if (periodScope.owner !== userId) return;
     let active = true;
