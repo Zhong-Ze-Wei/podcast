@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .llm_client import get_llm_client
+from .llm_client import EmptyLLMResponse, get_llm_client
 
 
 RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime" / "briefing-lab"
@@ -296,13 +296,18 @@ class BriefingLabService:
         attempts = []
         for attempt in range(2):
             options = {"response_schema": response_schema} if response_schema is not None else {}
-            response = client.chat(messages=messages, json_mode=True, max_tokens=max_tokens, temperature=0.2, **options)
+            try:
+                response = client.chat(messages=messages, json_mode=True, max_tokens=max_tokens, temperature=0.2, **options)
+            except EmptyLLMResponse as error:
+                response = error.response
             elapsed += response["elapsed_seconds"]
             for key in usage:
                 usage[key] += response["usage"].get(key, 0)
             record = {"content": response["content"], "model": response["model"], "usage": response["usage"],
                       "finish_reason": response.get("finish_reason"), "elapsed_seconds": response["elapsed_seconds"]}
             try:
+                if not response["content"].strip():
+                    raise ValueError("模型返回空内容")
                 data = validator(parse_model_json(response["content"]))
                 if audit_path is not None:
                     write_json(audit_path, {"created_at": now_iso(), "context": audit_context, "messages": messages,
@@ -317,7 +322,9 @@ class BriefingLabService:
                 if attempt:
                     raise ModelValidationError(f"模型结果未通过依据校验：{error}", attempts) from error
                 instruction = "严格遵守给定JSON Schema的必填字段、类型、枚举和数量约束；引文必须连续逐字复制正文。" if response_schema is not None else "严格复制已有证据ID/引文。"
-                messages.extend([{"role": "assistant", "content": response["content"]}, {"role": "user", "content": f"结果未通过校验：{error}。{instruction}完整返回JSON。"}])
+                if response["content"].strip():
+                    messages.append({"role": "assistant", "content": response["content"]})
+                messages.append({"role": "user", "content": f"结果未通过校验：{error}。{instruction}完整返回JSON。"})
 
     def external_sources(self, focus):
         """有Tavily配置则实时检索；否则使用本次实测保存的一手网页摘读笔记。"""
