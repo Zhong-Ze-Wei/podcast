@@ -1,0 +1,58 @@
+/* 网页与 A4 报告共用的印刷风格。布局测量由 PDF renderer 按列数读取。 */
+.br-layout-paper,
+body.report-style-paper {
+  --briefing-column-count: 1;
+  --briefing-background: #f3f0e9;
+  --briefing-ink: #272521;
+  --briefing-title-color: #302c26;
+  --briefing-copy-color: #696156;
+  --briefing-muted-color: #777168;
+  --briefing-label-color: #7a6b89;
+  --briefing-link-color: #67518b;
+  --briefing-border-color: #d7d2c9;
+  --briefing-frame-color: #d9d5cc;
+  --briefing-header-rule-color: #beb8ad;
+  --briefing-body-font: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;
+  --briefing-display-font: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --briefing-copy-size: 17px;
+  --briefing-quote-size: 23px;
+  --briefing-card-title-size: 24px;
+  --briefing-page-title-size: 23px;
+  --briefing-source-size: 13px;
+  --briefing-copy-line-height: 1.85;
+  --briefing-quote-line-height: 1.8;
+  --briefing-title-line-height: 1.55;
+  --briefing-frame-padding: 34px 52px 30px;
+  --briefing-card-padding: 25px 0 28px;
+  --briefing-column-gap: 0px;
+  --briefing-header-top-rule: 0px;
+}
+
+.br-layout-newspaper,
+body.report-style-newspaper {
+  --briefing-column-count: 2;
+  --briefing-background: #f4eddc;
+  --briefing-ink: #3d3020;
+  --briefing-title-color: #3c3021;
+  --briefing-copy-color: #75624b;
+  --briefing-muted-color: #74624b;
+  --briefing-label-color: #756045;
+  --briefing-link-color: #84643b;
+  --briefing-border-color: #d3c9b7;
+  --briefing-frame-color: #d5c9b4;
+  --briefing-header-rule-color: #514431;
+  --briefing-body-font: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;
+  --briefing-display-font: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --briefing-copy-size: 17px;
+  --briefing-quote-size: 24px;
+  --briefing-card-title-size: 26px;
+  --briefing-page-title-size: 31px;
+  --briefing-source-size: 13px;
+  --briefing-copy-line-height: 1.85;
+  --briefing-quote-line-height: 1.8;
+  --briefing-title-line-height: 1.65;
+  --briefing-frame-padding: 32px 38px;
+  --briefing-card-padding: 28px 0;
+  --briefing-column-gap: 35px;
+  --briefing-header-top-rule: 3px;
+}

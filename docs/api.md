@@ -189,7 +189,7 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | GET | `/insights/briefing/count` | 窗口内剧集统计（滑块预览用）：`{total, with_transcript, with_summary}`，零 LLM | 登录 |
 | GET | `/insights/briefing/export` | 导出 PDF | 登录 |
 
-## 内容报告 — `/api/briefing-reports`（11 路由）
+## 内容报告 — `/api/briefing-reports`（15 个方法）
 
 前端 `/briefing` 使用五种不同内容模式，视觉风格独立切换，单篇解读仍留在AI模式；左侧导航保持原样。读取不触发 LLM，生成复用已校验的全文阅读与抽取记录。旧分类报告和原话精选接口保留兼容。
 
@@ -197,6 +197,10 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | --- | --- | --- | --- |
 | GET | `/briefing-reports/modes` | 五种模式的已保存报告、实际提示词模板、输入说明与材料；读取不调用模型 | 登录 |
 | POST | `/briefing-reports/modes/generate` | 生成当前模式或全部模式，返回 task_id；尊重AI总开关 | 登录 |
+| GET | `/briefing-reports/preferences` | 当前账号的关注话题与自动周报／月报设置；首次读取只返回默认值 | 登录 |
+| PUT | `/briefing-reports/preferences` | 保存关注话题、启用状态与自动报告周期 | 登录 |
+| GET | `/briefing-reports/sources/<source_id>` | 完整文稿、字幕与已有分析，支持稳定节目编号及旧快照编号 | 登录 |
+| GET | `/briefing-reports/reading-theme.css` | 网页与PDF共用的纸面／报刊阅读主题，不包含账号数据 | 公开 |
 | GET | `/briefing-reports/edition` | 最近可见的原话精选与材料元信息，不调用模型 | 登录 |
 | POST | `/briefing-reports/edition/generate` | 按可选主题生成少量精选；返回 task_id | 登录 |
 | GET | `/briefing-reports/reading/<source_id>` | 已保存单篇解读、真实材料、已有候选 | 登录 |
@@ -204,12 +208,18 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | GET | `/briefing-reports` | 材料、抽取覆盖、本人及共享报告、检索配置状态 | 登录 |
 | POST | `/briefing-reports/generate` | 提交生成任务，返回 202 与 task_id；尊重 AI 总开关 | 登录 |
 | GET | `/briefing-reports/tasks/<task_id>` | 本人的报告任务状态、进度和结果 | 登录 |
-| GET | `/briefing-reports/reports/<report_id>/html?pages=1` | 固定版式预览；pages 只允许 1 或 2 | 登录 |
-| GET | `/briefing-reports/reports/<report_id>/pdf?pages=2` | 下载与预览一致的一／两页 PDF | 登录 |
+| GET | `/briefing-reports/reports/<report_id>/html?pages=1&style=paper` | 一／两页预览，style支持paper、newspaper与兼容legacy | 登录 |
+| GET | `/briefing-reports/reports/<report_id>/pdf?pages=2&style=newspaper` | 下载与预览、网页阅读主题一致的一／两页 PDF | 登录 |
 
 生成请求：`{variant: "all" | "overview" | "episodes" | "concepts" | "quotes" | "resources", topic: "可选关键词，最多120字", interests: ["concepts", "quotes", "resources", "backgrounds"], web_enabled: false}`。关注项至少一项；同账号已有报告任务未结束时返回 409。
 
-模式生成请求为 `{mode: "core" | "quotes" | "connections" | "concepts" | "resources" | "all", topic: "可选主题，最多120字"}`。五种模式分别对应核心提要、原话精选、共性与分歧、新词与方法、提到的资料；使用独立生成模板与缓存，缓存位于 `content-modes-v1/reports`。GET 可用 `?topic=` 精确读取该生成主题的已保存结果；默认返回各模式最近可见结果。风格和即时标签筛选只属于前端，不改变取材与模型调用。生成完成的任务结果为 `reports` 映射，每份report.id均可通过上述HTML/PDF端点导出。
+当前模式读取使用 `?period_type=week|month&period_start=YYYY-MM-DD`。按香港自然周／月的节目发布时间取材，按规范化订阅身份和guid去重（标准视频编号可跨同内容订阅识别）；不同RSS的相同guid不合并。响应包含 `period`、日期列表 `periods`、全部材料 `materials`、账号 `preferences` 与五种 `reports`。`total_count` 为总节目数，`transcript_count` 为实际有正文的数量；`selected_count` 在完整正文筛选完成前为null。无对应范围的报告时返回null，不借用其他日期结果。无周期参数的旧GET继续读取固定十篇对照样本。
+
+模式生成请求为 `{mode: "core" | "quotes" | "connections" | "concepts" | "resources" | "all", period_type: "week" | "month", period_start: "YYYY-MM-DD", interests: ["AI", "LLM"], topic: "可选主题，最多120字"}`。interests省略时使用账号启用的关注话题，空列表分析所有实际正文。先逐块阅读正文并校验话题匹配证据，再对相关材料进行五种内容分析。报告按账号、周期、关注组合与实际正文指纹隔离，缓存位于 `content-modes-v1/reports`，旧无周期POST保持兼容。生成结果为 `reports` 映射，report.id可导出HTML/PDF。页面卡片标签与风格只影响阅读，保存的关注话题则影响生成前取材。
+
+偏好PUT为 `{interests: [{label: "AI", enabled: true}], auto_period: null | "week" | "month"}`；最多12个不重复话题，名称1–30字，省略字段保留原值。自动报告从启用后的周期开始，香港时间周一／月初00:05后检查最近结束周期，按最新关注生成五种模式。同周期已有完整结果不重复调用；自动任务持久去重，失败间隔一小时、最多三次，人工生成入口仍可重试。关闭账号自动生成或全局AI开关会阻止新工作；服务重启后补最近符合条件的已结束周期，不批量补历史。后台服务必须运行，运行记录在 `briefing_auto_runs`，生成过程使用既有 `briefing-report` 队列。
+
+动态来源编号为 `ep` 加节目ObjectId，单篇与文稿接口仍支持旧Sxx编号。旧单篇解读仅在guid和完整正文逐字一致时复用，并在响应中重新绑定当前节目编号，不覆盖旧文稿。
 
 兼容的精选请求仍只有 `{topic: "可选主题，最多120字"}`。响应 `edition` 包含已定位的精选原话和最多两条有两篇以上证据的AI归纳；同一份 edition.id 可直接走上述HTML/PDF导出。单篇响应 `reading` 包含一句takeaway、最多三条points及真实提及资料，未生成时为null。个人结果与任务按owner隔离，公共CLI结果可共享；单篇与旧精选缓存位于 `reading-v1/editions` 和 `reading-v1/sources`。生成失败不替换旧缓存。
 
