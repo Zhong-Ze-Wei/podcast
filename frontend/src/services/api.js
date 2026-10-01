@@ -120,7 +120,6 @@ export const adminApi = {
 // Episodes API
 export const episodesApi = {
   list: (params = {}) => api.get('/episodes', { params }),
-  listTranscribed: () => api.get('/episodes', { params: { status: 'downloading,downloaded,transcribing,transcribed,summarizing,summarized', per_page: 1000 } }),
   get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),

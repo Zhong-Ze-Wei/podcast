@@ -88,7 +88,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
 
           <div className="flex items-center justify-between text-xs text-zinc-500 mt-auto">
             <span>{episode.published_at && new Date(episode.published_at).toLocaleDateString()}</span>
-            <StatusBadge status={episode.status} hasTranscript={episode.has_transcript} hasSummary={episode.has_summary} />
+            <StatusBadge status={episode.status} hasTranscript={episode.has_transcript} hasSummary={episode.has_summary} hasLocalAudio={episode.artifacts?.local_audio || Boolean(episode.local_audio_url)} />
           </div>
         </div>
       </div>
@@ -135,7 +135,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
         >
           <Star size={16} fill={episode.is_starred ? 'currentColor' : 'none'} />
         </button>
-        <StatusBadge status={episode.status} hasTranscript={episode.has_transcript} hasSummary={episode.has_summary} />
+        <StatusBadge status={episode.status} hasTranscript={episode.has_transcript} hasSummary={episode.has_summary} hasLocalAudio={episode.artifacts?.local_audio || Boolean(episode.local_audio_url)} />
       </div>
     </div>
   );

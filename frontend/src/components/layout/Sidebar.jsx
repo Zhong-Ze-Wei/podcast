@@ -33,6 +33,7 @@ const Sidebar = ({
   onStarFeed,
   onNoteFeed,
   onFeedClick,
+  feedList,
   hasPlayer,
   currentView,
   viewMode = 'traditional',  // 'traditional' | 'ai-briefing'
@@ -277,6 +278,8 @@ const Sidebar = ({
             )}
           </div>
         ))}
+        {feedList.error && <p role="alert" className="px-3 py-2 text-xs text-red-300">{feedList.error}<button onClick={feedList.reload} className="ml-2 underline">重试</button></p>}
+        {feedList.pagination.has_next && <button disabled={feedList.loading} onClick={feedList.loadMore} className="w-full rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-400">{feedList.loading ? '正在加载…' : '加载更多订阅'}</button>}
       </div>
 
       </>}

@@ -316,8 +316,8 @@
     },
     "app": {
       "description": "应用行为和任务面板偏好会保存在当前浏览器。",
-      "autoRefreshTitle": "自动刷新订阅内容",
-      "autoRefreshDescription": "定时刷新订阅源和单集状态，适合下载、转录和摘要任务运行时保持页面同步。",
+      "autoRefreshTitle": "自动更新页面数据",
+      "autoRefreshDescription": "定时读取后端已保存的订阅和节目结果。订阅内容抓取由后端自动同步或订阅上的刷新操作负责。",
       "taskPollTitle": "任务状态轮询",
       "taskPollDescription": "控制右下角任务旋钮和任务中心检查进度的频率。值越小越实时，值越大越省资源。",
       "taskHistoryTitle": "任务历史范围",
