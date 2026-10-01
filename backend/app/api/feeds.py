@@ -539,10 +539,10 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
                 source=transcript_source,
                 model=transcript.get("model", ""),
             ))
-            db.episodes.update_one(
-                {"_id": existing["_id"]},
-                {"$set": {"status": Episode.STATUS_TRANSCRIBED}},
-            )
+            updates = {"has_transcript": True, "transcript_source": transcript_source}
+            if existing.get("status") not in (Episode.STATUS_SUMMARIZED, Episode.STATUS_SUMMARIZING):
+                updates["status"] = Episode.STATUS_TRANSCRIBED
+            db.episodes.update_one({"_id": existing["_id"]}, {"$set": updates})
             return "backfilled"
         return None
 
@@ -559,6 +559,8 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
     )
     if transcript:
         episode_doc["status"] = Episode.STATUS_TRANSCRIBED
+        episode_doc["has_transcript"] = True
+        episode_doc["transcript_source"] = transcript_source
     if author:
         episode_doc["author"] = author
     result = db.episodes.insert_one(episode_doc)
