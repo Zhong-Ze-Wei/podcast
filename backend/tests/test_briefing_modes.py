@@ -209,6 +209,23 @@ def test_quote_mode_does_not_treat_full_text_claim_fragment_as_complete_quote(tm
         validate_mode(results(cards)["quotes"], "quotes", cards, corpus)
 
 
+def test_selected_english_evidence_can_add_translation_but_cannot_rebind_original(tmp_path):
+    service = modes_service(tmp_path)
+    corpus, cards, _ = service._material()
+    english = {**cards[0], "quote": "Software engineering means understanding a complete system.", "translation": ""}
+    data = results(cards)["core"]
+    data["items"][0]["evidence_translations"] = {english["id"]: "软件工程意味着理解一个完整的系统。"}
+    item = validate_mode(data, "core", [english], corpus)["items"][0]
+    assert item["evidence"][0]["quote"] == english["quote"]
+    assert item["evidence"][0]["translation"] == "软件工程意味着理解一个完整的系统。"
+    data["items"][0].pop("evidence_translations")
+    with pytest.raises(ValueError, match="非空忠实中文译文"):
+        validate_mode(data, "core", [english], corpus)
+    data["items"][0]["evidence_translations"] = {"another-episode": "错误引用的译文"}
+    with pytest.raises(ValueError, match="本条已选"):
+        validate_mode(data, "core", [english], corpus)
+
+
 @pytest.fixture
 def client():
     app = make_auth_app((api.briefing_reports_bp, "/api/briefing-reports"))

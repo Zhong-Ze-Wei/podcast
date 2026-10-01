@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.services.briefing_report_pdf import create_report_pdf, render_report_html, _chrome_path, _wait_debugger_address
+from app.services.briefing_report_pdf import create_report_pdf, render_report_html, _chrome_path, _wait_debugger_address, _PrintBrowser
 
 
 class ReportParser(HTMLParser):
@@ -14,6 +14,7 @@ class ReportParser(HTMLParser):
         self.cards = []
         self.counts = {}
         self.links = []
+        self.source_index = []
         self.feed(content)
 
     def handle_starttag(self, tag, attrs):
@@ -24,6 +25,8 @@ class ReportParser(HTMLParser):
             self.cards.append(attrs["data-card-id"])
         if tag == "a":
             self.links.append(attrs.get("href"))
+        if attrs.get("class") == "index-item":
+            self.source_index.append(attrs["data-source-id"])
 
 
 def example_report(variant):
@@ -265,3 +268,95 @@ def test_reading_pdf_omits_common_thread_when_its_evidence_cannot_fit():
     assert ReportParser(content).counts == {"selected": 2, "omitted": 1}
     assert quotes[0]["quote"] not in content
     assert thread_text not in content
+
+
+@pytest.mark.parametrize("style,columns,background,quote_size", [
+    ("paper", 1, "rgb(243, 240, 233)", "23px"),
+    ("newspaper", 2, "rgb(244, 237, 220)", "24px"),
+])
+@pytest.mark.parametrize("pages", [1, 2])
+def test_shared_print_styles_have_actual_columns_readable_type_and_exact_pages(style, columns, background, quote_size, pages):
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:10]
+    for quote in quotes:
+        quote.update(title="", brief="谈工作中的责任边界。")
+    report.update(mode_report=True, mode="quotes", reading_edition=True,
+                  sections=[{"id": "quotes", "items": quotes}])
+    content = render_report_html(report, pages, style=style)
+    parser = ReportParser(content)
+    assert parser.counts["selected"] > 0
+    assert parser.counts["selected"] + parser.counts["omitted"] == len(quotes)
+    assert all(quote["quote"] in content for quote in quotes if quote["id"] in parser.cards)
+    pdf = create_report_pdf(report, pages, style=style)
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == pages
+    with _PrintBrowser() as browser:
+        browser.set_html(content)
+        appearance = browser.command("Runtime.evaluate", {"expression": """(() => ({
+          columns: [...document.querySelectorAll('.report-page')].map(page => page.querySelectorAll('.column').length),
+          background: getComputedStyle(document.querySelector('.report-page')).backgroundColor,
+          quoteSize: getComputedStyle(document.querySelector('blockquote')).fontSize,
+          cardBorder: getComputedStyle(document.querySelector('.card')).borderLeftWidth
+        }))()""", "returnByValue": True}, session=True)["result"]["value"]
+        assert appearance == {"columns": [columns] * pages, "background": background,
+                              "quoteSize": quote_size, "cardBorder": "0px"}
+        metrics = browser.measure()
+        assert all(not page["overflow"] and max(page["columns"]) <= page["available"] + 1 for page in metrics["pages"])
+    if pages == 2:
+        assert 'class="card quote-card"' in content.split('data-page="2"', 1)[1]
+        second_page = content.split('data-page="2"', 1)[1]
+        assert second_page.index('class="columns"') < second_page.index("本次材料索引")
+
+
+@pytest.mark.parametrize("style", ["paper", "newspaper"])
+def test_monthly_print_index_only_lists_included_sources_with_exact_boundary_and_period_link(style):
+    report = example_report("overview")
+    sources = [{"id": f"S{i}", "episode_id": f"episode-{i}", "feed": f"播客 {i}",
+                "title": "完整节目标题" + ("与一段需要换行的较长说明" * (i % 6)),
+                "url": f"https://example.com/episode-{i}"} for i in range(200)]
+    cards = [{"id": f"core-{i}", "kind": "insight", "title": f"判断 {i}",
+              "text": "具体的判断来自本期的实际讨论。", "source_id": sources[i]["id"],
+              "episode_id": sources[i]["episode_id"], "start": 61} for i in range(20)]
+    report.update(mode_report=True, mode="core", sources=sources, coverage={"sources": 200},
+                  sections=[{"id": "core", "items": cards}], interests=["AI", "LLM"],
+                  period={"type": "month", "start": "2026-09-01", "label": "2026年9月 · 9月1日—9月30日",
+                          "total_count": 250, "transcript_count": 200})
+    content = render_report_html(report, pages=2, style=style)
+    parser = ReportParser(content)
+    selected_sources = {card["source_id"] for card in cards if card["id"] in parser.cards}
+    assert set(parser.source_index).issubset(selected_sources)
+    assert 0 < len(parser.source_index) <= 8
+    assert f"PDF 收录 {len(selected_sources)} 期 · 相关文稿 200 期 · 未收录 {200 - len(selected_sources)} 期" in content
+    assert f"索引未列 {len(selected_sources) - len(parser.source_index)} 期收录来源" in content
+    assert parser.counts["selected"] + parser.counts["omitted"] == len(cards)
+    assert "2026年9月 · 9月1日—9月30日" in content
+    assert "关注：AI、LLM" in content
+    assert "200 期相关节目" in content
+    assert "本期 250 期 / 200 期有文稿" in content
+    assert "http://localhost:3002/briefing?period_type=month&period_start=2026-09-01" in parser.links
+    assert "http://localhost:3002/episodes/episode-0?t=61" in parser.links
+    assert len(re.findall(rb"/Type\s*/Page\b", create_report_pdf(report, pages=2, style=style))) == 2
+
+
+def test_print_style_changes_cache_identity_and_invalid_style_never_opens_browser(monkeypatch):
+    report = example_report("resources")
+    paper = render_report_html(report, style="paper")
+    newspaper = render_report_html(report, style="newspaper")
+    assert 'class="report-style-paper"' in paper
+    assert 'class="report-style-newspaper"' in newspaper
+    assert paper != newspaper
+    monkeypatch.setattr("app.services.briefing_report_pdf._PrintBrowser", Mock(side_effect=AssertionError("不应启动浏览器")))
+    with pytest.raises(ValueError, match="未知报告风格"):
+        create_report_pdf(report, style="unsupported")
+
+
+def test_quote_mode_measures_full_report_instead_of_only_homepage_six_items():
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:7]
+    for quote in quotes[:6]:
+        quote["quote"] *= 300
+    quotes[6].update(title="", brief="谈具体的工作方法。")
+    report.update(mode_report=True, mode="quotes", reading_edition=True,
+                  sections=[{"id": "quotes", "items": quotes}])
+    content = render_report_html(report, style="paper")
+    assert ReportParser(content).counts == {"selected": 1, "omitted": 6}
+    assert quotes[6]["quote"] in content

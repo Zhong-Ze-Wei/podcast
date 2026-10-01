@@ -89,13 +89,14 @@ def validate_extraction(data, chunk):
 
 
 class BriefingReportService:
-    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None):
+    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None, corpus=None):
         self.root = Path(runtime_dir) if runtime_dir else RUNTIME_DIR
         self.lab = BriefingLabService(runtime_dir=lab_runtime_dir, client_factory=client_factory, owner_id=owner_id)
         self.owner_id = owner_id
+        self._corpus = corpus
 
     def corpus(self):
-        return self.lab.corpus()
+        return self._corpus if self._corpus is not None else self.lab.corpus()
 
     def _chunk_path(self, source, chunk):
         digest = hashlib.sha256(source["full_text"].encode()).hexdigest()[:20]

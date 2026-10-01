@@ -89,6 +89,44 @@ body.reading-edition { font-size: 11pt; }
 .reading-edition .source-index { margin: 0 0 5mm; }
 """
 
+THEME_PATH = Path(__file__).resolve().parents[1] / "static" / "briefing-reading-theme.css"
+PRINT_THEME_CSS = """
+body.report-style-paper, body.report-style-newspaper {
+ font-family: var(--briefing-body-font); font-size: var(--briefing-copy-size);
+ line-height: var(--briefing-copy-line-height); color: var(--briefing-copy-color); }
+body[class*='report-style-'] .report-page {
+ background: var(--briefing-background); padding: var(--briefing-frame-padding);
+ border: 1px solid var(--briefing-frame-color); }
+body[class*='report-style-'] a { color: var(--briefing-link-color); }
+body[class*='report-style-'] .report-header {
+ border-top: var(--briefing-header-top-rule) solid var(--briefing-header-rule-color);
+ border-bottom: 1px solid var(--briefing-header-rule-color); padding: 14px 0 20px; margin-bottom: 4px; }
+body[class*='report-style-'] .brand { color: var(--briefing-muted-color); font-size: 13px; }
+body[class*='report-style-'] h1 { font-family: var(--briefing-display-font); font-size: var(--briefing-page-title-size); color: var(--briefing-title-color); line-height: 1.5; }
+body[class*='report-style-'] .report-meta { color: var(--briefing-muted-color); font-size: 13px; line-height: 1.7; }
+body[class*='report-style-'] .columns { display: grid; grid-template-columns: repeat(var(--briefing-column-count), minmax(0, 1fr)); gap: var(--briefing-column-gap); }
+body[class*='report-style-'] .column { width: auto; }
+body[class*='report-style-'] .card { border: 0; border-bottom: 1px solid var(--briefing-border-color);
+ border-radius: 0; background: transparent; padding: var(--briefing-card-padding); margin: 0; }
+body[class*='report-style-'] .card-kind { color: var(--briefing-label-color); font-size: 13px; font-weight: 400; margin-bottom: 10px; }
+body[class*='report-style-'] h2 { font-family: var(--briefing-display-font); font-size: var(--briefing-card-title-size); line-height: var(--briefing-title-line-height); color: var(--briefing-title-color); margin-bottom: 13px; }
+body[class*='report-style-'] blockquote { border: 0; padding: 0; margin: 0 0 18px; color: var(--briefing-ink); font-family: var(--briefing-display-font); font-size: var(--briefing-quote-size); line-height: var(--briefing-quote-line-height); }
+body[class*='report-style-'] .quote-card .card-kind { display: none; }
+body[class*='report-style-'] .card-context { color: var(--briefing-muted-color); font-size: 15px; margin-bottom: 13px; }
+body[class*='report-style-'] .source { border: 0; padding-top: 0; margin-top: 20px; color: var(--briefing-muted-color); font-size: var(--briefing-source-size); line-height: 1.7; }
+body[class*='report-style-'] .source .feed { color: var(--briefing-title-color); }
+body[class*='report-style-'] .label { color: var(--briefing-label-color); font-size: 13px; }
+body[class*='report-style-'] .original-quote blockquote { font-size: 16px; line-height: 1.7; }
+body[class*='report-style-'] .report-footer { border-color: var(--briefing-border-color); color: var(--briefing-muted-color); font-size: 11px; line-height: 1.65; }
+body[class*='report-style-'] .source-index { border-color: var(--briefing-border-color); margin: 12px 0 0; padding-top: 10px; }
+body[class*='report-style-'] .source-index h2 { font-family: var(--briefing-body-font); font-size: 13px; margin: 0 0 7px; }
+body[class*='report-style-'] .index-grid { gap: 7px 20px; }
+body[class*='report-style-'] .index-item { font-size: 11px; line-height: 1.5; align-self: start; }
+body[class*='report-style-'] .index-item strong { color: var(--briefing-title-color); }
+body[class*='report-style-'] .index-summary { font-size: 11px; margin-top: 8px; color: var(--briefing-muted-color); }
+.measure-index { position: absolute; left: -10000px; top: 0; }
+"""
+
 
 def _escape(value):
     return html.escape(str(value or ""), quote=True)
@@ -134,6 +172,12 @@ def _public_link(item):
     return url
 
 
+def _briefing_link(report, base_url):
+    period = report.get("period", {})
+    params = {key: period[value] for key, value in (("period_type", "type"), ("period_start", "start")) if period.get(value)}
+    return base_url.rstrip("/") + "/briefing" + ("?" + urlencode(params) if params else "")
+
+
 def _source_html(item, sources, base_url, compact=False):
     source = sources.get(item.get("source_id"), {})
     feed = item.get("feed") or source.get("feed") or ""
@@ -161,7 +205,7 @@ def _source_html(item, sources, base_url, compact=False):
     return '<div class="source">' + " · ".join(p for p in parts if p) + "<br>" + "".join(links) + "</div>"
 
 
-def _card_html(item, sources, base_url, compact=False):
+def _card_html(item, sources, base_url, compact=False, style="legacy"):
     kind = item.get("kind", "concept")
     relation = KIND_NAMES.get(kind, "节目摘录")
     if kind in ("resource", "background"):
@@ -171,6 +215,9 @@ def _card_html(item, sources, base_url, compact=False):
     if kind == "connection":
         relation = {"commonality": "共同点", "difference": "分歧", "complementary": "互补"}.get(item.get("relation"), "联系") + " · AI 比较"
     body = [f'<div class="card-kind">{_escape(relation)}</div>']
+    context = item.get("brief") or item.get("context")
+    if style != "legacy" and kind == "quote" and context:
+        body.append(f'<p class="card-context">{_escape(context)}</p>')
     if item.get("title"):
         body.append(f'<h2>{_escape(item["title"])}</h2>')
     if item.get("text") and not (kind == "episode" and item["text"].startswith("本期摘录：")):
@@ -182,8 +229,7 @@ def _card_html(item, sources, base_url, compact=False):
             body.append(f'<div class="label">译文 · 原句见节目文稿</div><blockquote>{_escape(item["translation"])}</blockquote>')
         elif item.get("quote"):
             body.append(f'<blockquote>{_escape(item["quote"])}</blockquote>')
-    context = item.get("brief") or item.get("context")
-    if context:
+    if context and style == "legacy":
         body.append(f'<p><span class="label">当时在谈：</span>{_escape(context)}</p>')
     if kind == "background" and item.get("relation") == "external":
         details = [item.get("publisher", "")]
@@ -246,20 +292,31 @@ def _date_label(value):
     return parsed.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
 
 
-def _index_html(report, base_url):
+def _index_html(report, base_url, source_ids=None, limit=None):
     entries = []
-    for source in report.get("sources", []):
+    all_sources = report.get("sources", [])
+    selected_sources = all_sources if source_ids is None else [source for source in all_sources if source["id"] in source_ids]
+    displayed_sources = selected_sources if limit is None else selected_sources[:limit]
+    for source in displayed_sources:
         title = _escape(source.get("title"))
         link = _public_link(source) or _local_link(source, base_url)
         if link:
             title = _anchor(source.get("title"), link)
         duration = source.get("duration")
         short = " · 短片" if isinstance(duration, (int, float)) and 0 < duration <= 120 else ""
-        entries.append(f'<div class="index-item"><strong>{_escape(source.get("feed"))}{short}</strong><br>{title}</div>')
-    return '<section class="source-index"><h2>本次材料索引</h2><div class="index-grid">' + "".join(entries) + "</div></section>"
+        entries.append(f'<div class="index-item" data-source-id="{_escape(source["id"])}"><strong>{_escape(source.get("feed"))}{short}</strong><br>{title}</div>')
+    summary = ""
+    if source_ids is not None:
+        omitted_sources = len(all_sources) - len(selected_sources)
+        material_label = "相关文稿" if report.get("period") else "本次文稿"
+        summary = f'<p class="index-summary">PDF 收录 {len(selected_sources)} 期 · {material_label} {len(all_sources)} 期 · 未收录 {omitted_sources} 期</p>'
+        unlisted = len(selected_sources) - len(displayed_sources)
+        full = _anchor("完整材料清单见网页", _briefing_link(report, base_url)) if _safe_url(base_url) else "完整材料清单见网页"
+        summary += f'<p class="index-summary">索引未列 {unlisted} 期收录来源 · {full}</p>'
+    return '<section class="source-index"><h2>本次材料索引</h2><div class="index-grid">' + "".join(entries) + "</div>" + summary + "</section>"
 
 
-def _document(report, columns, selected, omitted, base_url, measurement_cards=None):
+def _document(report, columns, selected, omitted, base_url, measurement_cards=None, style="legacy", theme_css=""):
     source_map = {source.get("id"): source for source in report.get("sources", [])}
     reading_edition = report.get("reading_edition")
     name = report["title"] if report.get("mode_report") else "原话精选" if reading_edition else VARIANT_NAMES[report["variant"]]
@@ -267,6 +324,8 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
     coverage = report.get("coverage", {})
     source_count = coverage.get("sources", len(source_map))
     date = _date_label(report.get("generated_at"))
+    selected_sources = {source_id for page in columns for column in page for card in column
+                        for source_id in [card.get("source_id"), *card.get("source_ids", []), *[quote.get("source_id") for quote in card.get("evidence", [])]] if source_id}
     pages = []
     for page_index, page_columns in enumerate(columns):
         continuation = {
@@ -282,9 +341,16 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
             continuation = "更多内容与材料来源"
         heading = title if page_index == 0 else continuation
         meta = f"{name} · {source_count} 篇有文稿的节目 · {date}"
+        period = report.get("period")
+        if period:
+            meta = f"{name} · {period['label']} · {date} · {source_count} 期相关节目"
+            if "total_count" in period and "transcript_count" in period:
+                meta += f" · 本期 {period['total_count']} 期 / {period['transcript_count']} 期有文稿"
+        if report.get("interests"):
+            meta += " · 关注：" + "、".join(report["interests"])
         header = f'<header class="report-header"><div class="brand">PodMaster · 播客简报</div><h1>{_escape(heading)}</h1><div class="report-meta">{_escape(meta)}</div></header>'
-        body = '<div class="columns">' + "".join('<div class="column">' + "".join(_card_html(card, source_map, base_url) for card in column) + '</div>' for column in page_columns) + '</div>'
-        index = _index_html(report, base_url) if page_index == 1 else ""
+        body = '<div class="columns">' + "".join('<div class="column">' + "".join(_card_html(card, source_map, base_url, style=style) for card in column) + '</div>' for column in page_columns) + '</div>'
+        index = _index_html(report, base_url, selected_sources if style != "legacy" else None, 8 if style != "legacy" else None) if page_index == 1 else ""
         threads = ""
         if reading_edition and page_index == 1:
             selected_quote_ids = {card["id"] for page in columns for column in page for card in column if not card.get("original_quote")}
@@ -298,18 +364,21 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
             original_count = sum(bool(card.get("original_quote")) for column in page_columns for card in column)
             if original_count < original_total:
                 status += f" · 英文原话对照 {original_count}/{original_total} 句，完整原话见文稿"
-        full = _anchor("查看完整简报与原文", base_url.rstrip("/") + "/briefing") if _safe_url(base_url) else ""
+        full = _anchor("查看完整简报与原文", _briefing_link(report, base_url)) if _safe_url(base_url) else ""
         note = "原话来自保存的文稿；译文辅助阅读。回听时间以字幕或转录段落为准。" if reading_edition else "引文来自保存的文稿；时间精度以字幕或转录段落为准。联网补充标明来源。"
         if report.get("mode_report") and not reading_edition:
             note = "AI 提要与比较依据保存的全文记录。证据原话见网页或文稿；回听时间以转录段落为准。"
         footer = f'<footer class="report-footer"><div class="footer-row"><span>{status} · {full}</span><span>{page_index + 1} / {len(columns)}</span></div><div>{note}</div></footer>'
-        content = threads + index + body if reading_edition and page_index == 1 else body + index
+        content = threads + index + body if reading_edition and page_index == 1 and style == "legacy" else threads + body + index
         pages.append(f'<section class="report-page" data-page="{page_index + 1}">{header}{content}{footer}</section>')
     measure = ""
     if measurement_cards is not None:
-        measure = '<div class="measure-stack">' + "".join(_card_html(card, source_map, base_url) for card in measurement_cards) + '</div>'
-    edition_class = ' class="reading-edition"' if report.get("reading_edition") else ""
-    styles = CSS + (READING_CSS if report.get("reading_edition") else "")
+        measure = '<div class="measure-stack">' + "".join(_card_html(card, source_map, base_url, style=style) for card in measurement_cards) + '</div>'
+        if style != "legacy" and len(columns) == 2:
+            measure += '<div class="measure-index">' + _index_html(report, base_url, set(), 8) + '</div>'
+    classes = (["reading-edition"] if report.get("reading_edition") else []) + (["report-style-" + style] if style != "legacy" else [])
+    edition_class = f' class="{" ".join(classes)}"' if classes else ""
+    styles = CSS + (READING_CSS if report.get("reading_edition") else "") + (theme_css + PRINT_THEME_CSS if style != "legacy" else "")
     return f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>{_escape(name)}</title><style>{styles}</style></head><body{edition_class} data-selected-count="{selected}" data-omitted-count="{omitted}">' + "".join(pages) + measure + "</body></html>"
 
 
@@ -367,7 +436,15 @@ class _PrintBrowser:
     def set_html(self, content):
         frame = self.command("Page.getFrameTree", session=True)["frameTree"]["frame"]["id"]
         self.command("Page.setDocumentContent", {"frameId": frame, "html": content}, session=True)
-        self.command("Runtime.evaluate", {"expression": "document.fonts.ready.then(() => true)", "awaitPromise": True}, session=True)
+        self.command("Runtime.evaluate", {"expression": """document.fonts.ready.then(() => {
+          const column = document.querySelector('.report-page .column');
+          const columns = document.querySelector('.report-page .columns');
+          const stack = document.querySelector('.measure-stack');
+          const index = document.querySelector('.measure-index');
+          if (stack) stack.style.width = column.getBoundingClientRect().width + 'px';
+          if (index) index.style.width = columns.getBoundingClientRect().width + 'px';
+          return true;
+        })""", "awaitPromise": True}, session=True)
 
     def measure(self):
         expression = """(() => ({
@@ -375,9 +452,24 @@ class _PrintBrowser:
             id: el.dataset.cardId, height: el.getBoundingClientRect().height + parseFloat(getComputedStyle(el).marginBottom)})),
           pages: [...document.querySelectorAll('.report-page')].map(el => ({
             available: el.querySelector('.columns').getBoundingClientRect().height,
+            index: el.querySelector('.source-index') ? el.querySelector('.source-index').getBoundingClientRect().height
+              + parseFloat(getComputedStyle(el.querySelector('.source-index')).marginTop)
+              + parseFloat(getComputedStyle(el.querySelector('.source-index')).marginBottom) : 0,
             columns: [...el.querySelectorAll('.column')].map(c => c.getBoundingClientRect().height),
             overflow: el.scrollHeight > el.clientHeight + 1}))
         }))()"""
+        result = self.command("Runtime.evaluate", {"expression": expression, "returnByValue": True}, session=True)
+        return result["result"]["value"]
+
+    def measure_index(self, content):
+        """按本次实际收录来源测量索引，月报全库不会占用纸面正文空间。"""
+        expression = """(() => {
+          const index = document.querySelector('.measure-index');
+          index.innerHTML = %s;
+          const section = index.querySelector('.source-index');
+          const style = getComputedStyle(section);
+          return section.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+        })()""" % json.dumps(content, ensure_ascii=False)
         result = self.command("Runtime.evaluate", {"expression": expression, "returnByValue": True}, session=True)
         return result["result"]["value"]
 
@@ -422,8 +514,13 @@ def _wait_debugger_address(active_port, process):
 
 def _candidates(report, pages):
     cards = [card for section in report.get("sections", []) for card in section.get("items", [])]
-    if report.get("mode_report") and report.get("mode") != "quotes":
-        return cards, cards
+    if report.get("mode_report"):
+        originals = []
+        if report.get("reading_edition") and pages == 2:
+            originals = [{**card, "id": "original-" + card["id"], "original_quote": True,
+                          "original_item_id": card["id"], "translation": "", "title": "", "brief": "", "context": ""}
+                         for card in cards if card.get("translation")]
+        return cards, cards + originals
     kind_order = {
         "overview": ("concept", "quote", "resource", "episode", "background"),
         "episodes": ("episode", "background"), "concepts": ("concept", "background", "resource"),
@@ -463,20 +560,30 @@ def _candidates(report, pages):
     return cards, chosen
 
 
+def _column_count(style, theme_css):
+    if style == "legacy":
+        return 2
+    block = re.search(r"\.br-layout-" + style + r"[^{}]*\{([^{}]*)\}", theme_css).group(1)
+    return int(re.search(r"--briefing-column-count:\s*([12])\s*;", block).group(1))
+
+
 @lru_cache(maxsize=24)
-def _prepare(serialized, pages, base_url):
+def _prepare(serialized, pages, base_url, style="legacy", theme_css=""):
     report = json.loads(serialized)
     all_cards, candidates = _candidates(report, pages)
-    empty_columns = [[[], []] for _ in range(pages)]
-    measurement = _document(report, empty_columns, 0, len(all_cards), base_url, candidates)
+    column_count = _column_count(style, theme_css)
+    empty_columns = [[[] for _ in range(column_count)] for _ in range(pages)]
+    measurement = _document(report, empty_columns, 0, len(all_cards), base_url, candidates, style, theme_css)
     with _PrintBrowser() as browser:
         browser.set_html(measurement)
         metrics = browser.measure()
         height_map = {card["id"]: card["height"] for card in metrics["cards"]}
         capacities = [page["available"] - 3 for page in metrics["pages"]]
-        columns = [[[], []] for _ in range(pages)]
-        used = [[0, 0] for _ in range(pages)]
+        columns = [[[] for _ in range(column_count)] for _ in range(pages)]
+        used = [[0 for _ in range(column_count)] for _ in range(pages)]
         selected_ids = set()
+        selected_sources = set()
+        index_heights = {}
         for card in candidates:
             height = height_map[str(card.get("id", ""))]
             preferred_pages = [1, 0] if pages == 2 and card.get("kind") == "background" else list(range(pages))
@@ -489,15 +596,26 @@ def _prepare(serialized, pages, base_url):
                     preferred_pages = list(range(pages)) if report.get("mode_report") and report.get("mode") == "quotes" else [0]
             if pages == 2 and report["variant"] == "episodes" and card.get("kind") == "background":
                 preferred_pages = [1]
+            next_sources = selected_sources | {source_id for source_id in [card.get("source_id"), *card.get("source_ids", []),
+                                               *[quote.get("source_id") for quote in card.get("evidence", [])]] if source_id}
+            next_capacities = list(capacities)
+            if style != "legacy" and pages == 2:
+                index_key = frozenset(next_sources)
+                if index_key not in index_heights:
+                    index_heights[index_key] = browser.measure_index(_index_html(report, base_url, next_sources, 8))
+                next_capacities[1] += metrics["pages"][1]["index"] - index_heights[index_key]
+                if max(used[1]) > next_capacities[1]:
+                    continue
             for page in preferred_pages:
-                column = min(range(2), key=lambda index: used[page][index])
-                if used[page][column] + height <= capacities[page]:
+                column = min(range(column_count), key=lambda index: used[page][index])
+                if used[page][column] + height <= next_capacities[page]:
                     columns[page][column].append(card)
                     used[page][column] += height
                     selected_ids.add(card["id"])
+                    selected_sources = next_sources
                     break
         selected = sum(not card.get("original_quote") for page in columns for column in page for card in column)
-        content = _document(report, columns, selected, len(all_cards) - selected, base_url)
+        content = _document(report, columns, selected, len(all_cards) - selected, base_url, style=style, theme_css=theme_css)
         browser.set_html(content)
         final = browser.measure()
         if any(page["overflow"] or max(page["columns"]) > page["available"] + 1 for page in final["pages"]):
@@ -508,19 +626,22 @@ def _prepare(serialized, pages, base_url):
         return content, pdf
 
 
-def _arguments(report, pages, base_url):
+def _arguments(report, pages, base_url, style):
     if pages not in (1, 2):
         raise ValueError("报告只支持一页或两页。")
     if report.get("variant") not in VARIANT_NAMES:
         raise ValueError("未知报告版式。")
-    return json.dumps(report, ensure_ascii=False, sort_keys=True), pages, base_url
+    if style not in ("legacy", "paper", "newspaper"):
+        raise ValueError("未知报告风格。")
+    theme_css = THEME_PATH.read_text(encoding="utf-8") if style != "legacy" else ""
+    return json.dumps(report, ensure_ascii=False, sort_keys=True), pages, base_url, style, theme_css
 
 
-def render_report_html(report, pages=1, base_url="http://localhost:3002"):
+def render_report_html(report, pages=1, base_url="http://localhost:3002", style="legacy"):
     """返回与 PDF 同一精选内容的 A4 HTML，不重新调用模型。"""
-    return _prepare(*_arguments(report, pages, base_url))[0]
+    return _prepare(*_arguments(report, pages, base_url, style))[0]
 
 
-def create_report_pdf(report, pages=1, base_url="http://localhost:3002"):
+def create_report_pdf(report, pages=1, base_url="http://localhost:3002", style="legacy"):
     """用已测量分页的固定 HTML/CSS 创建一页或两页 PDF。"""
-    return _prepare(*_arguments(report, pages, base_url))[1]
+    return _prepare(*_arguments(report, pages, base_url, style))[1]
