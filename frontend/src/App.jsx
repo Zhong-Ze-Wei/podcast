@@ -17,7 +17,8 @@ import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
-import AIBriefingView from './components/views/AIBriefingView';
+import BriefingReportsView from './components/views/BriefingReportsView';
+import { getExternalPlaybackUrl, getPlaybackPosition } from './utils/briefingPlayback';
 import AuthView from './components/views/AuthView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
@@ -34,7 +35,8 @@ const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
   workspace: '/workspace',
   favorites: '/favorites',
-  settings: '/settings'
+  settings: '/settings',
+  briefing: '/briefing'
 };
 
 function parseAppPath(pathname) {
@@ -48,6 +50,7 @@ function parseAppPath(pathname) {
   if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
   if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
   if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
+  if (parts[0] === 'briefing' || parts[0] === 'briefing-lab') return { type: 'view', view: 'briefing' };
   return { type: 'view', view: 'workspace' };
 }
 
@@ -81,8 +84,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
+  const pendingPlaybackRef = useRef(null);
+  const reportPlaybackRef = useRef(null);
+  const [playbackNotice, setPlaybackNotice] = useState(null);
   // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
   const getPlayableAudioUrl = (episode) => {
+    if (episode?.local_audio_url) return episode.local_audio_url;
     if (episode?.audio_type?.startsWith('video/youtube')) {
       return episodesApi.getStreamUrl(episode.id);
     }
@@ -239,6 +246,7 @@ export default function App() {
     setSelectedEpisode(null);
     setFeedEpisodes([]);
     setView(nextView);
+    setViewMode(nextView === 'briefing' ? 'ai-briefing' : 'traditional');
     updateBrowserPath(SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace, {
       replace,
       state: { view: nextView }
@@ -249,8 +257,11 @@ export default function App() {
   const handleViewModeChange = useCallback((mode) => {
     setViewMode(mode);
     if (mode === 'ai-briefing') {
+      navigateToView('briefing');
+    } else {
       navigateToView('list');
     }
+    setMobileSidebarOpen(false);
   }, [navigateToView]);
 
   const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true } = {}) => {
@@ -269,12 +280,14 @@ export default function App() {
       setSelectedEpisode(episodeOrId);
     }
     setView('detail');
+    setViewMode('traditional');
 
     try {
       const response = await episodesApi.get(episodeId);
       const episode = response.data || response;
       setSelectedEpisode(episode);
       if (episode?.feed_id) setActiveFeed(episode.feed_id);
+      return episode;
     } catch (err) {
       console.error('Failed to open episode route:', err);
       navigateToView('workspace', { replace: true });
@@ -293,6 +306,7 @@ export default function App() {
     }
 
     setActiveFeed(feedId);
+    setViewMode('traditional');
     setView('feedDetail');
     setFeedEpisodes([]);
     setFeedEpisodesLoading(true);
@@ -326,7 +340,13 @@ export default function App() {
   const applyCurrentPath = useCallback((replace = true) => {
     const route = parseAppPath(window.location.pathname);
     if (route.type === 'episode') {
-      openEpisode(route.id, { replace, push: false });
+      const rawTime = new URLSearchParams(window.location.search).get('t');
+      const startSeconds = rawTime === null ? null : Number(rawTime);
+      openEpisode(route.id, { replace, push: false }).then(episode => {
+        if (episode && Number.isFinite(startSeconds) && startSeconds >= 0) {
+          reportPlaybackRef.current(episode, startSeconds);
+        }
+      });
       return;
     }
     if (route.type === 'feed') {
@@ -340,7 +360,7 @@ export default function App() {
     window.history.replaceState(
       { ...(window.history.state || {}), appRoute: true },
       '',
-      window.location.pathname
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
     );
     applyCurrentPath(true);
 
@@ -415,8 +435,19 @@ export default function App() {
   };
 
   // 播放控制函数
-  const handlePlay = (episode) => {
+  const handlePlay = (episode, startSeconds) => {
+    setPlaybackNotice(null);
     if (currentPlaying?.id === episode.id) {
+      if (Number.isFinite(startSeconds) && startSeconds >= 0) {
+        pendingPlaybackRef.current = { episodeId: episode.id, position: startSeconds };
+        setIsPlaying(true);
+        if (audioRef.current?.readyState >= 1) {
+          audioRef.current.currentTime = startSeconds;
+          pendingPlaybackRef.current = null;
+          audioRef.current.play().catch(handlePlaybackRejected);
+        }
+        return;
+      }
       // 如果是同一个episode，切换播放/暂停
       handlePlayPause(!isPlaying);
     } else {
@@ -425,24 +456,47 @@ export default function App() {
         savePlayPosition(currentPlaying.id, audioRef.current.currentTime);
       }
       // 重置位置记录
-      lastSavedPositionRef.current = episode.play_position || 0;
+      const position = getPlaybackPosition(episode, startSeconds);
+      lastSavedPositionRef.current = position;
+      pendingPlaybackRef.current = { episodeId: episode.id, position };
       // 播放新的episode
       setCurrentPlaying({
         ...episode,
         playable_audio_url: getPlayableAudioUrl(episode)
       });
       setIsPlaying(true);
-      // 等待下一个渲染周期，audio元素更新后再播放
-      setTimeout(() => {
-        if (audioRef.current) {
-          // 恢复播放位置
-          if (episode.play_position && episode.play_position > 0) {
-            audioRef.current.currentTime = episode.play_position;
-          }
-          audioRef.current.play().catch(err => console.error('Play failed:', err));
-        }
-      }, 100);
     }
+  };
+
+  const handlePlaybackRejected = (error) => {
+    if (error.name === 'AbortError') return;
+    setIsPlaying(false);
+    setPlaybackNotice({ message: '浏览器未开始播放，请点击下方播放器继续。' });
+  };
+
+  const handleAudioReady = () => {
+    const pending = pendingPlaybackRef.current;
+    if (pending && pending.episodeId === currentPlaying?.id) {
+      audioRef.current.currentTime = pending.position;
+      pendingPlaybackRef.current = null;
+    }
+    if (isPlaying) audioRef.current.play().catch(handlePlaybackRejected);
+  };
+
+  const startReportPlayback = (episode, startSeconds) => {
+    if (getPlayableAudioUrl(episode)) {
+      handlePlay(episode, startSeconds);
+      return;
+    }
+    const url = getExternalPlaybackUrl(episode, startSeconds);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    setPlaybackNotice({ message: url ? '这期节目请在原平台收听，链接已带上文稿时间。' : '这期节目目前没有可播放的音频。', url });
+  };
+  reportPlaybackRef.current = startReportPlayback;
+
+  const handleReportListen = async (card) => {
+    const episode = await openEpisode(card.episode_id);
+    if (episode) startReportPlayback(episode, card.start);
   };
 
   const handlePlayPause = (playing) => {
@@ -477,20 +531,21 @@ export default function App() {
     if (!canFallbackToRemote) {
       console.error('Audio playback failed:', currentPlaying.title || currentPlaying.id);
       setIsPlaying(false);
+      const position = pendingPlaybackRef.current?.position ?? audioRef.current?.currentTime;
+      setPlaybackNotice({ message: '应用内音频暂时无法播放，可以到原平台收听。', url: getExternalPlaybackUrl(currentPlaying, position) });
       return;
     }
 
+    pendingPlaybackRef.current = {
+      episodeId: currentPlaying.id,
+      position: pendingPlaybackRef.current?.position ?? audioRef.current.currentTime
+    };
     setCurrentPlaying(prev => prev ? {
       ...prev,
       playable_audio_url: prev.audio_url,
       local_audio_failed: true
     } : prev);
 
-    setTimeout(() => {
-      if (audioRef.current && isPlaying) {
-        audioRef.current.play().catch(err => console.error('Play failed:', err));
-      }
-    }, 100);
   };
 
   const filteredEpisodes = episodes.filter(ep => {
@@ -561,10 +616,15 @@ export default function App() {
         </div>
 
         {/* AI简报模式 */}
-        {viewMode === 'ai-briefing' && view === 'list' ? (
-          <AIBriefingView
-            onEpisodeClick={handleEpisodeClick}
-            onPlay={handlePlay}
+        {view === 'briefing' ? (
+          <BriefingReportsView
+            key={currentUser.id}
+            currentUser={currentUser}
+            feeds={feeds}
+            onOpenEpisode={openEpisode}
+            onListen={handleReportListen}
+            onOpenMenu={() => setMobileSidebarOpen(true)}
+            hasPlayer={!!currentPlaying}
           />
         ) : view === 'list' ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar z-10">
@@ -710,8 +770,17 @@ export default function App() {
         ref={audioRef}
         src={currentPlaying?.playable_audio_url || currentPlaying?.audio_url}
         preload="metadata"
+        onLoadedMetadata={handleAudioReady}
         onError={handleAudioError}
       />
+
+      {playbackNotice && (
+        <div role="status" className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+          <span className="flex-1">{playbackNotice.message}</span>
+          {playbackNotice.url && <a href={playbackNotice.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 shrink-0">去原平台</a>}
+          <button onClick={() => setPlaybackNotice(null)} aria-label="关闭播放提示" className="text-zinc-400">关闭</button>
+        </div>
+      )}
 
       <PlayerBar
         episode={currentPlaying}

@@ -75,6 +75,25 @@ export const feedsApi = {
 };
 
 // Auth API
+export const briefingLabApi = {
+  snapshot: () => api.get('/briefing-lab'),
+  run: (options) => api.post('/briefing-lab/run', options),
+  task: (id) => api.get(`/briefing-lab/tasks/${id}`),
+  source: (id) => api.get(`/briefing-lab/sources/${id}`)
+};
+
+export const briefingReportsApi = {
+  snapshot: () => api.get('/briefing-reports'),
+  generate: (options) => api.post('/briefing-reports/generate', options),
+  task: (id) => api.get(`/briefing-reports/tasks/${id}`),
+  html: (id, pages) => api.get(`/briefing-reports/reports/${id}/html`, {
+    params: { pages }, responseType: 'text'
+  }),
+  pdf: (id, pages) => api.get(`/briefing-reports/reports/${id}/pdf`, {
+    params: { pages }, responseType: 'blob'
+  })
+};
+
 export const authApi = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),

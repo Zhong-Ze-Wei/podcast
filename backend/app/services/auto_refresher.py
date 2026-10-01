@@ -10,7 +10,6 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from bson import ObjectId
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ class FeedAutoRefresher:
 
     功能：
     - 每小时自动检查所有订阅源
-    - 对于超过6小时未更新的订阅源自动刷新
+    - 对于超过6小时未检查的正常或失败订阅源自动刷新
     - 使用后台线程，不阻塞主服务
     """
 
@@ -75,20 +74,19 @@ class FeedAutoRefresher:
 
     def _check_and_refresh_feeds(self):
         """检查并刷新需要更新的订阅源"""
-        from app.services.rss_service import RSSService
-        from app.models.episode import Episode
+        from app.models.feed import Feed
 
         now = datetime.utcnow()
         stale_time = now - self.stale_threshold
 
-        # 查找需要更新的订阅源（active状态且超过阈值未更新）
+        # 失败源也按同一间隔重试；None 同时匹配尚未检查和旧文档缺失字段。
         feeds_to_refresh = list(
             self.db.feeds.find(
                 {
-                    "status": "active",
+                    "status": {"$in": [Feed.STATUS_ACTIVE, Feed.STATUS_ERROR]},
                     "$or": [
                         {"last_checked": {"$lt": stale_time}},
-                        {"last_checked": {"$exists": False}},
+                        {"last_checked": None},
                     ],
                 }
             )
@@ -104,12 +102,31 @@ class FeedAutoRefresher:
             try:
                 self._refresh_single_feed(feed)
             except Exception as e:
+                self.db.feeds.update_one(
+                    {"_id": feed["_id"]},
+                    {"$set": {
+                        "status": Feed.STATUS_ERROR,
+                        "check_error": str(e),
+                        "last_checked": datetime.utcnow(),
+                    }},
+                )
                 logger.error(
                     f"Failed to refresh feed {feed.get('title', 'Unknown')}: {e}"
                 )
 
     def _refresh_single_feed(self, feed):
         """刷新单个订阅源"""
+        from app.models.feed import Feed
+
+        # 与手动刷新复用视频列表、字幕重试和去重流程，频道 URL 不是 RSS。
+        feed_type = feed.get("type") or Feed.TYPE_RSS
+        if feed_type == Feed.TYPE_YOUTUBE:
+            from app.api.feeds import _refresh_youtube_channel_feed
+            return _refresh_youtube_channel_feed(self.db, feed)
+        if feed_type == Feed.TYPE_BILIBILI:
+            from app.api.feeds import _refresh_bilibili_feed
+            return _refresh_bilibili_feed(self.db, feed)
+
         from app.services.rss_service import RSSService
         from app.models.episode import Episode
 

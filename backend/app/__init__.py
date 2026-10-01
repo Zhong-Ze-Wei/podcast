@@ -176,6 +176,8 @@ def register_blueprints(app):
     from .api.settings import settings_bp
     from .api.prompt_templates import prompt_templates_bp
     from .api.insights import insights_bp
+    from .api.briefing_lab import briefing_lab_bp
+    from .api.briefing_reports import briefing_reports_bp
     from .api.auth import auth_bp
     from .api.admin import admin_bp
     from .api.video_import import video_import_bp
@@ -193,6 +195,8 @@ def register_blueprints(app):
     app.register_blueprint(settings_bp, url_prefix=f"{prefix}/settings")
     app.register_blueprint(prompt_templates_bp, url_prefix=f"{prefix}/prompt-templates")
     app.register_blueprint(insights_bp, url_prefix=f"{prefix}/insights")
+    app.register_blueprint(briefing_lab_bp, url_prefix=f"{prefix}/briefing-lab")
+    app.register_blueprint(briefing_reports_bp, url_prefix=f"{prefix}/briefing-reports")
     app.register_blueprint(video_import_bp, url_prefix=f"{prefix}/video-import")
 
 
