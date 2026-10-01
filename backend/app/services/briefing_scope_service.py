@@ -168,6 +168,13 @@ class BriefingScopeService:
         self.db.users.update_one({"_id": ObjectId(self.owner_id)}, {"$set": changes})
         return self.preferences()
 
+    @staticmethod
+    def source_within_period(source, period):
+        if source.get("published") is None:
+            return False
+        published = _published(datetime.fromisoformat(source["published"])).date()
+        return date.fromisoformat(period["start"]) <= published < date.fromisoformat(period["end"])
+
     def source(self, source_id):
         if not re.fullmatch(r"ep[a-f0-9]{24}", source_id):
             return None
