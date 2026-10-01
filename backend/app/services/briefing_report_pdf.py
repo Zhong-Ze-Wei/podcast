@@ -404,24 +404,24 @@ class _PrintBrowser:
 
         self.profile = tempfile.TemporaryDirectory(prefix="podmaster-report-", ignore_cleanup_errors=True)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        self.process = subprocess.Popen([
-            _chrome_path(), "--headless=new", "--no-first-run", "--disable-extensions",
-            "--disable-background-networking", "--disable-component-update", "--remote-debugging-port=0",
-            f"--user-data-dir={self.profile.name}", "about:blank",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
-        active_port = Path(self.profile.name) / "DevToolsActivePort"
         try:
+            self.process = subprocess.Popen([
+                _chrome_path(), "--headless=new", "--no-first-run", "--disable-extensions",
+                "--disable-background-networking", "--disable-component-update", "--remote-debugging-port=0",
+                f"--user-data-dir={self.profile.name}", "about:blank",
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+            active_port = Path(self.profile.name) / "DevToolsActivePort"
             port, path = _wait_debugger_address(active_port, self.process)
-        except RuntimeError:
+            self.socket = connect(f"ws://127.0.0.1:{port}{path}", max_size=32 * 1024 * 1024, open_timeout=10)
+            self.sequence = 0
+            target = self.command("Target.createTarget", {"url": "about:blank"})["targetId"]
+            self.session_id = self.command("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
+            self.command("Page.enable", session=True)
+            self.command("Emulation.setEmulatedMedia", {"media": "print"}, session=True)
+            return self
+        except Exception:
             self.close()
             raise
-        self.socket = connect(f"ws://127.0.0.1:{port}{path}", max_size=32 * 1024 * 1024, open_timeout=10)
-        self.sequence = 0
-        target = self.command("Target.createTarget", {"url": "about:blank"})["targetId"]
-        self.session_id = self.command("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-        self.command("Page.enable", session=True)
-        self.command("Emulation.setEmulatedMedia", {"media": "print"}, session=True)
-        return self
 
     def command(self, method, params=None, session=False):
         self.sequence += 1
@@ -482,20 +482,39 @@ class _PrintBrowser:
         return base64.b64decode(result["data"])
 
     def close(self):
-        if hasattr(self, "socket"):
-            self.socket.send(json.dumps({"id": self.sequence + 1, "method": "Browser.close"}))
-            self.socket.close()
+        from websockets.exceptions import ConnectionClosed
+
+        try:
+            if hasattr(self, "socket"):
+                try:
+                    self.socket.send(json.dumps({"id": self.sequence + 1, "method": "Browser.close"}))
+                except ConnectionClosed:
+                    pass  # 浏览器已自行断开，仍需回收进程与临时目录。
+                finally:
+                    self.socket.close()
+        finally:
+            try:
+                self._stop_process()
+            finally:
+                if hasattr(self, "profile"):
+                    self.profile.cleanup()
+
+    def _stop_process(self):
         if hasattr(self, "process"):
             if not hasattr(self, "socket") and self.process.poll() is None:
                 self.process.terminate()
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=5)
-        if hasattr(self, "profile"):
-            shutil.rmtree(self.profile.name, ignore_errors=True)
-            self.profile.cleanup()
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW, timeout=10,
+                    )
+                else:
+                    self.process.kill()
+                self.process.wait(timeout=10)
 
     def __exit__(self, *_):
         self.close()
