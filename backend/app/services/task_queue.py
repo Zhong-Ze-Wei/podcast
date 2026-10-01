@@ -8,6 +8,7 @@ MVP阶段使用内存存储，后续可替换为 Redis + Celery
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from threading import RLock
 from typing import Callable, Any, Optional
 import uuid
 import logging
@@ -23,6 +24,8 @@ class TaskQueue:
     def __init__(self, max_workers: int = 3):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.tasks = {}  # 内存存储，task_id -> task_info
+        self._futures = {}
+        self._lock = RLock()
         self._db = None
         self._app = None
 
@@ -156,15 +159,10 @@ class TaskQueue:
         if report_period is not None:
             task_info["report_period"] = {"type": report_period["type"], "start": report_period["start"]}
 
-        self.tasks[task_id] = task_info
-
-        # 持久化到数据库
-        if self._db is not None:
-            self._db.tasks.insert_one(task_info.copy())
-
         # 包装函数以更新状态
         def wrapper():
-            self._update_status(task_id, "processing", started_at=datetime.utcnow())
+            if not self._update_status(task_id, "processing", started_at=datetime.utcnow()):
+                return None
             try:
                 # 执行任务，传入 progress_callback
                 def run_func():
@@ -206,55 +204,57 @@ class TaskQueue:
                 )
                 raise
 
-        # 提交到线程池
-        self.executor.submit(wrapper)
+        # 注册 Future 与任务状态必须在同一个锁内，避免取消与开始执行竞争。
+        with self._lock:
+            self.tasks[task_id] = task_info
+            if self._db is not None:
+                self._db.tasks.insert_one(task_info.copy())
+            future = self.executor.submit(wrapper)
+            self._futures[task_id] = future
+            future.add_done_callback(lambda _: self._forget_future(task_id))
 
         logger.info(f"Task submitted: {task_id} ({task_type})")
         return task_id
 
-    def _update_status(self, task_id: str, status: str, **kwargs):
+    def _forget_future(self, task_id: str):
+        with self._lock:
+            self._futures.pop(task_id, None)
+
+    def _update_status(self, task_id: str, status: str, **kwargs) -> bool:
         """更新任务状态"""
         kwargs = {key: _to_mongo_safe(value) for key, value in kwargs.items()}
-        if task_id in self.tasks:
-            self.tasks[task_id]["status"] = status
-            for key, value in kwargs.items():
-                self.tasks[task_id][key] = value
-
-        # 同步到数据库
-        if self._db is not None:
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or task["status"] in {"completed", "failed", "cancelled"}:
+                return False
             update_doc = {"status": status, **kwargs}
-            self._db.tasks.update_one(
-                {"task_id": task_id},
-                {"$set": update_doc}
-            )
+            task.update(update_doc)
+            if self._db is not None:
+                self._db.tasks.update_one({"task_id": task_id}, {"$set": update_doc})
+            return True
 
     def _update_progress(self, task_id: str, progress):
         """更新任务进度，progress 支持数字或 (percent, message) 元组"""
         message = None
         if isinstance(progress, tuple):
             progress, message = progress
-        if task_id in self.tasks:
-            self.tasks[task_id]["progress"] = progress
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or task["status"] in {"completed", "failed", "cancelled"}:
+                return
+            updates = {"progress": progress}
             if message is not None:
-                self.tasks[task_id]["progress_message"] = message
-                if self._db is not None:
-                    self._db.tasks.update_one(
-                        {"task_id": task_id},
-                        {"$set": {"progress_message": message}},
-                    )
-
-        # 同步到数据库 (进度更新不太频繁，可以每次都写)
-        if self._db is not None:
-            self._db.tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"progress": progress}}
-            )
+                updates["progress_message"] = message
+            task.update(updates)
+            if self._db is not None:
+                self._db.tasks.update_one({"task_id": task_id}, {"$set": updates})
 
     def get_status(self, task_id: str) -> Optional[dict]:
         """获取任务状态"""
         # 先从内存获取
-        if task_id in self.tasks:
-            return self.tasks[task_id].copy()
+        with self._lock:
+            if task_id in self.tasks:
+                return self.tasks[task_id].copy()
 
         # 从数据库获取
         if self._db is not None:
@@ -310,21 +310,23 @@ class TaskQueue:
         return result[:limit] if limit else result
 
     def cancel(self, task_id: str) -> bool:
-        """取消任务 (仅能取消pending状态的任务)"""
-        task = self.get_status(task_id)
-        if not task:
-            return False
-
-        if task["status"] != "pending":
-            return False
-
-        self._update_status(
-            task_id,
-            "failed",
-            error_message="Cancelled by user",
-            completed_at=datetime.utcnow()
-        )
-        return True
+        """真正移除尚未执行的任务；运行中的线程不伪装成已停止。"""
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if not task:
+                return False
+            if task["status"] == "cancelled":
+                return True
+            if task["status"] != "pending":
+                return False
+            future = self._futures.get(task_id)
+            if future is None or not future.cancel():
+                return False
+            now = datetime.utcnow()
+            self._update_status(task_id, "cancelled", completed_at=now)
+            if self._db is not None:
+                self._rollback_episode_for_interrupted_task(task, "Cancelled by user", now)
+            return True
 
     def shutdown(self, wait: bool = True):
         """关闭任务队列"""
