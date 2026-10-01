@@ -12,6 +12,16 @@ from .llm_client import get_llm_client
 
 RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime" / "briefing-lab"
 CHUNK_SIZE = 12000
+
+
+class ModelValidationError(ValueError):
+    """保留两次返回及校验原因，供取材流程记录失败依据。"""
+
+    def __init__(self, message, attempts):
+        super().__init__(message)
+        self.attempts = attempts
+
+
 STRATEGIES = [
     {"id": "daily", "name": "阅读编辑部", "description": "决定今天先读什么，为什么值得读。"},
     {"id": "focus", "name": "问题研究台", "description": "围绕你的问题，综合多篇内容给出回答。"},
@@ -226,13 +236,17 @@ class BriefingLabService:
                     progress_callback((int(done / len(jobs) * 70), f"已分析正文 {done}/{len(jobs)} 段 · {source['id']} {chunk['id']}"))
         return [self._source_notes(s) for s in sources]
 
-    def _model_call(self, system, prompt, validator, task="briefing", max_tokens=20000):
+    def _model_call(self, system, prompt, validator, task="briefing", max_tokens=20000, response_schema=None):
         client = self.client_factory(task=task)
+        if response_schema is not None:
+            system += "\n必须完整返回符合以下 JSON Schema 的对象：" + json.dumps(response_schema, ensure_ascii=False)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
         usage = {"prompt": 0, "completion": 0, "total": 0}
         elapsed = 0
+        attempts = []
         for attempt in range(2):
-            response = client.chat(messages=messages, json_mode=True, max_tokens=max_tokens, temperature=0.2)
+            options = {"response_schema": response_schema} if response_schema is not None else {}
+            response = client.chat(messages=messages, json_mode=True, max_tokens=max_tokens, temperature=0.2, **options)
             elapsed += response["elapsed_seconds"]
             for key in usage:
                 usage[key] += response["usage"].get(key, 0)
@@ -240,9 +254,12 @@ class BriefingLabService:
                 data = validator(parse_model_json(response["content"]))
                 return data, {"model": response["model"], "usage": usage, "elapsed_seconds": round(elapsed, 2)}
             except (ValueError, KeyError, TypeError) as error:
+                attempts.append({"content": response["content"], "error": str(error), "model": response["model"],
+                                 "usage": response["usage"], "finish_reason": response.get("finish_reason")})
                 if attempt:
-                    raise ValueError(f"模型结果未通过依据校验：{error}") from error
-                messages.extend([{"role": "assistant", "content": response["content"]}, {"role": "user", "content": f"结果未通过校验：{error}。请修正JSON，严格复制已有证据ID/引文，完整返回。"}])
+                    raise ModelValidationError(f"模型结果未通过依据校验：{error}", attempts) from error
+                instruction = "严格遵守给定JSON Schema的必填字段、类型、枚举和数量约束；引文必须连续逐字复制正文。" if response_schema is not None else "严格复制已有证据ID/引文。"
+                messages.extend([{"role": "assistant", "content": response["content"]}, {"role": "user", "content": f"结果未通过校验：{error}。{instruction}完整返回JSON。"}])
 
     def external_sources(self, focus):
         """有Tavily配置则实时检索；否则使用本次实测保存的一手网页摘读笔记。"""
