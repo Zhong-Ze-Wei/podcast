@@ -4,9 +4,10 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, request, send_file
 from urllib.parse import urlsplit
+from pymongo.errors import PyMongoError
 
 from .decorators import current_owner_id, require_auth
-from .utils import error_response, success_response
+from .utils import error_response, success_response, get_pagination_params, paginated_response
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from ..services.briefing_report_service import BriefingReportService, INTERESTS, VARIANTS
 from ..services.briefing_reading_service import BriefingReadingService, _selected_quote_time
@@ -23,6 +24,43 @@ briefing_reports_bp = Blueprint("briefing_reports", __name__)
 def _scope_service(owner_id):
     report = BriefingReportService(owner_id=owner_id)
     return BriefingScopeService(current_app.db, report, owner_id)
+
+
+def _report_store(owner_id):
+    return BriefingReportService(owner_id=owner_id).store
+
+
+@briefing_reports_bp.route("/reports", methods=["GET"])
+@require_auth
+def report_history():
+    period_type = request.args.get("period_type")
+    period_start = request.args.get("period_start")
+    mode = request.args.get("mode")
+    if period_type is not None and period_type not in ("week", "month"):
+        return error_response("周期请选择周或月", "INVALID_PERIOD", 400)
+    if mode is not None and mode not in MODE_INDEX:
+        return error_response("内容模式无效", "INVALID_MODE", 400)
+    if period_start is not None:
+        from datetime import date
+        try:
+            date.fromisoformat(period_start)
+        except ValueError:
+            return error_response("周期日期须为 YYYY-MM-DD", "INVALID_PERIOD", 400)
+    page, per_page = get_pagination_params()
+    try:
+        reports, total = _report_store(current_owner_id()).history(page, per_page, period_type, period_start, mode)
+    except PyMongoError:
+        return error_response("报告历史暂时无法读取", "REPORT_STORAGE_UNAVAILABLE", 503)
+    return paginated_response(reports, page, per_page, total)
+
+
+@briefing_reports_bp.route("/reports/<report_id>", methods=["GET"])
+@require_auth
+def saved_report(report_id):
+    report = _report_store(current_owner_id()).report(report_id)
+    if report is None:
+        return error_response("报告不存在", "REPORT_NOT_FOUND", 404)
+    return success_response(report)
 
 
 def _reading_service(source_id):
