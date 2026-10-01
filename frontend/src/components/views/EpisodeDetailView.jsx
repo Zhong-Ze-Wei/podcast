@@ -252,6 +252,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     if (onRefresh) onRefresh();
   };
 
+  const handleTaskCancelled = async () => {
+    pendingTranscriptionProviderRef.current = null;
+    setLocalDownloading(false);
+    setLocalTranscribing(false);
+    setLocalSummarizing(false);
+    setSuccessMsg(t('tasks.status.cancelled'));
+    await refreshEpisode();
+    onRefresh?.();
+  };
+
   const refreshEpisode = async () => {
     if (!episode?.id) return null;
     try {
@@ -741,6 +751,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                         episodeId={episode.id}
                         onComplete={handleDownloadComplete}
                         onError={handleTaskError}
+                        onCancelled={handleTaskCancelled}
                       />
                     ) : isCurrentlyTranscribing ? (
                       <TaskProgress
@@ -748,6 +759,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                         episodeId={episode.id}
                         onComplete={handleTranscribeComplete}
                         onError={handleTaskError}
+                        onCancelled={handleTaskCancelled}
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-3">
@@ -1213,6 +1225,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       episodeId={episode.id}
                       onComplete={handleSummarizeComplete}
                       onError={handleTaskError}
+                      onCancelled={handleTaskCancelled}
                     />
                   ) : (
                     <button
