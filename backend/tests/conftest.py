@@ -103,7 +103,13 @@ class MockCollection:
 
     def _match(self, doc, query):
         for key, value in query.items():
-            if key == "_id":
+            if key == "$or":
+                if not any(self._match(doc, clause) for clause in value):
+                    return False
+            elif key == "$and":
+                if not all(self._match(doc, clause) for clause in value):
+                    return False
+            elif key == "_id":
                 from bson import ObjectId
                 doc_val = doc.get("_id")
                 if isinstance(value, ObjectId):

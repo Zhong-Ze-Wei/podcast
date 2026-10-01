@@ -83,4 +83,4 @@ def test_task_cancel_is_restricted_to_owner():
     )
 
     # 取消他人任务被拒（共享库中任务取消仍归属操作者）
-    assert response.status_code == 400
+    assert response.status_code == 404
