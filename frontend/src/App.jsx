@@ -36,7 +36,9 @@ const SIMPLE_VIEW_PATHS = {
   workspace: '/workspace',
   favorites: '/favorites',
   settings: '/settings',
-  briefing: '/briefing'
+  briefing: '/briefing',
+  briefingSaved: '/briefing/saved',
+  briefingSettings: '/briefing/settings'
 };
 
 function parseAppPath(pathname) {
@@ -50,7 +52,7 @@ function parseAppPath(pathname) {
   if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
   if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
   if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
-  if (parts[0] === 'briefing' || parts[0] === 'briefing-lab') return { type: 'view', view: 'briefing' };
+  if (parts[0] === 'briefing' || parts[0] === 'briefing-lab') return { type: 'view', view: parts[1] === 'settings' ? 'briefingSettings' : parts[1] === 'saved' ? 'briefingSaved' : 'briefing' };
   return { type: 'view', view: 'workspace' };
 }
 
@@ -67,6 +69,8 @@ export default function App() {
   const [view, setView] = useState('workspace'); // list | feedDetail | detail | workspace
   const [previousView, setPreviousView] = useState('workspace'); // 记录进入详情页之前的视图，用于返回
   const [viewMode, setViewMode] = useState('traditional');
+  const [briefingNavigation, setBriefingNavigation] = useState(null);
+  const [briefingState, setBriefingState] = useState({ periodType: 'week', mode: 'core' });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false); // 'traditional' | 'ai-briefing'
   const [activeFeed, setActiveFeed] = useState(null);
   const [selectedFeed, setSelectedFeed] = useState(null); // 用于FeedDetailView
@@ -234,7 +238,7 @@ export default function App() {
   };
 
   const updateBrowserPath = useCallback((path, { replace = false, state = {} } = {}) => {
-    if (!path || window.location.pathname === path) return;
+    if (!path || window.location.pathname === path || `${window.location.pathname}${window.location.search}` === path) return;
     if (!replace) hasInAppNavigationRef.current = true;
     const method = replace ? 'replaceState' : 'pushState';
     window.history[method]({ appRoute: true, ...state }, '', path);
@@ -246,8 +250,10 @@ export default function App() {
     setSelectedEpisode(null);
     setFeedEpisodes([]);
     setView(nextView);
-    setViewMode(nextView === 'briefing' ? 'ai-briefing' : 'traditional');
-    updateBrowserPath(SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace, {
+    setViewMode(nextView.startsWith('briefing') ? 'ai-briefing' : 'traditional');
+    const path = SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace;
+    const nextPath = nextView.startsWith('briefing') && window.location.pathname.startsWith('/briefing') ? `${path}${window.location.search}` : path;
+    updateBrowserPath(nextPath, {
       replace,
       state: { view: nextView }
     });
@@ -263,6 +269,12 @@ export default function App() {
     }
     setMobileSidebarOpen(false);
   }, [navigateToView]);
+
+  const handleBriefingNavigate = (section, options = {}) => {
+    navigateToView(section === 'settings' ? 'briefingSettings' : section === 'saved' ? 'briefingSaved' : 'briefing');
+    setBriefingNavigation({ ...options });
+    setMobileSidebarOpen(false);
+  };
 
   const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true } = {}) => {
     const episodeId = typeof episodeOrId === 'string' ? episodeOrId : episodeOrId?.id;
@@ -602,6 +614,8 @@ export default function App() {
         currentView={view}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
+        briefingState={briefingState}
+        onBriefingNavigate={handleBriefingNavigate}
       />
 
       {mobileSidebarOpen && (
@@ -616,7 +630,7 @@ export default function App() {
         </div>
 
         {/* AI简报模式 */}
-        {view === 'briefing' ? (
+        {view.startsWith('briefing') ? (
           <BriefingReportsView
             key={currentUser.id}
             currentUser={currentUser}
@@ -625,6 +639,10 @@ export default function App() {
             onListen={handleReportListen}
             onOpenMenu={() => setMobileSidebarOpen(true)}
             hasPlayer={!!currentPlaying}
+            section={view === 'briefingSettings' ? 'settings' : view === 'briefingSaved' ? 'saved' : 'reports'}
+            navigation={briefingNavigation}
+            onNavigationStateChange={setBriefingState}
+            onSectionChange={handleBriefingNavigate}
           />
         ) : view === 'list' ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar z-10">

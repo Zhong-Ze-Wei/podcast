@@ -50,6 +50,7 @@ class LLMClient:
         max_tokens: int = None,
         temperature: float = None,
         json_mode: bool = False,
+        response_schema: dict = None,
     ) -> dict:
         """
         发送聊天请求
@@ -60,6 +61,7 @@ class LLMClient:
             max_tokens: 最大输出 token 数
             temperature: 温度参数
             json_mode: 是否强制 JSON 输出
+            response_schema: 可选的严格 JSON Schema 输出契约
 
         Returns:
             {
@@ -79,6 +81,7 @@ class LLMClient:
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                response_schema=response_schema,
             )
 
         kwargs = {
@@ -88,7 +91,11 @@ class LLMClient:
             "temperature": temperature,
         }
 
-        if json_mode:
+        if response_schema is not None:
+            kwargs["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "structured_result", "strict": True, "schema": response_schema,
+            }}
+        elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
         start_time = datetime.now()
@@ -125,6 +132,7 @@ class LLMClient:
                 "usage": usage,
                 "model": model,
                 "elapsed_seconds": elapsed,
+                "finish_reason": response.choices[0].finish_reason,
             }
 
         except Exception as e:
@@ -137,6 +145,7 @@ class LLMClient:
         model: str,
         max_tokens: int,
         temperature: float,
+        response_schema: dict = None,
     ) -> dict:
         """Call Anthropic Messages API using the same return shape as chat()."""
         system_parts = []
@@ -157,6 +166,8 @@ class LLMClient:
         }
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
+        if response_schema is not None:
+            payload["output_config"] = {"format": {"type": "json_schema", "schema": response_schema}}
 
         start_time = datetime.now()
         response = requests.post(
