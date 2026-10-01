@@ -18,6 +18,7 @@ from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
 from ..services.download_service import DownloadService
+from ..services.episode_processing_service import EpisodeProcessingService, ProcessingConflict, ProcessingSubmissionFailed
 from ..services.episode_query_service import EpisodeQueryService
 from ..services.ai_control import is_ai_analysis_enabled
 from ..services.user_episode_state import (
@@ -270,19 +271,17 @@ def download_episode(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    existing_task = db.tasks.find_one({
-        "episode_id": str(oid),
-        "task_type": {"$in": ["download", "transcribe", "summarize"]},
-        "status": {"$in": ["pending", "processing"]},
-    })
-    if existing_task:
-        if existing_task.get("task_type") == "download":
-            return success_response({"task_id": existing_task["task_id"], "status": "queued"})
-        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
+    processing = EpisodeProcessingService(db, task_queue)
+    dedup_key = f"download:{oid}"
+    try:
+        existing = processing.active_task_id(oid, "download", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued"})
+
     if _local_audio_file_exists(episode):
         return error_response("Episode already downloaded", "ALREADY_DOWNLOADED", 400)
-    if episode.get("status") in Episode.PROCESSING_STATUSES:
-        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
     if not episode.get("audio_url") and not episode.get("guid", "").startswith(("youtube:", "bilibili:")):
         return error_response("No downloadable audio available", "NO_AUDIO_URL", 400)
 
@@ -290,13 +289,15 @@ def download_episode(episode_id):
     def do_download(progress_callback=None):
         return _download_episode_sync(str(oid), progress_callback)
 
-    # Record processing before submission so a fast worker cannot be overwritten.
-    db.episodes.update_one({"_id": oid}, {"$set": {"status": Episode.STATUS_DOWNLOADING}})
-    task_id = task_queue.submit_unique(
-        task_type="download", func=do_download, episode_id=str(oid), owner_id=current_owner_id(),
-        dedup_key=f"download:{oid}",
-        on_failure=lambda error: DownloadService(db).restore_episode_status(str(oid), error),
-    )
+    try:
+        task_id = processing.submit(
+            episode, "download", dedup_key, do_download, current_owner_id(),
+            on_failure=lambda error: DownloadService(db).restore_episode_status(str(oid), error),
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({"task_id": task_id, "status": "queued"})
 
