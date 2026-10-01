@@ -30,17 +30,19 @@ COMMON_PROMPT = (
     "候选来自整个材料集，不要把一条好听的摘句误当整期中心。长节目可以有多个不同重点，但同一事实不要重复。"
     "topic_tags从AI、编程、商业、管理、历史、科学中选1–2个，按实际正文主题归属，不能按频道名或标题猜。"
     "指定关注主题时只选有实际关联的内容；数量是目标不是配额，证据不足少选或items=[]。"
+    "每条选用的英文证据若没有中文译文，在evidence_translations对象以真实证据id为key给忠实中文翻译，每条≤240字。"
+    "译文仅翻译该原句，不能补充背景、理由、建议或把假设改成事实；中文证据不用翻译。"
 )
 MODE_PROMPTS = {
     "core": (
         "做核心提要，目标6–10条。先综合每期全部分块记录，提炼该期真正反复讨论的核心问题、判断及理由。"
         "已保存的single_readings只供参考，不能用其中的takeaway或三个摘录替代全期；长篇核心优先用不同分块的证据共同支撑。"
         "每期先提一个真正的核心判断，再挑重要且不重复的点；每期至多1项，充分证据的各期均优先覆盖。"
-        "优先4篇长节目，再放科学和历史主题，最后放其他相关短片。这个排序是阅读取舍，不按素材编号排。"
+        "优先证据充分且与本次关注相关的长节目，再按具体价值选择相关短片；跨主题只在关注未限定时考虑。这个排序是阅读取舍，不按素材编号排。"
         "不要选漂亮但边缘的金句来替代核心，不能把全部内容都收敛到AI、工程师或一个抽象大道理。"
         "每条title≤22字，text≤100字：直接说判断以及为何/什么条件下成立；尽量一个中心意思。"
         "每条evidence_ids选1–4个直接支持判断与理由的候选，必须属于同一节目。"
-        '返回 {"items":[{"title":"具体核心判断","text":"含理由或条件的简短提要","topic_tags":["主题"],"evidence_ids":["真实候选id"]}]}。'
+        '返回 {"items":[{"title":"具体核心判断","text":"含理由或条件的简短提要","topic_tags":["主题"],"evidence_ids":["真实候选id"],"evidence_translations":{"英文证据id":"忠实中文译文"}}]}。'
     ),
     "quotes": (
         "做原话精选，目标6–10条。挑完整、有具体意思、脱离漫长正文仍能理解的判断或形象表达。"
@@ -58,7 +60,7 @@ MODE_PROMPTS = {
         "两期都讲AI或都讲风险不算有价值的联系；不要制造共识、因果或相互印证。"
         "盈利好坏与市场规模不是同一命题，不能写成相反预测；安全评测中的行为也不等于另一节目质疑榜单的观点。"
         "不确定就不输出，允许没有分歧。每条evidence_ids选2–4条，逐一覆盖所比较的观点。"
-        '返回 {"items":[{"title":"具体联系或区别","text":"具体比较及边界","relation":"commonality|difference|complementary","topic_tags":["主题"],"evidence_ids":["节目A候选id","节目B候选id"]}]}。'
+        '返回 {"items":[{"title":"具体联系或区别","text":"具体比较及边界","relation":"commonality|difference|complementary","topic_tags":["主题"],"evidence_ids":["节目A候选id","节目B候选id"],"evidence_translations":{"英文证据id":"忠实中文译文"}}]}。'
     ),
     "concepts": (
         "做新词与方法，目标4–8条。只能选kind=concept的真实术语或方法，不把普通公司名、金句或泛泛动词当概念。"
@@ -66,7 +68,7 @@ MODE_PROMPTS = {
         "title≤28字直接写概念名，text≤100字用白话解释含义，再说明本期怎么使用它或适用边界。"
         "candidate_id必须是concept候选；不能发明术语，original_term由服务器继承原词。"
         "仅提到术语名字的短引文不足以支撑整段说明，可在evidence_ids增加同一期覆盖含义和用法的全文观点证据。"
-        '返回 {"items":[{"candidate_id":"真实concept id","title":"术语或方法名","text":"解释与本期用法","topic_tags":["主题"],"evidence_ids":["同期解释定义或用法的真实id"]}]}。'
+        '返回 {"items":[{"candidate_id":"真实concept id","title":"术语或方法名","text":"解释与本期用法","topic_tags":["主题"],"evidence_ids":["同期解释定义或用法的真实id"],"evidence_translations":{"英文证据id":"忠实中文译文"}}]}。'
     ),
     "resources": (
         "做提到的资料，目标4–10条。只能选kind=resource、正文实际具名提及的作品或工具。"
@@ -74,7 +76,7 @@ MODE_PROMPTS = {
         "同一个资料只选一次。title直接沿用实际资料名，完整作品名可较长；text≤90字说明节目为什么提到、怎样使用。"
         "不得编造作者、出版信息、链接或推荐；候选只是提到就不能改成嘉宾推荐。"
         "candidate_id必须是resource候选，url/resource_kind/relation从校验后的候选继承。"
-        '返回 {"items":[{"candidate_id":"真实resource id","title":"资料名","text":"本期为什么提到","topic_tags":["主题"]}]}。'
+        '返回 {"items":[{"candidate_id":"真实resource id","title":"资料名","text":"本期为什么提到","topic_tags":["主题"],"evidence_translations":{"英文证据id":"忠实中文译文"}}]}。'
     ),
 }
 
@@ -89,9 +91,12 @@ def _tags(value):
     return value
 
 
-def _evidence(ids, candidates):
+def _evidence(ids, candidates, translations=None):
     if not isinstance(ids, list) or not ids or len(ids) > 4 or len(set(ids)) != len(ids):
         raise ValueError("要点必须有1–4条不重复的原文证据")
+    translations = translations if translations is not None else {}
+    if not isinstance(translations, dict) or any(key not in ids for key in translations):
+        raise ValueError("证据译文只能对应本条已选的真实证据")
     result = []
     for candidate_id in ids:
         if candidate_id not in candidates:
@@ -99,7 +104,16 @@ def _evidence(ids, candidates):
         candidate = candidates[candidate_id]
         if candidate.get("start") is None:
             raise ValueError("要点证据没有可对应的收听时间")
-        result.append({**candidate, "kind": "quote", "title": "", "text": ""})
+        quote = {**candidate, "kind": "quote", "title": "", "text": ""}
+        if candidate_id in translations:
+            translated = translations[candidate_id]
+            if not isinstance(translated, str) or not translated.strip() or len(translated) > 240:
+                raise ValueError("证据译文须为不超过240字的忠实译文")
+            if re.search(r"[A-Za-z]{4}", candidate["quote"]):
+                quote["translation"] = translated.strip()
+        if re.search(r"[A-Za-z]{4}", candidate["quote"]) and not re.search(r"[\u4e00-\u9fff]", candidate["quote"]) and not quote.get("translation"):
+            raise ValueError(f"英文证据 {candidate_id} 需要非空忠实中文译文，原句必须保留")
+        result.append(quote)
     return result
 
 
@@ -129,7 +143,7 @@ def validate_mode(data, mode, cards, corpus):
             item = selected_quote(value, candidates, sources)
             identity = item["candidate_id"]
         elif mode in ("core", "connections"):
-            evidence = _evidence(value.get("evidence_ids"), candidates)
+            evidence = _evidence(value.get("evidence_ids"), candidates, value.get("evidence_translations"))
             source_ids = {quote["source_id"] for quote in evidence}
             if mode == "core" and len(source_ids) != 1:
                 raise ValueError("单期核心提要必须由同一期全文的证据支撑")
@@ -157,7 +171,7 @@ def validate_mode(data, mode, cards, corpus):
                 raise ValueError("术语或资料没有可对应的收听时间")
             item = {**candidate, "candidate_id": candidate["id"],
                     "text": _short_text(value.get("text"), "内容说明", 90 if mode == "resources" else 100),
-                    "evidence": _evidence(list(dict.fromkeys([candidate["id"], *value.get("evidence_ids", [])])), candidates)}
+                    "evidence": _evidence(list(dict.fromkeys([candidate["id"], *value.get("evidence_ids", [])])), candidates, value.get("evidence_translations"))}
             if any(quote["source_id"] != candidate["source_id"] for quote in item["evidence"]):
                 raise ValueError("术语和资料的解释必须由同一期实际文稿支持")
             # 概念/作品身份来自已校验抽取，不让模式编排发明另一个名字。
@@ -175,17 +189,22 @@ def validate_mode(data, mode, cards, corpus):
 
 
 class BriefingModesService:
-    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None, report_service=None):
+    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None, report_service=None, scope_service=None):
         self.report_service = report_service or BriefingReportService(runtime_dir, lab_runtime_dir, client_factory, owner_id)
         self.reading_service = BriefingReadingService(owner_id=owner_id, report_service=self.report_service)
         self.root = self.report_service.root / "content-modes-v1"
         self.owner_id = owner_id
+        self.scope_service = scope_service
 
-    def _latest(self, mode, identifier, topic=None):
+    def _latest(self, mode, identifier, topic=None, selection_key=None):
         matches = []
         for path in (self.root / "reports").glob("*.json"):
             report = read_json(path)
-            if report.get("owner_id") not in (None, self.owner_id) or report["corpus_id"] != identifier or report["mode"] != mode:
+            if report.get("owner_id") not in (None, self.owner_id) or report["mode"] != mode:
+                continue
+            if selection_key is None and (report["corpus_id"] != identifier or report.get("selection_key")):
+                continue
+            if selection_key is not None and report.get("selection_key") != selection_key:
                 continue
             if topic is not None and report.get("topic", "") != topic:
                 continue
@@ -202,7 +221,20 @@ class BriefingModesService:
         report = read_json(path)
         return report if report.get("owner_id") in (None, self.owner_id) else None
 
-    def snapshot(self, topic=None):
+    def snapshot(self, topic=None, scope=None):
+        if scope is not None:
+            corpus = scope["corpus"]
+            identifier = corpus_id(corpus)
+            reports = {mode["id"]: self._latest(mode["id"], identifier, topic, scope["selection_key"]) for mode in MODES}
+            for report in reports.values():
+                if report is not None:
+                    report["period"] = scope["period"]
+            result = {"modes": [{**{key: mode[key] for key in ("id", "name", "description")}, "prompt": mode_template(mode["id"]), "input_description": INPUT_DESCRIPTION} for mode in MODES],
+                      "mode_prompts": {mode["id"]: {"prompt": mode_template(mode["id"]), "input_description": INPUT_DESCRIPTION, "user_template": "关注主题：{topic}\n完整材料记录：{material}"} for mode in MODES},
+                      "reports": reports, "sources": self.report_service._metadata(corpus),
+                      "corpus": {"id": identifier, "characters": sum(len(source["full_text"]) for source in corpus["sources"]), "source_count": len(corpus["sources"])},
+                      "extraction": self.report_service._extraction_status(corpus)}
+            return {**result, **{key: scope[key] for key in ("period", "periods", "materials", "interests", "preferences", "screening", "selection_key")}}
         corpus = self.report_service.corpus()
         identifier = corpus_id(corpus)
         sources = self.report_service._metadata(corpus)
@@ -226,7 +258,7 @@ class BriefingModesService:
         chunks = []
         readings = []
         for source in corpus["sources"]:
-            full_notes = self.report_service.lab._source_notes(source, cached_only=True)
+            full_notes = self.report_service.lab._source_notes(source, cached_only=self.scope_service is None)
             chunks.extend({"source_id": source["id"], "chunk_id": chunk["chunk_id"], "summary": chunk["summary"]} for chunk in full_notes["chunks"])
             for claim in full_notes["claims"]:
                 evidence = claim["evidence"]
@@ -268,12 +300,16 @@ class BriefingModesService:
                    "evidence_candidates": [{key: card.get(key, "") for key in ("id", "source_id", "kind", "title", "text", "quote", "context", "speaker", "original_term", "original_title", "resource_kind", "relation")} for card in cards if card.get("start") is not None]}
         return corpus, [card for card in cards if card.get("start") is not None], payload
 
-    def _generate_one(self, mode, topic, corpus, cards, payload):
+    def _generate_one(self, mode, topic, corpus, cards, payload, scope=None):
         definition = MODE_INDEX[mode]
         identifier = corpus_id(corpus)
-        prompt = f"关注主题：{topic or '不限，按各期真实内容提炼'}\n完整材料记录：\n" + json.dumps(payload, ensure_ascii=False)
+        focus = topic or ("、".join(scope["interests"]) if scope is not None else "")
+        prompt = f"关注主题：{focus or '不限，按各期真实内容提炼'}\n完整材料记录：\n" + json.dumps(payload, ensure_ascii=False)
         result, metadata = self.report_service.lab._model_call(mode_template(mode), prompt, lambda value: validate_mode(value, mode, cards, corpus), max_tokens=16000)
-        if corpus_id(self.report_service.corpus()) != identifier:
+        current = self.scope_service.collect(scope["period"]["type"], scope["period"]["start"], scope["interests"]) if scope is not None else None
+        if scope is not None and current["selection_key"] != scope["selection_key"]:
+            raise ValueError("周期材料已变化，不能保存混合材料的简报")
+        if scope is None and corpus_id(self.report_service.corpus()) != identifier:
             raise ValueError("材料已变化，不能保存混合材料的简报")
         sources = self.report_service._metadata(corpus)
         report = {"id": uuid.uuid4().hex, "owner_id": self.owner_id, "corpus_id": identifier, "mode": mode, "mode_report": True,
@@ -284,22 +320,55 @@ class BriefingModesService:
                   "topic_no_match": bool(topic and not result["items"]), "prompt": mode_template(mode), "input_description": INPUT_DESCRIPTION,
                   "prompt_user_template": "关注主题：{topic}\n完整材料记录：{material}",
                   "web_mode": "saved_primary_source_notes", **metadata}
+        if scope is not None:
+            report.update(period=scope["period"], interests=scope["interests"], selection_key=scope["selection_key"],
+                          screening=scope["screening"], materials=scope["materials"], period_report=True)
         write_json(self.root / "reports" / f"{report['id']}.json", report)
         return report
 
-    def generate(self, mode="all", topic="", progress_callback=None):
+    def generate(self, mode="all", topic="", progress_callback=None, scope=None):
         if mode not in {*MODE_INDEX, "all"}:
             raise ValueError("内容模式无效")
-        corpus, cards, payload = self._material(progress_callback)
+        if scope is not None:
+            scope = self.scope_service.screen(scope, progress_callback)
+            selected_ids = {item["source_id"] for item in scope["materials"] if item["selected"] is True}
+            self.report_service._corpus = {"sources": [source for source in scope["corpus"]["sources"] if source["id"] in selected_ids]}
+            if not selected_ids:
+                return self._empty_scope_reports(mode, topic, scope, progress_callback)
+        material_progress = (lambda value: progress_callback((25 + int(value[0] * 0.35), value[1]))) if progress_callback else None
+        corpus, cards, payload = self._material(material_progress)
+        if scope is not None:
+            payload["reading_focus"] = {"interests": scope["interests"], "period": scope["period"],
+                                        "relevance": [{key: item[key] for key in ("source_id", "topic_tags", "relevance_reason", "screening_evidence")}
+                                                      for item in scope["materials"] if item["selected"] is True],
+                                        "instruction": "围绕关注话题提炼相关核心；保留全篇语境和条件，相关理由只作为阅读线索，不代替该期主张。"}
         selected = list(MODE_INDEX) if mode == "all" else [mode]
         reports = {}
         if progress_callback:
-            progress_callback((25, "已读取全篇分块记录，按不同内容策略生成"))
+            progress_callback((60, "已读取全篇分块记录，按不同内容策略生成"))
         with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = {pool.submit(self._generate_one, current, topic, corpus, cards, payload): current for current in selected}
+            futures = {pool.submit(self._generate_one, current, topic, corpus, cards, payload, scope): current for current in selected}
             for completed, future in enumerate(as_completed(futures), 1):
                 current = futures[future]
                 reports[current] = future.result()
                 if progress_callback:
-                    progress_callback((25 + int(completed / len(selected) * 75), f"已生成{MODE_INDEX[current]['name']}"))
-        return {"reports": reports}
+                    progress_callback((60 + int(completed / len(selected) * 40), f"已生成{MODE_INDEX[current]['name']}"))
+        return {"reports": reports, **({"period": scope["period"], "selection_key": scope["selection_key"]} if scope is not None else {})}
+
+    def _empty_scope_reports(self, mode, topic, scope, progress_callback):
+        reports = {}
+        for current in MODE_INDEX if mode == "all" else [mode]:
+            definition = MODE_INDEX[current]
+            report = {"id": uuid.uuid4().hex, "owner_id": self.owner_id, "corpus_id": corpus_id({"sources": []}), "mode": current,
+                      "mode_report": True, "period_report": True, "reading_edition": current == "quotes", "variant": definition["variant"],
+                      "title": definition["name"], "topic": topic, "generated_at": now_iso(), "sources": [],
+                      "sections": [{"id": current, "kind": definition["kind"], "title": definition["name"], "items": []}],
+                      "coverage": {"sources": 0, "selected_sources": 0, "chunks": 0, "characters": 0}, "topic_no_match": True,
+                      "prompt": mode_template(current), "input_description": INPUT_DESCRIPTION, "prompt_user_template": "关注主题：{topic}\n完整材料记录：{material}",
+                      "web_mode": "saved_primary_source_notes", "period": scope["period"], "interests": scope["interests"], "selection_key": scope["selection_key"],
+                      "screening": scope["screening"], "materials": scope["materials"], "usage": {"prompt": 0, "completion": 0, "total": 0}}
+            write_json(self.root / "reports" / f"{report['id']}.json", report)
+            reports[current] = report
+        if progress_callback:
+            progress_callback((100, "已阅读全部可用文稿，本周期没有与关注话题相关的内容"))
+        return {"reports": reports, "period": scope["period"], "selection_key": scope["selection_key"]}
