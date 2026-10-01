@@ -108,3 +108,6 @@ frontend/dist/
 frontend/.vite/
 
 backups/
+
+# Local AI research snapshots (full transcripts and cache records)
+docs/ai/data/
