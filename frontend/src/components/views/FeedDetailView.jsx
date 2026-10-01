@@ -1,19 +1,38 @@
 // -*- coding: utf-8 -*-
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, Loader2 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
 import { decodeHtmlEntities } from '../../utils/helpers';
 import EpisodeCard from '../cards/EpisodeCard';
 import ViewToolbar from '../common/ViewToolbar';
+import { feedsApi } from '../../services/api';
+import usePaginatedList from '../../hooks/usePaginatedList';
+import useDebouncedValue from '../../hooks/useDebouncedValue';
+import { ListFilters, ListPagination } from '../common/ListControls';
 
 /**
  * FeedDetailView - 订阅源详情页
  * 显示订阅源信息和其所有节目列表
  */
-const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
+const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
   const { t } = useTranslation();
   const [showFullDesc, setShowFullDesc] = useState(false);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('published_desc');
+  const [playError, setPlayError] = useState('');
+  const q = useDebouncedValue(query);
+  const request = useCallback(params => feedsApi.getEpisodes(feed.id, params), [feed?.id]);
+  const list = usePaginatedList(request, { params: { q, sort }, enabled: Boolean(feed), revision: refreshVersion });
+  const episodes = list.data;
+  const loading = list.loading;
+  const playLatest = async () => {
+    setPlayError('');
+    try {
+      const response = await feedsApi.getEpisodes(feed.id, { page: 1, per_page: 1, sort: 'published_desc' });
+      if (response.data.length) onPlay(response.data[0]);
+    } catch (error) { setPlayError(error.message); }
+  };
 
   if (!feed) return null;
 
@@ -49,8 +68,8 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
             {/* 操作按钮 */}
             <div className="flex items-center gap-3 mb-4">
               <button
-                onClick={() => episodes[0] && onPlay(episodes[0])}
-                disabled={!episodes.length}
+                onClick={playLatest}
+                disabled={feed.episode_count === 0}
                 className="flex items-center gap-2 bg-white text-black px-5 py-2 rounded-full font-semibold hover:scale-105 transition-transform shadow-lg shadow-white/10 disabled:opacity-50 disabled:hover:scale-100"
               >
                 <Play size={16} fill="currentColor" stroke="none" /> {t('feedDetail.playLatest')}
@@ -76,6 +95,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
             </div>
 
             {/* 简介 */}
+            {playError && <p role="alert" className="mb-3 text-sm text-red-300">{playError}</p>}
             {description && (
               <div className="text-sm text-zinc-400 leading-relaxed">
                 <p className={showFullDesc ? '' : 'line-clamp-2'}>
@@ -118,11 +138,11 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
       {/* 节目列表区域 */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <ViewToolbar
-          count={loading ? t('common.loading') : `${episodes.length} ${t('episode.episodes')}`}
+          count={loading ? t('common.loading') : `${list.pagination.total} ${t('episode.episodes')}`}
           description={t('viewToolbar.feedDescription')}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
-        />
+        ><ListFilters query={query} onQuery={setQuery} sort={sort} onSort={setSort} /></ViewToolbar>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="animate-spin text-indigo-500" size={32} />
@@ -142,6 +162,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
             ))}
           </div>
         )}
+        <ListPagination list={list} />
       </div>
     </div>
   );

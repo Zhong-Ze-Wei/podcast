@@ -1,8 +1,8 @@
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, RefreshCw } from 'lucide-react';
-import { authApi, feedsApi, episodesApi, tasksApi, setAuthToken } from './services/api';
+import { RefreshCw } from 'lucide-react';
+import { authApi, feedsApi, episodesApi, setAuthToken } from './services/api';
 import {
   AUTO_REFRESH_KEY,
   TASK_POLL_KEY,
@@ -23,10 +23,11 @@ import { createFeedRefreshAction } from './utils/taskActions';
 import AuthView from './components/views/AuthView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
-import EpisodeCard from './components/cards/EpisodeCard';
 // Common components
 import LanguageSwitcher from './components/common/LanguageSwitcher';
 import ViewToolbar from './components/common/ViewToolbar';
+import { ListPagination } from './components/common/ListControls';
+import usePaginatedList from './hooks/usePaginatedList';
 // Player components
 import PlayerBar from './components/player/PlayerBar';
 // Task components
@@ -78,15 +79,9 @@ export default function App() {
   const [selectedEpisode, setSelectedEpisode] = useState(null);
   const [currentPlaying, setCurrentPlaying] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [feeds, setFeeds] = useState([]);
-  const [episodes, setEpisodes] = useState([]);
-  const [workspaceEpisodes, setWorkspaceEpisodes] = useState([]); // 已转录/已摘要的episodes
-  const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
-  const [feedEpisodesLoading, setFeedEpisodesLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
   const pendingPlaybackRef = useRef(null);
@@ -102,7 +97,6 @@ export default function App() {
     return episode?.local_audio_url || episode?.audio_url || '';
   };
   const lastSavedPositionRef = useRef(0); // 上次保存的位置，避免频繁保存
-  const feedRequestIdRef = useRef(0); // 用于取消过期的feed episodes请求
   const hasInAppNavigationRef = useRef(false);
   const latestViewRef = useRef(view);
 
@@ -134,23 +128,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentPlaying, isPlaying]);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [feedsData, episodesData, transcribedData] = await Promise.all([
-        feedsApi.list(),
-        episodesApi.list({ per_page: 500 }),
-        episodesApi.listTranscribed()
-      ]);
-      setFeeds(feedsData.data || feedsData);
-      setEpisodes(episodesData.data || episodesData);
-      setWorkspaceEpisodes(transcribedData.data || transcribedData);
-    } catch (err) {
-      console.error('Failed to load data:', err);
-    } finally {
-      setLoading(false);
+  const feedList = usePaginatedList(feedsApi.list, { enabled: !authLoading && Boolean(currentUser), scope: currentUser?.id });
+  const feeds = feedList.data;
+  const loading = feedList.loading;
+  const loadData = useCallback(() => {
+    feedList.reload();
+    setRefreshVersion(version => version + 1);
+  }, [feedList.reload]);
+
+  const handleTaskComplete = useCallback((tasks) => {
+    if (tasks.some(task => task.type === 'refresh')) feedList.reload();
+    setRefreshVersion(version => version + 1);
+    if (selectedFeed && tasks.some(task => task.feed_id === selectedFeed.id)) {
+      feedsApi.get(selectedFeed.id).then(response => setSelectedFeed(response.data)).catch(error => setActionNotice({ message: error.message, error: true }));
     }
-  };
+    if (selectedEpisode && tasks.some(task => task.episode_id === selectedEpisode.id)) {
+      episodesApi.get(selectedEpisode.id).then(response => setSelectedEpisode(response.data)).catch(error => setActionNotice({ message: error.message, error: true }));
+    }
+  }, [feedList.reload, selectedFeed, selectedEpisode]);
 
   useEffect(() => {
     let mounted = true;
@@ -170,12 +165,6 @@ export default function App() {
     return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    if (!authLoading && currentUser) {
-      loadData();
-    }
-  }, [authLoading, currentUser]);
-
   const handleAuthenticated = (user) => {
     setCurrentUser(user);
   };
@@ -183,9 +172,7 @@ export default function App() {
   const handleLogout = () => {
     setAuthToken(null);
     setCurrentUser(null);
-    setFeeds([]);
-    setEpisodes([]);
-    setWorkspaceEpisodes([]);
+    feedList.clear();
     setSelectedEpisode(null);
     setSelectedFeed(null);
     setActiveFeed(null);
@@ -217,7 +204,7 @@ export default function App() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // 定时自动刷新订阅内容（0 = 关闭）
+  // 定时读取已保存的数据（0 = 关闭），订阅源抓取由后端同步任务负责。
   useEffect(() => {
     if (!autoRefreshMinutes) return;
     const timer = setInterval(loadData, autoRefreshMinutes * 60 * 1000);
@@ -252,7 +239,6 @@ export default function App() {
     setActiveFeed(null);
     setSelectedFeed(null);
     setSelectedEpisode(null);
-    setFeedEpisodes([]);
     setView(nextView);
     setViewMode(nextView.startsWith('briefing') ? 'ai-briefing' : 'traditional');
     const path = SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace;
@@ -324,10 +310,6 @@ export default function App() {
     setActiveFeed(feedId);
     setViewMode('traditional');
     setView('feedDetail');
-    setFeedEpisodes([]);
-    setFeedEpisodesLoading(true);
-
-    const requestId = ++feedRequestIdRef.current;
 
     try {
       let feed = typeof feedOrId === 'string' ? feeds.find(item => item.id === feedId) : feedOrId;
@@ -337,18 +319,8 @@ export default function App() {
       }
       setSelectedFeed(feed);
 
-      const response = await feedsApi.getEpisodes(feedId, { per_page: 500 });
-      if (requestId === feedRequestIdRef.current) {
-        const episodeData = response.data || response;
-        setFeedEpisodes(Array.isArray(episodeData) ? episodeData : []);
-        setFeedEpisodesLoading(false);
-      }
     } catch (err) {
-      if (requestId === feedRequestIdRef.current) {
-        console.error('Failed to open feed route:', err);
-        setFeedEpisodes([]);
-        setFeedEpisodesLoading(false);
-      }
+      setActionNotice({ message: err.message || '订阅暂时无法加载。', error: true });
       navigateToView('workspace', { replace: true });
     }
   }, [feeds, navigateToView, updateBrowserPath]);
@@ -399,26 +371,11 @@ export default function App() {
   };
 
   const handleStar = async (episode) => {
-    const newStarred = !episode.is_starred;
-
-    // 乐观更新：立即更新所有状态
-    const updateEpisodeList = (list) =>
-      list.map(ep => ep.id === episode.id ? {...ep, is_starred: newStarred} : ep);
-
-    setEpisodes(prev => updateEpisodeList(prev));
-    setFeedEpisodes(prev => updateEpisodeList(prev));
-    setWorkspaceEpisodes(prev => updateEpisodeList(prev));
-
     try {
-      await episodesApi.star(episode.id, newStarred);
-    } catch (err) {
-      console.error('Star failed:', err);
-      // 失败时回滚
-      const rollback = (list) =>
-        list.map(ep => ep.id === episode.id ? {...ep, is_starred: !newStarred} : ep);
-      setEpisodes(prev => rollback(prev));
-      setFeedEpisodes(prev => rollback(prev));
-      setWorkspaceEpisodes(prev => rollback(prev));
+      await episodesApi.star(episode.id, !episode.is_starred);
+      setRefreshVersion(version => version + 1);
+    } catch (error) {
+      setActionNotice({ message: error.message || '收藏未能保存。', error: true });
     }
   };
 
@@ -427,9 +384,7 @@ export default function App() {
     const newFavorite = !feed.is_favorite;
 
     // 乐观更新：立即更新 feeds 状态
-    setFeeds(prev =>
-      prev.map(f => f.id === feed.id ? {...f, is_favorite: newFavorite} : f)
-    );
+    feedList.update(feed.id, { is_favorite: newFavorite });
 
     // 更新 selectedFeed（如果当前选中的是这个feed）
     if (selectedFeed && selectedFeed.id === feed.id) {
@@ -437,13 +392,11 @@ export default function App() {
     }
 
     try {
-      await feedsApi.favorite(feed.id, { favorite: newFavorite });
+      await feedsApi.favorite(feed.id, newFavorite);
     } catch (err) {
       console.error('Favorite failed:', err);
       // 失败时回滚
-      setFeeds(prev =>
-        prev.map(f => f.id === feed.id ? {...f, is_favorite: !newFavorite} : f)
-      );
+      feedList.update(feed.id, { is_favorite: !newFavorite });
       if (selectedFeed && selectedFeed.id === feed.id) {
         setSelectedFeed(prev => ({...prev, is_favorite: !newFavorite}));
       }
@@ -564,14 +517,6 @@ export default function App() {
 
   };
 
-  const filteredEpisodes = episodes.filter(ep => {
-    const matchesFeed = !activeFeed || ep.feed_id === activeFeed;
-    const matchesSearch = !searchQuery ||
-      ep.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ep.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFeed && matchesSearch;
-  });
-
   if (authLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-black text-zinc-100">
@@ -614,6 +559,7 @@ export default function App() {
         onStarFeed={handleStarFeed}
         onNoteFeed={loadData}
         onFeedClick={handleFeedClick}
+        feedList={feedList}
         hasPlayer={!!currentPlaying}
         currentView={view}
         viewMode={viewMode}
@@ -662,31 +608,17 @@ export default function App() {
                   </button>
                   <div className="min-w-0">
                   <h2 className="text-2xl md:text-3xl font-bold text-white truncate">
-                    {activeFeed ? feeds.find(f => f.id === activeFeed)?.title : t('sidebar.subscriptions')}
+                    {t('sidebar.subscriptions')}
                   </h2>
                   <p className="text-zinc-500 text-sm mt-1">
-                    {activeFeed
-                      ? `${filteredEpisodes.length} ${t('episode.episodes')}`
-                      : `${feeds.length} ${t('feed.subscriptions')}`
-                    }
+                    {feedList.pagination.total} {t('feed.subscriptions')}
                   </p>
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  {activeFeed && (
-                    <div className="relative group">
-                      <Search className="absolute left-3 top-2.5 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" size={18} />
-                      <input
-                        type="text"
-                        placeholder={t('episode.searchPlaceholder')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 w-40 sm:w-64 transition-all"
-                      />
-                    </div>
-                  )}
                   <button
                     onClick={() => loadData()}
+                    aria-label="更新页面数据"
                     className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-sm font-medium transition-colors"
                   >
                     <RefreshCw size={16} />
@@ -696,47 +628,23 @@ export default function App() {
             </div>
 
             <ViewToolbar
-              count={activeFeed
-                ? `${filteredEpisodes.length} ${t('episode.episodes')}`
-                : `${feeds.length} ${t('feed.subscriptions')}`}
-              description={activeFeed ? t('viewToolbar.feedDescription') : t('viewToolbar.subscriptionsDescription')}
+              count={`${feedList.pagination.total} ${t('feed.subscriptions')}`}
+              description={t('viewToolbar.subscriptionsDescription')}
               viewMode={episodeViewMode}
               onViewModeChange={setEpisodeViewMode}
             />
 
             <div className={`p-4 md:p-8 grid ${episodeViewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'} ${currentPlaying ? 'pb-24' : ''}`}>
-              {activeFeed ? (
-                // 显示选中Feed的Episodes
-                filteredEpisodes.map(ep => (
-                  <EpisodeCard
-                    key={ep.id}
-                    episode={ep}
-                    onClick={handleEpisodeClick}
-                    onStar={handleStar}
-                    onPlay={handlePlay}
-                    viewMode={episodeViewMode}
-                    feedImage={activeFeed?.image}
-                  />
-                ))
-              ) : (
-                // 显示所有订阅源卡片
-                feeds.map(feed => (
-                  <FeedCard
-                    key={feed.id}
-                    feed={feed}
-                    onClick={handleFeedClick}
-                    onRefresh={handleRefreshFeed}
-                    viewMode={episodeViewMode}
-                  />
-                ))
-              )}
+              {feeds.map(feed => (
+                <FeedCard key={feed.id} feed={feed} onClick={handleFeedClick} onRefresh={handleRefreshFeed} viewMode={episodeViewMode} />
+              ))}
             </div>
+            <ListPagination list={feedList} />
           </div>
         ) : view === 'feedDetail' ? (
           <FeedDetailView
             feed={selectedFeed}
-            episodes={feedEpisodes}
-            loading={feedEpisodesLoading}
+            refreshVersion={refreshVersion}
             onBack={() => navigateToView('list')}
             onRefresh={handleRefreshFeed}
             onEpisodeClick={handleEpisodeClick}
@@ -747,7 +655,7 @@ export default function App() {
           />
         ) : view === 'favorites' ? (
           <FavoritesView
-            episodes={episodes}
+            refreshVersion={refreshVersion}
             feeds={feeds}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
@@ -757,7 +665,7 @@ export default function App() {
           />
         ) : view === 'workspace' ? (
           <WorkspaceView
-            episodes={workspaceEpisodes}
+            refreshVersion={refreshVersion}
             feeds={feeds}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
@@ -821,7 +729,7 @@ export default function App() {
 
       {/* 任务进度面板 */}
       <TaskPanel
-        onTaskComplete={loadData}
+        onTaskComplete={handleTaskComplete}
         onNavigate={({ type, id }) => {
           if (type === 'episode') openEpisode(id);
           if (type === 'feed') openFeed(id);
