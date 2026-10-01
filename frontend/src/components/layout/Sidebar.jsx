@@ -82,12 +82,7 @@ const Sidebar = ({
 
   const handleRefresh = async (feedId) => {
     setMenuOpen(null);
-    try {
-      await feedsApi.refresh(feedId);
-      if (onRefreshFeed) onRefreshFeed();
-    } catch (err) {
-      console.error('Refresh failed:', err);
-    }
+    await onRefreshFeed(feedId);
   };
 
   const handleDelete = async (feedId) => {

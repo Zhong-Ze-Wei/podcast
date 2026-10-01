@@ -182,6 +182,9 @@
     "clearCompleted": "清除已完成",
     "cancel": "取消",
     "dismiss": "关闭",
+    "cancelRequested": "正在取消",
+    "cancelError": "取消未成功，请重试。",
+    "loadError": "任务状态暂时无法读取，正在重试。",
     "openPanel": "打开任务",
     "closePanel": "关闭任务",
     "resizePanel": "调整任务面板大小",
@@ -224,7 +227,8 @@
       "pending": "等待中",
       "processing": "处理中",
       "completed": "已完成",
-      "failed": "失败"
+      "failed": "失败",
+      "cancelled": "已取消"
     }
   },
   "settings": {

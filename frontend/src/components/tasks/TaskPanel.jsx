@@ -6,6 +6,7 @@ import {
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
 } from 'lucide-react';
 import { tasksApi } from '../../services/api';
+import { isActiveTask, isTerminalTask, canCancelTask, requestTaskCancellation } from '../../utils/taskActions';
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
 const DEFAULT_PANEL_SIZE = { width: 352, height: 480 };
@@ -40,6 +41,7 @@ const TaskPanel = ({
   const [historyTasks, setHistoryTasks] = useState([]);
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [activeTab, setActiveTab] = useState('active');
+  const [requestError, setRequestError] = useState('');
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [panelSize, setPanelSize] = useState(readPanelSize);
   const panelSizeRef = useRef(panelSize);
@@ -54,7 +56,7 @@ const TaskPanel = ({
     try {
       const [activeResponse, historyResponse] = await Promise.all([
         tasksApi.list({ status: 'pending,processing', per_page: 50 }),
-        tasksApi.list({ status: 'completed,failed', per_page: 50 })
+        tasksApi.list({ status: 'completed,failed,cancelled', per_page: 50 })
       ]);
 
       const nextActiveTasks = activeResponse.data || [];
@@ -66,13 +68,14 @@ const TaskPanel = ({
 
       setActiveTasks(nextActiveTasks);
       setHistoryTasks(nextHistoryTasks);
+      setRequestError('');
 
       const terminalTasks = nextHistoryTasks.filter(task =>
         task.id && !notifiedTaskIdsRef.current.has(task.id)
       );
       if (terminalTasks.length > 0 && onTaskComplete) {
         terminalTasks.forEach(task => notifiedTaskIdsRef.current.add(task.id));
-        onTaskComplete();
+        onTaskComplete(terminalTasks);
       }
 
       if (nextActiveTasks.length === 0) {
@@ -88,7 +91,7 @@ const TaskPanel = ({
       }
       previousActiveCountRef.current = nextActiveTasks.length;
     } catch (err) {
-      console.error('Failed to fetch tasks:', err);
+      setRequestError(err.message || t('tasks.loadError'));
     }
   }, [historyWindowMinutes, onTaskComplete]);
 
@@ -154,14 +157,11 @@ const TaskPanel = ({
     document.body.style.userSelect = 'none';
   };
 
-  const handleCancel = async (taskId) => {
-    try {
-      await tasksApi.cancel(taskId);
-      fetchTasks();
-    } catch (err) {
-      console.error('Failed to cancel task:', err);
-    }
-  };
+  const handleCancel = taskId => requestTaskCancellation(taskId, {
+    cancel: tasksApi.cancel,
+    refresh: fetchTasks,
+    onError: error => setRequestError(error.message || t('tasks.cancelError')),
+  });
 
   const handleDismiss = (taskId) => {
     setDismissedTaskIds(prev => {
@@ -227,6 +227,7 @@ const TaskPanel = ({
       case 'processing': return 'text-sky-400';
       case 'completed': return 'text-emerald-400';
       case 'failed': return 'text-red-400';
+      case 'cancelled': return 'text-zinc-400';
       default: return 'text-zinc-400';
     }
   };
@@ -237,6 +238,7 @@ const TaskPanel = ({
       case 'processing': return <Loader2 size={14} className="animate-spin" />;
       case 'completed': return <CheckCircle2 size={14} />;
       case 'failed': return <AlertCircle size={14} />;
+      case 'cancelled': return <X size={14} />;
       default: return null;
     }
   };
@@ -254,7 +256,7 @@ const TaskPanel = ({
   };
 
   const renderTask = (task) => {
-    const isActive = task.status === 'pending' || task.status === 'processing';
+    const isActive = isActiveTask(task);
     const targetLabel = getTaskTargetLabel(task);
     const metaLabel = getTaskMetaLabel(task);
     const isOpenable = canOpenTask(task);
@@ -279,7 +281,7 @@ const TaskPanel = ({
             </span>
             <span className={`flex items-center gap-1 text-xs ${getStatusStyle(task.status)}`}>
               {getStatusIcon(task.status)}
-              {t(`tasks.status.${task.status}`)}
+              {task.cancel_requested ? t('tasks.cancelRequested') : t(`tasks.status.${task.status}`)}
             </span>
           </div>
 
@@ -323,7 +325,7 @@ const TaskPanel = ({
         </div>
 
         <div className="flex-shrink-0">
-          {task.status === 'pending' && (
+          {canCancelTask(task) && (
             <button
               onClick={(event) => { event.stopPropagation(); handleCancel(task.id); }}
               className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
@@ -332,7 +334,7 @@ const TaskPanel = ({
               <X size={14} />
             </button>
           )}
-          {(task.status === 'completed' || task.status === 'failed') && (
+          {isTerminalTask(task) && (
             <button
               onClick={(event) => { event.stopPropagation(); handleDismiss(task.id); }}
               className="p-1 text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 transition-all"
@@ -417,6 +419,7 @@ const TaskPanel = ({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+            {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{requestError}</div>}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (

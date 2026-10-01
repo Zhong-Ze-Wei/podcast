@@ -1,8 +1,9 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Mic2, Sparkles, Download, Languages, AlertCircle } from 'lucide-react';
 import { tasksApi } from '../../services/api';
+import { isActiveTask, isTerminalTask, canCancelTask, createTerminalNotifier, requestTaskCancellation } from '../../utils/taskActions';
 
 /**
  * TaskProgress - 统一的任务进度组件
@@ -15,12 +16,21 @@ const TaskProgress = ({
   episodeId,     // episode ID
   onComplete,    // 任务完成回调
   onError,       // 任务失败回调
+  onCancelled,
   className = ''
 }) => {
   const { t } = useTranslation();
   const [task, setTask] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [requestError, setRequestError] = useState('');
+  const callbacksRef = useRef({ onComplete, onError, onCancelled });
+  callbacksRef.current = { onComplete, onError, onCancelled };
+  const notifyRef = useRef(createTerminalNotifier(terminal => {
+    if (terminal.status === 'completed') callbacksRef.current.onComplete?.();
+    if (terminal.status === 'failed') callbacksRef.current.onError?.(terminal.error_message);
+    if (terminal.status === 'cancelled') callbacksRef.current.onCancelled?.();
+  }));
 
   // 任务类型配置
   const taskConfig = {
@@ -61,13 +71,12 @@ const TaskProgress = ({
       });
 
       const tasks = response.data?.data || response.data || [];
-      const activeTask = tasks.find(t =>
-        t.status === 'pending' || t.status === 'processing'
-      ) || tasks[0];
+      const activeTask = tasks.find(isActiveTask) || tasks[0];
 
       if (activeTask) {
         setTask(activeTask);
         setLastUpdate(Date.now());
+        setRequestError('');
 
         // 计算已运行时间
         if (activeTask.started_at || activeTask.created_at) {
@@ -76,23 +85,20 @@ const TaskProgress = ({
         }
 
         // 任务完成或失败
-        if (activeTask.status === 'completed') {
-          onComplete?.();
-        } else if (activeTask.status === 'failed') {
-          onError?.(activeTask.error_message);
-        }
+        notifyRef.current(activeTask);
       }
     } catch (err) {
-      console.error('Failed to fetch task status:', err);
+      setRequestError(err.message || t('tasks.loadError'));
     }
-  }, [episodeId, taskType, onComplete, onError]);
+  }, [episodeId, taskType, t]);
 
   // 轮询
   useEffect(() => {
     fetchTaskStatus();
+    if (task && isTerminalTask(task)) return;
     const interval = setInterval(fetchTaskStatus, 2000);
     return () => clearInterval(interval);
-  }, [fetchTaskStatus]);
+  }, [fetchTaskStatus, task?.status]);
 
   // 更新已运行时间
   useEffect(() => {
@@ -121,7 +127,13 @@ const TaskProgress = ({
   };
 
   const progress = task?.progress || 0;
-  const isStale = Date.now() - lastUpdate > 30000; // 30秒无更新视为可能卡住
+  const active = !task || isActiveTask(task);
+  const isStale = active && Date.now() - lastUpdate > 30000;
+  const cancel = () => requestTaskCancellation(task.id, {
+    cancel: tasksApi.cancel,
+    refresh: fetchTaskStatus,
+    onError: error => setRequestError(error.message || t('tasks.cancelError')),
+  });
 
   // 颜色映射
   const colorClasses = {
@@ -157,10 +169,11 @@ const TaskProgress = ({
     <div className={`w-full max-w-sm ${className}`}>
       {/* 标题行 */}
       <div className="flex items-center gap-2 mb-3">
-        <div className={`animate-spin ${colors.text}`}>
+        <div className={`${active ? 'animate-spin' : ''} ${colors.text}`}>
           <Icon size={20} />
         </div>
-        <span className={`font-medium ${colors.text}`}>{config.label}</span>
+        <span className={`font-medium ${colors.text}`}>{task?.cancel_requested ? t('tasks.cancelRequested') : active ? config.label : t(`tasks.status.${task.status}`)}</span>
+        {task && canCancelTask(task) && <button onClick={cancel} className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">{t('tasks.cancel')}</button>}
       </div>
 
       {/* 进度条 */}
@@ -191,6 +204,7 @@ const TaskProgress = ({
       )}
 
       {/* 错误信息 */}
+      {requestError && <p role="alert" className="mt-2 text-xs text-red-400">{requestError}</p>}
       {task?.status === 'failed' && task?.error_message && (
         <div className="flex items-center gap-2 mt-2 text-red-400 text-xs bg-red-900/20 rounded-lg px-3 py-2">
           <AlertCircle size={14} />

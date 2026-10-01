@@ -182,6 +182,9 @@
     "clearCompleted": "Clear",
     "cancel": "Cancel",
     "dismiss": "Dismiss",
+    "cancelRequested": "Cancellation requested",
+    "cancelError": "Could not cancel the task. Please retry.",
+    "loadError": "Could not read task progress. Retrying.",
     "openPanel": "Open tasks",
     "closePanel": "Close tasks",
     "resizePanel": "Resize task panel",
@@ -224,7 +227,8 @@
       "pending": "Pending",
       "processing": "Processing",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "cancelled": "Cancelled"
     }
   },
   "settings": {

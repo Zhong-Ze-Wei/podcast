@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, RefreshCw } from 'lucide-react';
 import { authApi, feedsApi, episodesApi, tasksApi, setAuthToken } from './services/api';
@@ -19,6 +19,7 @@ import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
 import BriefingReportsView from './components/views/BriefingReportsView';
 import { getExternalPlaybackUrl, getPlaybackPosition } from './utils/briefingPlayback';
+import { createFeedRefreshAction } from './utils/taskActions';
 import AuthView from './components/views/AuthView';
 // Card components
 import FeedCard from './components/cards/FeedCard';
@@ -91,6 +92,7 @@ export default function App() {
   const pendingPlaybackRef = useRef(null);
   const reportPlaybackRef = useRef(null);
   const [playbackNotice, setPlaybackNotice] = useState(null);
+  const [actionNotice, setActionNotice] = useState(null);
   // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
   const getPlayableAudioUrl = (episode) => {
     if (episode?.local_audio_url) return episode.local_audio_url;
@@ -227,9 +229,11 @@ export default function App() {
     loadData();
   };
 
-  const handleRefreshFeed = () => {
-    loadData();
-  };
+  const handleRefreshFeed = useMemo(() => createFeedRefreshAction({
+    refresh: feedId => feedsApi.refresh(feedId),
+    onQueued: () => setActionNotice({ message: '已提交订阅同步，完成后会更新节目。' }),
+    onError: error => setActionNotice({ message: error.message || '订阅同步未能启动，请重试。', error: true }),
+  }), []);
 
   const handleDeleteFeed = () => {
     setActiveFeed(null);
@@ -791,6 +795,13 @@ export default function App() {
         onLoadedMetadata={handleAudioReady}
         onError={handleAudioError}
       />
+
+      {actionNotice && (
+        <div role={actionNotice.error ? 'alert' : 'status'} className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border ${actionNotice.error ? 'border-red-800 text-red-300' : 'border-zinc-700'} bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+          <span className="flex-1">{actionNotice.message}</span>
+          <button onClick={() => setActionNotice(null)} aria-label="关闭操作提示" className="text-zinc-400">关闭</button>
+        </div>
+      )}
 
       {playbackNotice && (
         <div role="status" className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
