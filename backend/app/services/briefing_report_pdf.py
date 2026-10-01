@@ -512,6 +512,8 @@ class _PrintBrowser:
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         creationflags=subprocess.CREATE_NO_WINDOW, timeout=10,
                     )
+                    if self.process.poll() is None:
+                        self.process.kill()
                 else:
                     self.process.kill()
                 self.process.wait(timeout=10)

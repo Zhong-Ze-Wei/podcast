@@ -49,3 +49,22 @@ def test_hung_windows_browser_is_reaped_with_its_own_process_tree(monkeypatch):
     assert stop_tree.call_args.args[0] == ["taskkill", "/PID", "123456", "/T", "/F"]
     assert browser.process.wait.call_count == 2
     assert not Path(browser.profile.name).exists()
+
+
+@pytest.mark.skipif(pdf.os.name != "nt", reason="Windows process-tree cleanup")
+def test_failed_process_tree_command_still_terminates_the_owned_browser(monkeypatch):
+    browser = pdf._PrintBrowser()
+    browser.profile = tempfile.TemporaryDirectory(prefix="podmaster-report-test-")
+    browser.process = Mock(pid=123456)
+    browser.process.poll.return_value = None
+
+    def wait(timeout):
+        if not browser.process.kill.called:
+            raise subprocess.TimeoutExpired("test-chrome", timeout)
+        return 0
+
+    browser.process.wait.side_effect = wait
+    monkeypatch.setattr(pdf.subprocess, "run", Mock(return_value=subprocess.CompletedProcess([], 1)))
+    browser.close()
+    browser.process.kill.assert_called_once()
+    assert not Path(browser.profile.name).exists()
