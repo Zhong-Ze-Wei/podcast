@@ -80,3 +80,31 @@ def test_auto_refresher_inherits_feed_owner(monkeypatch):
     assert episode is not None
     assert episode["owner_id"] == "user-1"
 
+
+
+def test_auto_and_manual_refresh_share_service_and_keep_database_total(monkeypatch):
+    from app.services.feed_sync_service import FeedSyncService
+
+    db = MockDB()
+    feed_id = _add_feed(db, "user-1")
+    db.episodes.insert_one({"feed_id": feed_id, "owner_id": "user-1", "guid": "old"})
+    monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", _parse_feed_with(["new", "new"]))
+    result = FeedAutoRefresher(db)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    assert result["new_episodes"] == 1
+    assert result["total_episodes"] == 2
+    assert db.feeds.find_one({"_id": feed_id})["episode_count"] == 2
+    again = FeedSyncService(db).refresh(str(feed_id))
+    assert again["new_episodes"] == 0
+    assert again["total_episodes"] == 2
+
+
+def test_auto_refresher_delegates_to_feed_sync_service(monkeypatch):
+    from app.services.feed_sync_service import FeedSyncService
+
+    db = MockDB()
+    feed_id = _add_feed(db, "user-1")
+    calls = []
+    monkeypatch.setattr(FeedSyncService, "refresh", lambda self, feed_id, progress_callback=None: calls.append(feed_id) or {"new_episodes": 3})
+    result = FeedAutoRefresher(db)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    assert calls == [str(feed_id)]
+    assert result == {"new_episodes": 3}
