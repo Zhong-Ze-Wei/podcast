@@ -216,8 +216,7 @@ class BriefingModesService:
 
     def _latest(self, mode, identifier, topic=None, selection_key=None):
         matches = []
-        for path in (self.root / "reports").glob("*.json"):
-            report = read_json(path)
+        for report in self.report_service.store.reports("content-modes-v1/reports"):
             if report.get("owner_id") not in (None, self.owner_id) or report["mode"] != mode:
                 continue
             if selection_key is None and (report["corpus_id"] != identifier or report.get("selection_key")):
@@ -231,13 +230,7 @@ class BriefingModesService:
         return matches[0] if matches else None
 
     def report(self, report_id):
-        if not re.fullmatch(r"[a-f0-9]{32}", report_id):
-            return None
-        path = self.root / "reports" / f"{report_id}.json"
-        if not path.exists():
-            return None
-        report = read_json(path)
-        return report if report.get("owner_id") in (None, self.owner_id) else None
+        return self.report_service.store.report(report_id)
 
     def snapshot(self, topic=None, scope=None):
         if scope is not None:
@@ -373,7 +366,7 @@ class BriefingModesService:
         if scope is not None:
             report.update(period=scope["period"], interests=scope["interests"], selection_key=scope["selection_key"],
                           screening=scope["screening"], materials=scope["materials"], period_report=True)
-        write_json(self.root / "reports" / f"{report['id']}.json", report)
+        self.report_service.store.publish(report, "content-modes-v1/reports")
         return report
 
     def generate(self, mode="all", topic="", progress_callback=None, scope=None):
@@ -417,7 +410,7 @@ class BriefingModesService:
                       "prompt": mode_template(current), "input_description": INPUT_DESCRIPTION, "prompt_user_template": "关注主题：{topic}\n完整材料记录：{material}",
                       "web_mode": "saved_primary_source_notes", "period": scope["period"], "interests": scope["interests"], "selection_key": scope["selection_key"],
                       "screening": scope["screening"], "materials": scope["materials"], "usage": {"prompt": 0, "completion": 0, "total": 0}}
-            write_json(self.root / "reports" / f"{report['id']}.json", report)
+            self.report_service.store.publish(report, "content-modes-v1/reports")
             reports[current] = report
         if progress_callback:
             progress_callback((100, "已阅读全部可用文稿，本周期没有与关注话题相关的内容"))

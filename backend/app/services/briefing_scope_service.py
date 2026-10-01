@@ -134,6 +134,7 @@ class BriefingScopeService:
     def __init__(self, db, report_service, owner_id=None):
         self.db = db
         self.report_service = report_service
+        self.report_service.store.db = db
         self.owner_id = owner_id
         self.root = report_service.root / f"screening-v{SCREENING_VERSION}" / (owner_id or "shared")
 
