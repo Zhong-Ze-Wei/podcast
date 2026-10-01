@@ -64,7 +64,7 @@ def test_download_allows_redownload_when_status_downloaded_but_file_missing(monk
     })
     submitted = {}
     monkeypatch.setattr(episodes, "get_db", lambda: db)
-    monkeypatch.setattr(episodes.task_queue, "submit", lambda **kwargs: submitted.update(kwargs) or "task-1")
+    monkeypatch.setattr(episodes.task_queue, "submit_unique", lambda **kwargs: submitted.update(kwargs) or "task-1")
 
     with app.test_request_context(f"/api/episodes/{episode_id}/download", method="POST"):
         response, status_code = episodes.download_episode(str(episode_id))

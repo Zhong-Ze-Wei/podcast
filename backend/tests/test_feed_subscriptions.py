@@ -114,7 +114,7 @@ def test_create_feed_routes_bilibili_space_url(monkeypatch):
 
     monkeypatch.setattr(BilibiliService, "fetch_uploader_info",
                         classmethod(lambda cls, mid: ({"mid": mid, "name": "测试UP", "sign": "简介", "face": ""}, None)))
-    monkeypatch.setattr("app.api.feeds.task_queue.submit", lambda **kw: "task-1")
+    monkeypatch.setattr("app.api.feeds.task_queue.submit_unique", lambda **kw: "task-1")
 
     client = app.test_client()
     resp = client.post("/api/feeds", json={"rss_url": "https://space.bilibili.com/1208823126/video"},
@@ -131,7 +131,7 @@ def test_create_feed_routes_youtube_channel_url(monkeypatch):
 
     monkeypatch.setattr(YouTubeService, "resolve_channel",
                         classmethod(lambda cls, url: ({"channel_id": "UCx123", "title": "Test Channel"}, None)))
-    monkeypatch.setattr("app.api.feeds.task_queue.submit", lambda **kw: "task-1")
+    monkeypatch.setattr("app.api.feeds.task_queue.submit_unique", lambda **kw: "task-1")
 
     client = app.test_client()
     resp = client.post("/api/feeds", json={"rss_url": "https://www.youtube.com/@somebody/videos"},
