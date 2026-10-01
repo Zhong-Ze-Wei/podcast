@@ -115,100 +115,10 @@ class FeedAutoRefresher:
                 )
 
     def _refresh_single_feed(self, feed):
-        """刷新单个订阅源"""
-        from app.models.feed import Feed
+        """Use the same synchronization workflow as a manual refresh."""
+        from .feed_sync_service import FeedSyncService
 
-        # 与手动刷新复用视频列表、字幕重试和去重流程，频道 URL 不是 RSS。
-        feed_type = feed.get("type") or Feed.TYPE_RSS
-        if feed_type == Feed.TYPE_YOUTUBE:
-            from app.api.feeds import _refresh_youtube_channel_feed
-            return _refresh_youtube_channel_feed(self.db, feed)
-        if feed_type == Feed.TYPE_BILIBILI:
-            from app.api.feeds import _refresh_bilibili_feed
-            return _refresh_bilibili_feed(self.db, feed)
-
-        from app.services.rss_service import RSSService
-        from app.models.episode import Episode
-
-        feed_id = feed["_id"]
-        rss_url = feed["rss_url"]
-
-        logger.info(f"Refreshing feed: {feed.get('title', 'Unknown')}")
-
-        # 解析RSS
-        feed_info, error = RSSService.parse_feed(rss_url)
-
-        if error:
-            self.db.feeds.update_one(
-                {"_id": feed_id},
-                {
-                    "$set": {
-                        "status": "error",
-                        "check_error": error,
-                        "last_checked": datetime.utcnow(),
-                    }
-                },
-            )
-            logger.warning(f"Feed refresh failed: {error}")
-            return
-
-        # 获取已有episodes
-        existing_guids = set(
-            ep["guid"]
-            for ep in self.db.episodes.find({"feed_id": feed_id}, {"guid": 1})
-        )
-
-        # 插入新episodes
-        new_episodes = []
-        episodes = feed_info.get("episodes", [])
-
-        for ep_info in episodes:
-            if ep_info["guid"] not in existing_guids:
-                ep_doc = Episode.create(
-                    feed_id=feed_id,
-                    owner_id=feed.get("owner_id"),
-                    guid=ep_info["guid"],
-                    title=ep_info["title"],
-                    summary=ep_info.get("summary"),
-                    content=ep_info.get("content"),
-                    link=ep_info.get("link"),
-                    published=ep_info.get("published"),
-                    audio_url=ep_info.get("audio_url"),
-                    audio_type=ep_info.get("audio_type"),
-                    audio_size=ep_info.get("audio_size"),
-                    duration=ep_info.get("duration", 0),
-                    image=ep_info.get("image"),
-                    chapters_url=ep_info.get("chapters_url"),
-                    transcript_url=ep_info.get("transcript_url"),
-                )
-                new_episodes.append(ep_doc)
-
-        if new_episodes:
-            self.db.episodes.insert_many(new_episodes)
-            logger.info(
-                f"Added {len(new_episodes)} new episodes to {feed.get('title', 'Unknown')}"
-            )
-
-        # 更新feed信息
-        self.db.feeds.update_one(
-            {"_id": feed_id},
-            {
-                "$set": {
-                    "title": feed_info.get("title", feed.get("title")),
-                    "description": feed_info.get(
-                        "description", feed.get("description")
-                    ),
-                    "image": feed_info.get("image", feed.get("image")),
-                    "website": feed_info.get("link", feed.get("website")),
-                    "status": "active",
-                    "last_checked": datetime.utcnow(),
-                    "episode_count": len(episodes),
-                },
-                "$unset": {"check_error": ""},
-            },
-        )
-
-        logger.info(f"Feed refreshed successfully: {feed.get('title', 'Unknown')}")
+        return FeedSyncService(self.db).refresh(str(feed["_id"]))
 
 
 # 全局实例
