@@ -10,6 +10,7 @@ from .briefing_modes_service import BriefingModesService
 from .briefing_report_service import BriefingReportService
 from .briefing_scope_service import BriefingScopeService, HONG_KONG, calendar_period
 from .task_queue import task_queue
+from .briefing_task_service import report_task_conflicts
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,8 @@ class BriefingAutoReporter:
             if enabled_at is None or end < enabled_at:
                 continue
             owner = str(user["_id"])
-            if self.db.tasks.find_one({"owner_id": owner, "task_type": "briefing-report", "status": {"$in": ["pending", "processing"]}}):
+            active_tasks = self.db.tasks.find({"owner_id": owner, "task_type": "briefing-report", "status": {"$in": ["pending", "processing"]}})
+            if any(report_task_conflicts(task, owner, period) for task in active_tasks):
                 continue
             run_id = f"{owner}:{period['type']}:{period['start']}"
             run = self.db.briefing_auto_runs.find_one({"_id": run_id})
@@ -82,6 +84,7 @@ class BriefingAutoReporter:
                 continue
             task_id = self.queue.submit(
                 task_type="briefing-report", owner_id=owner, func=self._generate,
+                report_period=period,
                 run_id=run_id, user_id=user["_id"], period=period,
                 on_failure=lambda error, identifier=run_id: self._failed(identifier, error),
             )

@@ -159,6 +159,20 @@ def test_manual_report_task_blocks_automatic_duplicate(setup):
     assert reporter.check_due(datetime(2026, 10, 4, 16, 5, tzinfo=timezone.utc)) == []
 
 
+@pytest.mark.parametrize("period,expected", [
+    ({"type": "month", "start": "2026-10-01"}, 1),
+    ({"type": "week", "start": "2026-10-05"}, 1),
+    ({"type": "week", "start": "2026-09-28"}, 0),
+])
+def test_auto_report_is_only_blocked_by_its_own_period(setup, period, expected):
+    db, user, reporter, queue, generated, modes = setup
+    db.tasks.insert_one({"owner_id": str(user["_id"]), "task_type": "briefing-report", "status": "processing", "report_period": period})
+    identifiers = reporter.check_due(datetime(2026, 10, 4, 16, 5, tzinfo=timezone.utc))
+    assert len(identifiers) == expected
+    if identifiers:
+        assert queue.tasks[identifiers[0]]["report_period"]["start"] == "2026-09-28"
+
+
 def test_saved_complete_report_does_not_call_model(setup):
     db, user, reporter, queue, generated, modes = setup
     modes.reports = {key: {"id": key} for key in modes.reports}

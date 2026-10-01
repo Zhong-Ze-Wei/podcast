@@ -119,6 +119,7 @@ class TaskQueue:
         owner_id: str = None,
         on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
+        report_period: dict = None,
         **kwargs
     ) -> str:
         """
@@ -152,6 +153,8 @@ class TaskQueue:
             "started_at": None,
             "completed_at": None
         }
+        if report_period is not None:
+            task_info["report_period"] = {"type": report_period["type"], "start": report_period["start"]}
 
         self.tasks[task_id] = task_info
 
@@ -303,7 +306,8 @@ class TaskQueue:
             result = [t for t in result if t["status"] == status]
         if task_type:
             result = [t for t in result if t["task_type"] == task_type]
-        return sorted(result, key=lambda x: x["created_at"], reverse=True)[:limit]
+        result = sorted(result, key=lambda x: x["created_at"], reverse=True)
+        return result[:limit] if limit else result
 
     def cancel(self, task_id: str) -> bool:
         """取消任务 (仅能取消pending状态的任务)"""
