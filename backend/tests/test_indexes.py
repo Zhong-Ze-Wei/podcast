@@ -26,6 +26,8 @@ class RecordingDB:
         self.tasks = RecordingCollection()
         self.briefings = RecordingCollection()
         self.user_episode_states = RecordingCollection()
+        self.briefing_reports = RecordingCollection()
+        self.briefing_favorites = RecordingCollection()
 
 
 def test_tasks_completed_at_ttl_index_is_created():
