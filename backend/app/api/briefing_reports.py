@@ -16,6 +16,7 @@ from ..services.briefing_scope_service import BriefingScopeService, validate_int
 from ..services.briefing_lab_service import corpus_id, quote_offset
 from ..services.task_queue import task_queue
 from ..services.briefing_task_service import report_task_conflicts
+from ..services.briefing_favorites import BriefingFavorites, valid_item_id
 
 
 briefing_reports_bp = Blueprint("briefing_reports", __name__)
@@ -30,25 +31,32 @@ def _report_store(owner_id):
     return BriefingReportService(owner_id=owner_id).store
 
 
+def _report_filters():
+    filters = {key: request.args.get(key) for key in ("period_type", "period_start", "mode")}
+    if filters["period_type"] is not None and filters["period_type"] not in ("week", "month"):
+        return None, error_response("周期请选择周或月", "INVALID_PERIOD", 400)
+    if filters["mode"] is not None and filters["mode"] not in MODE_INDEX:
+        return None, error_response("内容模式无效", "INVALID_MODE", 400)
+    if filters["period_start"] is not None:
+        from datetime import date
+        try:
+            parsed = date.fromisoformat(filters["period_start"])
+            if parsed.isoformat() != filters["period_start"]:
+                raise ValueError("日期格式无效")
+        except ValueError:
+            return None, error_response("周期日期须为 YYYY-MM-DD", "INVALID_PERIOD", 400)
+    return filters, None
+
+
 @briefing_reports_bp.route("/reports", methods=["GET"])
 @require_auth
 def report_history():
-    period_type = request.args.get("period_type")
-    period_start = request.args.get("period_start")
-    mode = request.args.get("mode")
-    if period_type is not None and period_type not in ("week", "month"):
-        return error_response("周期请选择周或月", "INVALID_PERIOD", 400)
-    if mode is not None and mode not in MODE_INDEX:
-        return error_response("内容模式无效", "INVALID_MODE", 400)
-    if period_start is not None:
-        from datetime import date
-        try:
-            date.fromisoformat(period_start)
-        except ValueError:
-            return error_response("周期日期须为 YYYY-MM-DD", "INVALID_PERIOD", 400)
+    filters, error = _report_filters()
+    if error is not None:
+        return error
     page, per_page = get_pagination_params()
     try:
-        reports, total = _report_store(current_owner_id()).history(page, per_page, period_type, period_start, mode)
+        reports, total = _report_store(current_owner_id()).history(page, per_page, **filters)
     except PyMongoError:
         return error_response("报告历史暂时无法读取", "REPORT_STORAGE_UNAVAILABLE", 503)
     return paginated_response(reports, page, per_page, total)
@@ -61,6 +69,58 @@ def saved_report(report_id):
     if report is None:
         return error_response("报告不存在", "REPORT_NOT_FOUND", 404)
     return success_response(report)
+
+
+def _favorites_service():
+    owner_id = current_owner_id()
+    return BriefingFavorites(current_app.db, _report_store(owner_id), owner_id)
+
+
+@briefing_reports_bp.route("/favorites", methods=["GET"])
+@require_auth
+def favorites():
+    filters, error = _report_filters()
+    if error is not None:
+        return error
+    page, per_page = get_pagination_params()
+    try:
+        rows, total = _favorites_service().list(page, per_page, **filters)
+    except PyMongoError:
+        return error_response("简报收藏暂时无法读取", "FAVORITES_STORAGE_UNAVAILABLE", 503)
+    return paginated_response(rows, page, per_page, total)
+
+
+@briefing_reports_bp.route("/favorites/<item_id>", methods=["PUT", "DELETE"])
+@require_auth
+def favorite(item_id):
+    if not valid_item_id(item_id):
+        return error_response("条目编号无效", "INVALID_ITEM_ID", 400)
+    options = request.get_json(silent=True) if request.method == "PUT" else None
+    if request.method == "PUT" and (not isinstance(options, dict) or not isinstance(options.get("report_id"), str)):
+        return error_response("请提供报告编号", "INVALID_REPORT_ID", 400)
+    try:
+        service = _favorites_service()
+        result = service.delete(item_id) if request.method == "DELETE" else service.save(item_id, options["report_id"])
+    except PyMongoError:
+        return error_response("简报收藏暂时无法保存", "FAVORITES_STORAGE_UNAVAILABLE", 503)
+    if result is None:
+        return error_response("报告条目不存在", "ITEM_NOT_FOUND", 404)
+    return success_response(result)
+
+
+@briefing_reports_bp.route("/favorites/import", methods=["POST"])
+@require_auth
+def import_favorites():
+    options = request.get_json(silent=True)
+    if not isinstance(options, dict):
+        return error_response("请求必须是 JSON 对象", "INVALID_JSON", 400)
+    try:
+        result = _favorites_service().import_ids(options.get("ids"))
+    except ValueError as error:
+        return error_response(str(error), "INVALID_FAVORITES", 400)
+    except PyMongoError:
+        return error_response("旧收藏暂时无法迁移", "FAVORITES_STORAGE_UNAVAILABLE", 503)
+    return success_response(result)
 
 
 def _reading_service(source_id):
