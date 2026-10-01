@@ -368,6 +368,9 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
         note = "原话来自保存的文稿；译文辅助阅读。回听时间以字幕或转录段落为准。" if reading_edition else "引文来自保存的文稿；时间精度以字幕或转录段落为准。联网补充标明来源。"
         if report.get("mode_report") and not reading_edition:
             note = "AI 提要与比较依据保存的全文记录。证据原话见网页或文稿；回听时间以转录段落为准。"
+        analysis = report.get("analysis", {})
+        if analysis.get("partial"):
+            note = f"已跳过 {analysis['rejected_items']} 条未通过校验的内容，{analysis['skipped_chunks']} 个分析分块未完成；处理范围与原文见网页。"
         footer = f'<footer class="report-footer"><div class="footer-row"><span>{status} · {full}</span><span>{page_index + 1} / {len(columns)}</span></div><div>{note}</div></footer>'
         content = threads + index + body if reading_edition and page_index == 1 and style == "legacy" else threads + body + index
         pages.append(f'<section class="report-page" data-page="{page_index + 1}">{header}{content}{footer}</section>')

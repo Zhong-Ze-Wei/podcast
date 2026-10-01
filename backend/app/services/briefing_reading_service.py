@@ -144,7 +144,7 @@ class BriefingReadingService:
     def _material(self, complete=False, progress_callback=None):
         corpus = self.report_service.corpus()
         notes, total = self.report_service._cached_notes(corpus)
-        if complete and len(notes) != total:
+        if complete and (len(notes) != total or any(note.get("analysis_status") == "skipped" for note in notes)):
             self.report_service.extract(progress_callback)
             notes, total = self.report_service._cached_notes(corpus)
         if complete and not total:
