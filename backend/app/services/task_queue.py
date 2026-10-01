@@ -220,7 +220,15 @@ class TaskQueue:
             if self._db is not None:
                 self._db.tasks.insert_one(task_info.copy())
             self.tasks[task_id] = task_info
-            future = self.executor.submit(wrapper)
+            try:
+                future = self.executor.submit(wrapper)
+            except Exception as error:
+                try:
+                    self._update_status(task_id, "failed", error_message=str(error),
+                                        completed_at=datetime.utcnow())
+                finally:
+                    self.tasks.pop(task_id, None)
+                raise
             self._futures[task_id] = future
             future.add_done_callback(lambda _: self._forget_future(task_id))
 
