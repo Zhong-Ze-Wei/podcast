@@ -9,7 +9,7 @@ import FeedImage from '../common/FeedImage';
 import { ListPagination } from '../common/ListControls';
 import usePaginatedList from '../../hooks/usePaginatedList';
 import { useTask, useTasks } from '../tasks/TasksContext';
-import { importBrowserFavorites, loadReportFavoriteIds } from '../../utils/briefingPersistence';
+import { importBrowserFavorites, loadReportFavoriteIds, restoreReportTask } from '../../utils/briefingPersistence';
 import { BRIEFING_LAYOUTS as LAYOUTS } from '../../utils/briefingLayouts';
 import { readBriefingRoute, briefingPath, captureReadingPosition, restoreReadingPosition } from '../../utils/readingContext';
 import BriefingPeriodBar from './BriefingPeriodBar';
@@ -338,13 +338,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     pendingRestoreRef.current = restore?.scroll || (window.history.state?.briefingContext?.owner === userId ? window.history.state.briefingContext.scroll : null);
     setPeriodScope(restore ? { owner: userId, type: restore.periodType, start: restore.periodStart } : validQuery ? { owner: userId, type: queryType, start: queryStart } : { owner: userId, type: savedPeriod?.type === 'month' ? 'month' : 'week', start: savedPeriod?.start || null });
     setInterests([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]);
-    const jobs = readStored(sessionStorage, `${storagePrefix}:tasks`, {});
-    const previousTask = readStored(sessionStorage, `${storagePrefix}:task`, null);
-    if (previousTask?.scope?.period_type && previousTask.scope.period_start) {
-      jobs[`${previousTask.scope.period_type}:${previousTask.scope.period_start}`] = previousTask;
-      sessionStorage.removeItem(`${storagePrefix}:task`);
-    }
-    setTaskState({ owner: userId, jobs });
+    setTaskState({ owner: userId, jobs: {} });
     setSavedQuotes([]); setFavoriteReadingSources(null); setFavoriteMode('');
   }, [storagePrefix]);
   useEffect(() => {
@@ -385,9 +379,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     return () => { active = false; };
   }, [report?.id, favoriteRevision]);
   useEffect(() => { if (!loading) localStorage.setItem(`${storagePrefix}:mode`, mode); }, [mode, loading, storagePrefix]);
-  useEffect(() => {
-    if (taskState.owner === userId) sessionStorage.setItem(`${storagePrefix}:tasks`, JSON.stringify(taskState.jobs));
-  }, [taskState, userId, storagePrefix]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 3000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { setEvidenceSelection(null); setPreview(false); }, [report?.id]);
 
@@ -401,9 +392,8 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   useEffect(() => {
     if (!periodKey) return;
     let active = true;
-    tasksApi.list({ type: 'briefing-report', period_type: period.type, period_start: period.start, status: 'pending,processing', per_page: 100 }).then(response => {
+    restoreReportTask(period, readingSource, tasksApi.list).then(job => {
       if (!active) return;
-      const job = response.data.find(item => item.report_context?.kind !== 'reading' || item.report_context.source_id === readingSource);
       if (!job) return;
       updateTask(periodKey, { id: job.id, kind: job.report_context?.kind, mode: job.report_context?.mode, sourceId: job.report_context?.source_id });
       tasks.register(job);

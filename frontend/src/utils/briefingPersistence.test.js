@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { importBrowserFavorites, loadReportFavoriteIds } from './briefingPersistence.js';
+import { importBrowserFavorites, loadReportFavoriteIds, restoreReportTask } from './briefingPersistence.js';
 
 function storage(initial) { let value = JSON.stringify(initial); return { getItem: () => value, setItem: (_key, next) => { value = next; }, read: () => JSON.parse(value) }; }
 
@@ -35,4 +35,12 @@ test('阅读页从后端按报告周期和模式查收藏标记，包括第二�
   assert.equal(requests[0].period_type, 'week');
   assert.equal(requests[0].period_start, '2026-09-21');
   assert.equal(requests[0].mode, 'quotes');
+});
+
+test('刷新从后端恢复当前周期任务，不把其他单篇解读或旧终态认作报告生成', async () => {
+  let params;
+  const list = async query => { params=query; return {data:[{id:'reading-other',status:'processing',report_context:{kind:'reading',source_id:'source-2'}},{id:'finished',status:'completed',report_context:{kind:'modes'}},{id:'modes-1',status:'processing',report_context:{kind:'modes',mode:'all'}}]}; };
+  assert.equal((await restoreReportTask({type:'month',start:'2026-09-01'},'source-1',list)).id,'modes-1');
+  assert.deepEqual(params,{type:'briefing-report',period_type:'month',period_start:'2026-09-01',status:'pending,processing',per_page:100});
+  assert.equal(await restoreReportTask({type:'week',start:'2026-09-21'},null,async()=>({data:[]})),undefined);
 });
