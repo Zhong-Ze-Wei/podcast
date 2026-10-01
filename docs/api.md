@@ -189,12 +189,14 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | GET | `/insights/briefing/count` | 窗口内剧集统计（滑块预览用）：`{total, with_transcript, with_summary}`，零 LLM | 登录 |
 | GET | `/insights/briefing/export` | 导出 PDF | 登录 |
 
-## 内容报告 — `/api/briefing-reports`（9 路由）
+## 内容报告 — `/api/briefing-reports`（11 路由）
 
-前端 `/briefing` 使用一份原话精选的五种阅读排版，单篇解读仍留在AI模式；左侧导航保持原样。读取不触发 LLM，生成复用已校验的全文抽取。旧分类报告接口保留兼容。
+前端 `/briefing` 使用五种不同内容模式，视觉风格独立切换，单篇解读仍留在AI模式；左侧导航保持原样。读取不触发 LLM，生成复用已校验的全文阅读与抽取记录。旧分类报告和原话精选接口保留兼容。
 
 | 方法 | 路径 | 作用 | 权限 |
 | --- | --- | --- | --- |
+| GET | `/briefing-reports/modes` | 五种模式的已保存报告、实际提示词模板、输入说明与材料；读取不调用模型 | 登录 |
+| POST | `/briefing-reports/modes/generate` | 生成当前模式或全部模式，返回 task_id；尊重AI总开关 | 登录 |
 | GET | `/briefing-reports/edition` | 最近可见的原话精选与材料元信息，不调用模型 | 登录 |
 | POST | `/briefing-reports/edition/generate` | 按可选主题生成少量精选；返回 task_id | 登录 |
 | GET | `/briefing-reports/reading/<source_id>` | 已保存单篇解读、真实材料、已有候选 | 登录 |
@@ -207,7 +209,9 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 
 生成请求：`{variant: "all" | "overview" | "episodes" | "concepts" | "quotes" | "resources", topic: "可选关键词，最多120字", interests: ["concepts", "quotes", "resources", "backgrounds"], web_enabled: false}`。关注项至少一项；同账号已有报告任务未结束时返回 409。
 
-新的精选请求只有 `{topic: "可选主题，最多120字"}`。响应 `edition` 包含已定位的精选原话和最多两条有两篇以上证据的AI归纳；同一份 edition.id 可直接走上述HTML/PDF导出。布局选择属于前端，不影响候选与模型调用。单篇响应 `reading` 包含一句takeaway、最多三条points及真实提及资料，未生成时为null。个人结果与任务按owner隔离，公共CLI结果可共享；新缓存位于 `reading-v1/editions` 和 `reading-v1/sources`。生成失败不替换旧缓存。
+模式生成请求为 `{mode: "core" | "quotes" | "connections" | "concepts" | "resources" | "all", topic: "可选主题，最多120字"}`。五种模式分别对应核心提要、原话精选、共性与分歧、新词与方法、提到的资料；使用独立生成模板与缓存，缓存位于 `content-modes-v1/reports`。GET 可用 `?topic=` 精确读取该生成主题的已保存结果；默认返回各模式最近可见结果。风格和即时标签筛选只属于前端，不改变取材与模型调用。生成完成的任务结果为 `reports` 映射，每份report.id均可通过上述HTML/PDF端点导出。
+
+兼容的精选请求仍只有 `{topic: "可选主题，最多120字"}`。响应 `edition` 包含已定位的精选原话和最多两条有两篇以上证据的AI归纳；同一份 edition.id 可直接走上述HTML/PDF导出。单篇响应 `reading` 包含一句takeaway、最多三条points及真实提及资料，未生成时为null。个人结果与任务按owner隔离，公共CLI结果可共享；单篇与旧精选缓存位于 `reading-v1/editions` 和 `reading-v1/sources`。生成失败不替换旧缓存。
 
 报告与任务按 owner 隔离，共享 CLI 报告可读取；报告绑定材料指纹。报告存在本机 `backend/.runtime/briefing-reports/`，抽取缓存按正文指纹复用并重新绑定节目。导出失效报告返回 404，页数无效返回 400；Chrome 启动／排版失败返回 503 `REPORT_EXPORT_FAILED`。正文内的网页内容和来源按字段转义，模型不生成 HTML/CSS。
 

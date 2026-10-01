@@ -83,6 +83,8 @@ export const briefingLabApi = {
 };
 
 export const briefingReportsApi = {
+  modes: () => api.get('/briefing-reports/modes'),
+  generateModes: (options) => api.post('/briefing-reports/modes/generate', options),
   edition: () => api.get('/briefing-reports/edition'),
   generateEdition: (options) => api.post('/briefing-reports/edition/generate', options),
   reading: (sourceId) => api.get(`/briefing-reports/reading/${sourceId}`),

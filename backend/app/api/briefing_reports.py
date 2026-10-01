@@ -7,6 +7,7 @@ from .utils import error_response, success_response
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from ..services.briefing_report_service import BriefingReportService, INTERESTS, VARIANTS
 from ..services.briefing_reading_service import BriefingReadingService
+from ..services.briefing_modes_service import BriefingModesService, MODE_INDEX
 from ..services.task_queue import task_queue
 
 
@@ -16,6 +17,36 @@ briefing_reports_bp = Blueprint("briefing_reports", __name__)
 def _has_active_report_task(owner_id):
     return any(task.get("owner_id") == owner_id and task["status"] in ("pending", "processing")
                for task in task_queue.get_all_tasks(task_type="briefing-report"))
+
+
+@briefing_reports_bp.route("/modes", methods=["GET"])
+@require_auth
+def modes():
+    return success_response(BriefingModesService(owner_id=current_owner_id()).snapshot(topic=request.args.get("topic")))
+
+
+@briefing_reports_bp.route("/modes/generate", methods=["POST"])
+@require_auth
+def generate_modes():
+    if not is_ai_analysis_enabled():
+        return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
+    options = request.get_json(silent=True)
+    if not isinstance(options, dict):
+        return error_response("请求必须是 JSON 对象", "INVALID_JSON", 400)
+    mode = options.get("mode", "all")
+    topic = options.get("topic", "")
+    if not isinstance(mode, str) or mode not in {*MODE_INDEX, "all"}:
+        return error_response("请选择有效的内容模式", "INVALID_MODE", 400)
+    if not isinstance(topic, str) or len(topic) > 120:
+        return error_response("主题最多120字，可以留空", "INVALID_TOPIC", 400)
+    owner_id = current_owner_id()
+    service = BriefingModesService(owner_id=owner_id)
+    if not service.report_service.corpus()["sources"]:
+        return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
+    if _has_active_report_task(owner_id):
+        return error_response("已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
+    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, mode=mode, topic=topic.strip())
+    return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
 @briefing_reports_bp.route("/edition", methods=["GET"])
@@ -154,4 +185,5 @@ def report_pdf(report_id):
         pdf = create_report_pdf(report, pages=pages, base_url=_app_base_url())
     except RuntimeError as error:
         return error_response(str(error), "REPORT_EXPORT_FAILED", 503)
-    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="PodMaster-{report["variant"]}-{pages}p.pdf"', "Cache-Control": "private, no-store"})
+    export_name = report.get("mode", report["variant"])
+    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="PodMaster-{export_name}-{pages}p.pdf"', "Cache-Control": "private, no-store"})
