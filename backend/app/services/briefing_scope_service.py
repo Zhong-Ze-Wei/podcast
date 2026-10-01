@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from bson import ObjectId
 
 from .briefing_lab_service import ModelValidationError, locate_time, now_iso, quote_offset, read_json, split_text, write_json
+from .feed_identity import normalize_feed_url
 
 
 HONG_KONG = timezone(timedelta(hours=8), "Asia/Hong_Kong")
@@ -85,12 +86,10 @@ def _published(value):
 
 def _content_identity(episode, feed):
     """平台视频有全局编号；RSS 的 guid 只在其订阅来源内唯一。"""
-    from ..api.feeds import _normalize_feed_url
-
     guid = episode.get("guid") or str(episode["_id"])
     if re.fullmatch(r"youtube:[A-Za-z0-9_-]{11}|bilibili:BV[A-Za-z0-9]{10}", guid):
         return ("video", guid)
-    subscription = _normalize_feed_url(feed.get("rss_url") or "") or str(feed["_id"])
+    subscription = normalize_feed_url(feed.get("rss_url") or "") or str(feed["_id"])
     return ("subscription", subscription, guid)
 
 

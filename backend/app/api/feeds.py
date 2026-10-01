@@ -22,6 +22,7 @@ from ..services.feed_sync_service import (
     _refresh_youtube_channel_feed, _refresh_bilibili_feed,
 )
 from ..services.episode_query_service import EpisodeQueryService
+from ..services.feed_identity import normalize_feed_url as _normalize_feed_url
 from ..services.ai_control import is_ai_analysis_enabled
 from ..services.rss_service import RSSService
 from ..services.task_queue import task_queue
@@ -105,18 +106,6 @@ def get_feed(feed_id):
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
     return success_response(Feed.to_response(feed))
-
-
-def _normalize_feed_url(url: str) -> str:
-    """去掉跟踪参数（utm_*、spm*）和尾部斜杠的小写规范形，用于订阅去重（共享库下全局唯一）"""
-    from urllib.parse import urlparse, parse_qsl, urlencode
-
-    parts = urlparse((url or "").strip())
-    query = urlencode([
-        (k, v) for k, v in parse_qsl(parts.query)
-        if not k.lower().startswith(("utm_", "spm"))
-    ])
-    return parts._replace(query=query, path=parts.path.rstrip("/")).geturl().lower()
 
 
 @feeds_bp.route("", methods=["POST"])
