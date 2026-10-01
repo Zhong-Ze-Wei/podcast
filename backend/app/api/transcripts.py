@@ -14,6 +14,7 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.transcript import Transcript, to_bson_safe
 from ..services.task_queue import task_queue
+from ..services.episode_processing_service import EpisodeProcessingService, ProcessingConflict, ProcessingSubmissionFailed
 from ..services.transcription_service import (
     TranscriptionService,
     _transcribe_video_sync as _run_video_transcription,
@@ -178,18 +179,15 @@ def create_transcript(episode_id):
 
     episode_status = episode.get("status", "new")
     dedup_key = f"transcribe:{oid}:{provider}:{requested_language or 'auto'}"
-    existing_task = db.tasks.find_one({
-        "episode_id": str(oid), "task_type": {"$in": ["download", "transcribe", "summarize"]},
-        "status": {"$in": ["pending", "processing"]},
-    })
-    if existing_task:
-        if existing_task.get("dedup_key") == dedup_key:
-            return success_response({"task_id": existing_task["task_id"], "status": "queued", "provider": provider, "language": requested_language or "auto"})
-        return error_response("Transcribe task already in progress", "TASK_IN_PROGRESS", 409)
+    processing = EpisodeProcessingService(db, task_queue)
+    try:
+        existing = processing.active_task_id(oid, "transcribe", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued", "provider": provider, "language": requested_language or "auto"})
     if episode.get("has_transcript") or episode_status in [Episode.STATUS_TRANSCRIBED, Episode.STATUS_SUMMARIZING, Episode.STATUS_SUMMARIZED]:
         return error_response("Episode already has a transcript", "ALREADY_TRANSCRIBED", 400)
-    if episode_status in Episode.PROCESSING_STATUSES:
-        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
 
     # 提交转录任务
     def do_transcribe(progress_callback=None):
@@ -205,23 +203,15 @@ def create_transcript(episode_id):
         TranscriptionService(db).restore_episode_status(str(oid), error)
 
 
-    db.episodes.update_one(
-        owner_filter({"_id": oid}),
-        {"$set": {
-            "status": Episode.STATUS_TRANSCRIBING,
-            "last_transcript_error": None,
-            "updated_at": datetime.utcnow()
-        }}
-    )
-
-    task_id = task_queue.submit_unique(
-        task_type="transcribe",
-        dedup_key=dedup_key,
-        func=do_transcribe,
-        episode_id=str(oid),
-        owner_id=current_owner_id(),
-        on_failure=rollback_episode_status
-    )
+    try:
+        task_id = processing.submit(
+            episode, "transcribe", dedup_key, do_transcribe, current_owner_id(),
+            on_failure=rollback_episode_status,
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({
         "task_id": task_id,
@@ -265,53 +255,29 @@ def transcribe_video_episode(episode_id):
             "Episode is not a video episode", "NOT_VIDEO_EPISODE", 400
         )
 
+    processing = EpisodeProcessingService(db, task_queue)
+    dedup_key = f"transcribe:{oid}:local_whisperx:auto"
+    try:
+        existing = processing.active_task_id(oid, "transcribe", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued"})
     if db.transcripts.find_one({"episode_id": oid}):
         return error_response("Episode already has a transcript", "ALREADY_TRANSCRIBED", 400)
-
-    episode_status = episode.get("status", "new")
-    if episode_status == Episode.STATUS_TRANSCRIBING:
-        return error_response("Episode is already being transcribed", "ALREADY_TRANSCRIBING", 400)
-    if episode_status in Episode.PROCESSING_STATUSES:
-        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
-
-    existing_task = db.tasks.find_one({
-        "episode_id": str(oid),
-        "task_type": {"$in": ["download", "transcribe", "summarize"]},
-        "status": {"$in": ["pending", "processing"]}
-    })
-    if existing_task:
-        return error_response("Transcribe task already in progress", "TASK_IN_PROGRESS", 409)
 
     def do_fetch_and_transcribe(progress_callback=None):
         return _transcribe_video_sync(str(oid), service, vid, progress_callback)
 
-    def rollback(error):
-        db.episodes.update_one(
-            {"_id": oid},
-            {"$set": {
-                "status": episode_status,
-                "last_transcript_error": str(error),
-                "updated_at": datetime.utcnow(),
-            }}
+    try:
+        task_id = processing.submit(
+            episode, "transcribe", dedup_key, do_fetch_and_transcribe, current_owner_id(),
+            on_failure=lambda error: TranscriptionService(db).restore_episode_status(str(oid), error),
         )
-
-    db.episodes.update_one(
-        owner_filter({"_id": oid}),
-        {"$set": {
-            "status": Episode.STATUS_TRANSCRIBING,
-            "last_transcript_error": None,
-            "updated_at": datetime.utcnow(),
-        }}
-    )
-
-    task_id = task_queue.submit_unique(
-        task_type="transcribe",
-        dedup_key=f"transcribe:{oid}:local_whisperx:auto",
-        func=do_fetch_and_transcribe,
-        episode_id=str(oid),
-        owner_id=current_owner_id(),
-        on_failure=rollback,
-    )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
     return success_response({"task_id": task_id, "status": "queued"})
 
 
@@ -350,16 +316,16 @@ def delete_transcript(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    result = db.transcripts.delete_one(owner_filter({"episode_id": oid}))
-    if result.deleted_count == 0:
-        return error_response("Transcript not found", "TRANSCRIPT_NOT_FOUND", 404)
-
-    # 如果状态是transcribed，回退到downloaded
-    if episode.get("status") == Episode.STATUS_TRANSCRIBED:
-        db.episodes.update_one(
-            owner_filter({"_id": oid}),
-            {"$set": {"status": Episode.STATUS_DOWNLOADED}}
-        )
+    processing = EpisodeProcessingService(db, task_queue)
+    try:
+        with processing.edit_artifacts(oid):
+            result = db.transcripts.delete_one(owner_filter({"episode_id": oid}))
+            if result.deleted_count == 0:
+                return error_response("Transcript not found", "TRANSCRIPT_NOT_FOUND", 404)
+            db.episodes.update_one({"_id": oid}, {"$set": {"has_transcript": False}})
+            processing.restore_status(oid, "transcribe", None)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
 
     return success_response(message="Transcript deleted successfully")
 
@@ -391,8 +357,14 @@ def fetch_external_transcript(episode_id):
     text = result.text if result else ""
     segments = result.segments or _build_plain_text_segments(text)
 
-    # 保存转录（复用统一入口）
-    _save_transcript(db, oid, episode, text, segments, source="external", model="fetched")
+    # Network fetching finishes before the short shared resource-write lock.
+    processing = EpisodeProcessingService(db, task_queue)
+    try:
+        with processing.edit_artifacts(oid) as current:
+            _save_transcript(db, oid, current, text, segments, source="external", model="fetched")
+            processing.restore_status(oid, "transcribe", None)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
 
     return success_response({
         "text_length": len(text),
