@@ -1,12 +1,12 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   X, Download, Mic2, Sparkles, RefreshCw, CheckCircle2,
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
 } from 'lucide-react';
-import { tasksApi } from '../../services/api';
-import { isActiveTask, isTerminalTask, canCancelTask, requestTaskCancellation } from '../../utils/taskActions';
+import { useTasks } from './TasksContext';
+import { isActiveTask, isTerminalTask, canCancelTask } from '../../utils/taskActions';
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
 const DEFAULT_PANEL_SIZE = { width: 352, height: 480 };
@@ -30,76 +30,33 @@ function readPanelSize() {
 }
 
 const TaskPanel = ({
-  onTaskComplete,
   onNavigate,
-  pollIntervalMs = 3000,
   historyWindowMinutes = 60,
   defaultOpen = false
 }) => {
   const { t } = useTranslation();
-  const [activeTasks, setActiveTasks] = useState([]);
-  const [historyTasks, setHistoryTasks] = useState([]);
+  const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh } = useTasks();
+  const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
+  const historyTasks = allHistoryTasks.filter(task => task.completed_at && new Date(task.completed_at).getTime() > historyCutoff);
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [activeTab, setActiveTab] = useState('active');
-  const [requestError, setRequestError] = useState('');
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [panelSize, setPanelSize] = useState(readPanelSize);
   const panelSizeRef = useRef(panelSize);
-  const notifiedTaskIdsRef = useRef(new Set());
   const userClosedDuringActiveRef = useRef(false);
   const previousActiveCountRef = useRef(0);
   const resizeStateRef = useRef(null);
 
   const visibleHistoryTasks = historyTasks.filter(task => !dismissedTaskIds.has(task.id));
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      const [activeResponse, historyResponse] = await Promise.all([
-        tasksApi.list({ status: 'pending,processing', per_page: 50 }),
-        tasksApi.list({ status: 'completed,failed,cancelled', per_page: 50 })
-      ]);
-
-      const nextActiveTasks = activeResponse.data || [];
-      const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
-      const nextHistoryTasks = (historyResponse.data || []).filter(task => {
-        const completedAt = task.completed_at ? new Date(task.completed_at).getTime() : 0;
-        return completedAt && completedAt > historyCutoff;
-      });
-
-      setActiveTasks(nextActiveTasks);
-      setHistoryTasks(nextHistoryTasks);
-      setRequestError('');
-
-      const terminalTasks = nextHistoryTasks.filter(task =>
-        task.id && !notifiedTaskIdsRef.current.has(task.id)
-      );
-      if (terminalTasks.length > 0 && onTaskComplete) {
-        terminalTasks.forEach(task => notifiedTaskIdsRef.current.add(task.id));
-        onTaskComplete(terminalTasks);
-      }
-
-      if (nextActiveTasks.length === 0) {
-        userClosedDuringActiveRef.current = false;
-      }
-      if (
-        nextActiveTasks.length > 0 &&
-        previousActiveCountRef.current === 0 &&
-        !userClosedDuringActiveRef.current
-      ) {
-        setIsOpen(true);
-        setActiveTab('active');
-      }
-      previousActiveCountRef.current = nextActiveTasks.length;
-    } catch (err) {
-      setRequestError(err.message || t('tasks.loadError'));
-    }
-  }, [historyWindowMinutes, onTaskComplete]);
-
   useEffect(() => {
-    fetchTasks();
-    const interval = setInterval(fetchTasks, pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [fetchTasks, pollIntervalMs]);
+    if (!activeTasks.length) userClosedDuringActiveRef.current = false;
+    if (activeTasks.length && previousActiveCountRef.current === 0 && !userClosedDuringActiveRef.current) {
+      setIsOpen(true);
+      setActiveTab('active');
+    }
+    previousActiveCountRef.current = activeTasks.length;
+  }, [activeTasks.length]);
 
   useEffect(() => {
     if (defaultOpen) setIsOpen(true);
@@ -157,11 +114,7 @@ const TaskPanel = ({
     document.body.style.userSelect = 'none';
   };
 
-  const handleCancel = taskId => requestTaskCancellation(taskId, {
-    cancel: tasksApi.cancel,
-    refresh: fetchTasks,
-    onError: error => setRequestError(error.message || t('tasks.cancelError')),
-  });
+  const handleCancel = cancel;
 
   const handleDismiss = (taskId) => {
     setDismissedTaskIds(prev => {
@@ -442,7 +395,7 @@ const TaskPanel = ({
       )}
 
       <button
-        onClick={() => setIsOpen(prev => !prev)}
+        onClick={() => { refresh(); setIsOpen(prev => !prev); }}
         className="fixed bottom-24 right-5 z-50 h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 transition-transform hover:scale-105 hover:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
         title={isOpen ? t('tasks.closePanel') : t('tasks.openPanel')}
       >

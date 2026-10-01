@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Play, Mic2, AlertCircle, ChevronLeft,
@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
 import { decodeHtmlEntities } from '../../utils/helpers';
-import { settingsApi } from '../../services/api';
 import TaskProgress from '../common/TaskProgress';
+import { useTasks } from '../tasks/TasksContext';
+import { getEpisodeTaskId, submitTranscription } from '../../utils/taskMonitor';
+import { isActiveTask } from '../../utils/taskActions';
 
 /**
  * EpisodeStatusBadge - 剧集处理状态徽标（标题区，一眼可见）
@@ -45,10 +47,6 @@ const EpisodeStatusBadge = ({ status }) => {
  */
 const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
   const { t } = useTranslation();
-  const [aiEnabled, setAiEnabled] = useState(true);
-  useEffect(() => {
-    settingsApi.getAiAnalysis().then(r => setAiEnabled(!!(r.enabled))).catch(() => {});
-  }, []);
   const [activeTab, setActiveTab] = useState('transcript');
   const [transcript, setTranscript] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -63,11 +61,11 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   // 任务状态
   const [localTranscribing, setLocalTranscribing] = useState(false);
-  const [localDownloading, setLocalDownloading] = useState(false);
   const [localSummarizing, setLocalSummarizing] = useState(false);
   const [transcriptionProvider, setTranscriptionProvider] = useState('official');
   const [transcriptionLanguage, setTranscriptionLanguage] = useState('auto');
-  const pendingTranscriptionProviderRef = useRef(null);
+  const [submittedTaskIds, setSubmittedTaskIds] = useState({});
+  const taskStore = useTasks();
 
   // Summary states
   const [templates, setTemplates] = useState([]);
@@ -111,67 +109,37 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     loadTemplates();
   }, []);
 
-  // 检查是否正在转录
-  const isTranscribing = episode?.status === 'transcribing';
-  // 综合判断：后端状态或本地刚触发的状态
-  const isCurrentlyTranscribing = isTranscribing || localTranscribing;
-  const isDownloading = episode?.status === 'downloading';
-  const isCurrentlyDownloading = isDownloading || localDownloading;
-
-  // 检查是否正在生成摘要
-  const isSummarizing = episode?.status === 'summarizing';
-  const isCurrentlySummarizing = isSummarizing || localSummarizing;
+  const transcribeTaskId = getEpisodeTaskId(episode, 'transcribe', submittedTaskIds.transcribe);
+  const downloadTaskId = getEpisodeTaskId(episode, 'download', submittedTaskIds.download);
+  const summarizeTaskId = getEpisodeTaskId(episode, 'summarize', submittedTaskIds.summarize);
+  const taskActive = id => id && (!taskStore.byId[id] || isActiveTask(taskStore.byId[id]));
+  const isCurrentlyTranscribing = Boolean(localTranscribing || taskActive(transcribeTaskId));
+  const isCurrentlyDownloading = Boolean(taskActive(downloadTaskId));
+  const isCurrentlySummarizing = Boolean(localSummarizing || taskActive(summarizeTaskId));
+  const aiEnabled = episode?.actions?.summarize?.reason_code !== 'AI_ANALYSIS_DISABLED';
+  const canSummarize = Boolean(episode?.actions?.summarize?.allowed);
+  const actionReasons = {
+    NO_TRANSCRIPT_URL: '当前节目没有官方字幕。', LOCAL_AI_NOT_INSTALLED: '本地转写组件尚未安装。',
+    CLOUD_TRANSCRIPTION_DISABLED: '云端转写尚未开启。', NO_AUDIO_URL: '当前节目没有可读取的音频。',
+    TASK_IN_PROGRESS: '这期节目已有任务正在处理。', ALREADY_DOWNLOADED: '音频已下载。',
+    ALREADY_TRANSCRIBED: '这期节目已有文稿。', NO_TRANSCRIPTION_PROVIDER: '当前没有可用的转写方式。',
+    TRANSCRIPT_NOT_FOUND: '先获取文稿，再生成摘要。', AI_ANALYSIS_DISABLED: 'AI 分析已冻结。',
+    ROLE_DENIED: '当前账号只允许阅读，无法加工内容。',
+  };
 
   // 计算预估费用 (AssemblyAI: $0.37/小时)
   const estimateCost = episode?.duration ? (episode.duration * 0.37 / 3600).toFixed(2) : null;
   const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null;
-  const hasOfficialTranscript = Boolean(episode?.transcript_url);
-  const hasLocalAudio = Boolean(episode?.local_audio_url || episode?.local_path || episode?.audio_path);
-  const hasRemoteAudio = Boolean(episode?.audio_url);
-  const isLocalTranscriptionProvider = (provider) => provider === 'local_whisper' || provider === 'local_whisperx';
-  const episodeHasLocalAudio = (targetEpisode) => Boolean(
-    targetEpisode?.local_audio_url || targetEpisode?.local_path || targetEpisode?.audio_path
-  );
+  const hasLocalAudio = Boolean(episode?.artifacts?.local_audio);
   const transcriptionOptions = [
-    {
-      value: 'official',
-      label: '官方字幕',
-      description: hasOfficialTranscript ? '免费，优先使用节目源提供的字幕。' : '当前单集没有官方字幕地址。',
-      disabled: !hasOfficialTranscript
-    },
-    {
-      value: 'local_whisper',
-      label: '本地 Whisper',
-      description: hasLocalAudio
-        ? '使用已下载音频在本机转录，不调用云端。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 Whisper 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'local_whisperx',
-      label: 'WhisperX',
-      description: hasLocalAudio
-        ? '本地高级转录模式，用于后续接入说话人识别；当前需要单独安装 WhisperX runtime。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 WhisperX 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'assemblyai',
-      label: 'AssemblyAI 云端',
-      description: '付费云端转录，后端必须显式开启 TRANSCRIPTION_CLOUD_ENABLED=1。',
-      disabled: false
-    },
-    {
-      value: 'manual',
-      label: '手动导入',
-      description: '预留入口，后续支持粘贴或上传文本。',
-      disabled: true
-    }
-  ];
+    { value: 'official', label: '官方字幕', description: '免费，使用节目源提供的字幕。' },
+    { value: 'local_whisper', label: '本地 Whisper', description: hasLocalAudio ? '使用已下载音频在本机转写。' : '提交后由后端下载音频，再在本机转写。' },
+    { value: 'local_whisperx', label: 'WhisperX', description: hasLocalAudio ? '使用已下载音频进行本地高级转写。' : '提交后由后端下载音频，再用 WhisperX 转写。' },
+    { value: 'assemblyai', label: 'AssemblyAI 云端', description: '使用已开启的付费云端服务转写。' },
+  ].map(option => {
+    const provider = episode?.transcription_providers?.find(provider => provider.id === option.value);
+    return { ...option, disabled: !provider?.available, description: provider?.reason_code ? actionReasons[provider.reason_code] : option.description };
+  });
   const selectedTranscriptionOption =
     transcriptionOptions.find(option => option.value === transcriptionProvider) || transcriptionOptions[0];
   const transcriptSourceLabels = {
@@ -198,14 +166,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     transcriptionLanguageOptions.find(option => option.value === transcriptionLanguage) || transcriptionLanguageOptions[0];
 
   useEffect(() => {
-    if (hasOfficialTranscript) {
-      setTranscriptionProvider('official');
-    } else if (hasLocalAudio || hasRemoteAudio) {
-      setTranscriptionProvider('local_whisper');
-    } else {
-      setTranscriptionProvider('assemblyai');
-    }
-  }, [episode?.id, hasOfficialTranscript, hasLocalAudio, hasRemoteAudio]);
+    setSubmittedTaskIds({});
+    setLocalTranscribing(false); setLocalSummarizing(false);
+    setTranscriptionProvider(episode?.transcription_providers?.find(provider => provider.available)?.id || 'official');
+  }, [episode?.id]);
+
+  const rememberTask = (type, data) => {
+    setSubmittedTaskIds(current => ({ ...current, [type]: data.task_id }));
+    taskStore.register({ id: data.task_id, type, episode_id: episode.id, status: 'pending', progress: 0 });
+    taskStore.refresh();
+  };
 
   // 任务完成回调
   const handleTranscribeComplete = async () => {
@@ -216,23 +186,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const handleDownloadComplete = async () => {
-    const providerToContinue = pendingTranscriptionProviderRef.current;
-    if (providerToContinue) {
-      pendingTranscriptionProviderRef.current = null;
-    }
-    setLocalDownloading(false);
-    const refreshedEpisode = await refreshEpisode();
-    if (onRefresh) {
-      await onRefresh();
-    }
 
-    if (!providerToContinue) return;
-
-    if (episodeHasLocalAudio(refreshedEpisode)) {
-      await startTranscriptionTask(providerToContinue);
-    } else {
-      setError('Download completed, but the local audio file was not found. Please try downloading again.');
-    }
+    await refreshEpisode();
+    onRefresh?.();
   };
 
   const handleSummarizeComplete = async () => {
@@ -244,8 +200,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   const handleTaskError = async (errorMsg) => {
     setError(errorMsg);
-    pendingTranscriptionProviderRef.current = null;
-    setLocalDownloading(false);
+
     setLocalTranscribing(false);
     setLocalSummarizing(false);
     await refreshEpisode();
@@ -253,8 +208,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const handleTaskCancelled = async () => {
-    pendingTranscriptionProviderRef.current = null;
-    setLocalDownloading(false);
+
     setLocalTranscribing(false);
     setLocalSummarizing(false);
     setSuccessMsg(t('tasks.status.cancelled'));
@@ -331,19 +285,19 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setLocalTranscribing(true);
     setError(null);
     try {
-      await transcriptsApi.create(episode.id, {
-        provider,
-        language: transcriptionLanguage
-      });
+      const task = await submitTranscription(episode.id, provider, transcriptionLanguage, transcriptsApi.create);
+      rememberTask('transcribe', task);
       // 任务已提交，TaskProgress 组件会轮询状态
       if (onRefresh) onRefresh();
       return true;
     } catch (err) {
       console.error('Failed to generate transcript:', err);
-      const errorCode = err?.code || '';
+      setLocalTranscribing(false);
+      const errorCode = err?.error_code || err?.code || '';
       const errorMsg = err?.message || 'Failed to generate transcript';
       if (errorCode === 'ALREADY_TRANSCRIBING' || errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.alreadyTranscribing') || 'Transcription is already in progress');
+        await refreshEpisode();
       } else if (errorCode === 'ALREADY_TRANSCRIBED') {
         setError(t('detail.alreadyTranscribed') || 'Episode already has a transcript');
         await loadTranscript();
@@ -359,64 +313,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateTranscript = async () => {
+    if (!episode.actions.transcribe.allowed) {
+      setError(actionReasons[episode.actions.transcribe.reason_code]);
+      return;
+    }
     if (selectedTranscriptionOption?.disabled) {
       setError(selectedTranscriptionOption.description);
       return;
     }
 
-    if (isLocalTranscriptionProvider(transcriptionProvider) && !hasLocalAudio) {
-      pendingTranscriptionProviderRef.current = transcriptionProvider;
-      const downloadResult = await downloadAudio();
-
-      if (downloadResult === 'already_downloaded') {
-        const refreshedEpisode = await refreshEpisode();
-        if (episodeHasLocalAudio(refreshedEpisode)) {
-          pendingTranscriptionProviderRef.current = null;
-          await startTranscriptionTask(transcriptionProvider);
-        } else {
-          pendingTranscriptionProviderRef.current = null;
-          setError('Episode is marked as downloaded, but the local audio file was not found. Please try downloading again.');
-        }
-      } else if (downloadResult === 'failed') {
-        pendingTranscriptionProviderRef.current = null;
-      }
-      return;
-    }
-
-    pendingTranscriptionProviderRef.current = null;
     await startTranscriptionTask(transcriptionProvider);
-  };
-
-  const downloadAudio = async () => {
-    if (!hasRemoteAudio) {
-      setError('当前单集没有可下载的音频 URL');
-      return 'failed';
-    }
-    setLoading(true);
-    setLocalDownloading(true);
-    setError(null);
-    try {
-      await episodesApi.download(episode.id);
-      if (onRefresh) onRefresh();
-      return 'queued';
-    } catch (err) {
-      const errorCode = err?.code || '';
-      if (errorCode === 'ALREADY_DOWNLOADED') {
-        setLocalDownloading(false);
-        await refreshEpisode();
-        if (onRefresh) await onRefresh();
-        return 'already_downloaded';
-      } else if (errorCode === 'ALREADY_DOWNLOADING') {
-        setError(t('detail.downloadInProgress') || 'Download already in progress');
-        return 'queued';
-      } else {
-        setError(err?.message || 'Failed to download audio');
-        setLocalDownloading(false);
-      }
-      return 'failed';
-    } finally {
-      setLoading(false);
-    }
   };
 
   const deleteTranscript = async () => {
@@ -436,7 +342,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setError(null);
     setLocalTranscribing(true);
     try {
-      await transcriptsApi.transcribeVideo(episode.id);
+      const response = await transcriptsApi.transcribeVideo(episode.id);
+      rememberTask('transcribe', response.data);
     } catch (err) {
       setError(err?.message || 'Failed to start transcription');
       setLocalTranscribing(false);
@@ -444,8 +351,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateSummary = async (force = false) => {
-    if (!aiEnabled) {
-      setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
+    if (!canSummarize) {
+      setError(actionReasons[episode.actions.summarize.reason_code]);
       return;
     }
     if (!selectedTemplate) {
@@ -459,12 +366,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       const params = {};
       if (templateParams.length) params.length = templateParams.length;
       if (templateParams.language) params.language = templateParams.language;
-      await summariesApi.create(episode.id, {
+      const summaryResponse = await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
         enabled_blocks: enabledBlocks,
         params,
         force
       });
+      rememberTask('summarize', summaryResponse.data);
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
       if (onRefresh) onRefresh();
@@ -477,6 +385,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         await loadSummary();
         setLocalSummarizing(false);
       } else if (errorCode === 'TASK_IN_PROGRESS') {
+        setLocalSummarizing(false);
+        await refreshEpisode();
         setError(t('detail.summaryInProgress') || 'Summary generation in progress');
       } else {
         setError(err?.message || 'Failed to generate summary');
@@ -550,7 +460,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             <div className="flex gap-2">
               <button
                 onClick={generateTranscript}
-                disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
+                disabled={!episode.actions?.transcribe?.allowed || loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlyTranscribing
                     ? 'border-purple-500 bg-purple-900/30 text-purple-400 cursor-not-allowed'
@@ -568,7 +478,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
-                disabled={!aiEnabled || loading || isCurrentlySummarizing}
+                disabled={!canSummarize || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
                     ? 'border-indigo-500 bg-indigo-900/30 text-indigo-400 cursor-not-allowed'
@@ -748,7 +658,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     {isCurrentlyDownloading ? (
                       <TaskProgress
                         taskType="download"
-                        episodeId={episode.id}
+                        taskId={downloadTaskId}
                         onComplete={handleDownloadComplete}
                         onError={handleTaskError}
                         onCancelled={handleTaskCancelled}
@@ -756,7 +666,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     ) : isCurrentlyTranscribing ? (
                       <TaskProgress
                         taskType="transcribe"
-                        episodeId={episode.id}
+                        taskId={transcribeTaskId}
                         onComplete={handleTranscribeComplete}
                         onError={handleTaskError}
                         onCancelled={handleTaskCancelled}
@@ -838,13 +748,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                         )}
                         <button
                           onClick={generateTranscript}
-                          disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
+                          disabled={!episode.actions?.transcribe?.allowed || loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
                         >
                           {isCurrentlyDownloading ? '正在下载音频' :
                            isCurrentlyTranscribing ? t('detail.transcribingStatus') :
                            loading ? t('detail.generating') :
-                            (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? '先下载音频' : `开始${selectedTranscriptionOption?.label || '转录'}`}
+                            (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? '下载并转写' : `开始${selectedTranscriptionOption?.label || '转录'}`}
                         </button>
                       </div>
                     )}
@@ -1222,7 +1132,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {isCurrentlySummarizing ? (
                     <TaskProgress
                       taskType="summarize"
-                      episodeId={episode.id}
+                      taskId={summarizeTaskId}
                       onComplete={handleSummarizeComplete}
                       onError={handleTaskError}
                       onCancelled={handleTaskCancelled}
@@ -1230,10 +1140,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={!aiEnabled || loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={!canSummarize || loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {!aiEnabled ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
+                      {!canSummarize ? actionReasons[episode.actions?.summarize?.reason_code] : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
                     </button>
                   )}
                 </div>

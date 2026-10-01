@@ -32,6 +32,7 @@ import usePaginatedList from './hooks/usePaginatedList';
 import PlayerBar from './components/player/PlayerBar';
 // Task components
 import TaskPanel from './components/tasks/TaskPanel';
+import { TasksProvider } from './components/tasks/TasksContext';
 
 const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
@@ -88,6 +89,9 @@ export default function App() {
   const reportPlaybackRef = useRef(null);
   const [playbackNotice, setPlaybackNotice] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
+  const [queuedTask, setQueuedTask] = useState(null);
+  const currentUserIdRef = useRef(currentUser?.id);
+  currentUserIdRef.current = currentUser?.id;
   // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
   const getPlayableAudioUrl = (episode) => {
     if (episode?.local_audio_url) return episode.local_audio_url;
@@ -172,6 +176,7 @@ export default function App() {
   const handleLogout = () => {
     setAuthToken(null);
     setCurrentUser(null);
+    setQueuedTask(null);
     feedList.clear();
     setSelectedEpisode(null);
     setSelectedFeed(null);
@@ -216,11 +221,18 @@ export default function App() {
     loadData();
   };
 
-  const handleRefreshFeed = useMemo(() => createFeedRefreshAction({
-    refresh: feedId => feedsApi.refresh(feedId),
-    onQueued: () => setActionNotice({ message: '已提交订阅同步，完成后会更新节目。' }),
-    onError: error => setActionNotice({ message: error.message || '订阅同步未能启动，请重试。', error: true }),
-  }), []);
+  const handleRefreshFeed = useMemo(() => {
+    const owner = currentUser?.id;
+    return createFeedRefreshAction({
+      refresh: feedId => feedsApi.refresh(feedId),
+      onQueued: (task, feedId) => {
+        if (currentUserIdRef.current !== owner) return;
+        setQueuedTask({ id: task.task_id, type: 'refresh', feed_id: feedId, status: 'pending', progress: 0 });
+        setActionNotice({ message: '已提交订阅同步，完成后会更新节目。' });
+      },
+      onError: error => { if (currentUserIdRef.current === owner) setActionNotice({ message: error.message || '订阅同步未能启动，请重试。', error: true }); },
+    });
+  }, [currentUser?.id]);
 
   const handleDeleteFeed = () => {
     setActiveFeed(null);
@@ -544,6 +556,7 @@ export default function App() {
   }
 
   return (
+    <TasksProvider key={currentUser.id} pollIntervalMs={taskPollSeconds * 1000} onTaskComplete={handleTaskComplete} queuedTask={queuedTask}>
     <div className="flex h-screen bg-black text-zinc-100 font-sans selection:bg-indigo-500/30 overflow-hidden">
       <Sidebar
         open={mobileSidebarOpen}
@@ -681,6 +694,7 @@ export default function App() {
           />
         ) : (
           <EpisodeDetailView
+            key={selectedEpisode?.id}
             episode={selectedEpisode}
             onBack={() => {
               if (hasInAppNavigationRef.current) {
@@ -729,15 +743,14 @@ export default function App() {
 
       {/* 任务进度面板 */}
       <TaskPanel
-        onTaskComplete={handleTaskComplete}
         onNavigate={({ type, id }) => {
           if (type === 'episode') openEpisode(id);
           if (type === 'feed') openFeed(id);
         }}
-        pollIntervalMs={taskPollSeconds * 1000}
         historyWindowMinutes={taskHistoryWindowMinutes}
         defaultOpen={taskPanelDefaultOpen}
       />
     </div>
+    </TasksProvider>
   );
 }

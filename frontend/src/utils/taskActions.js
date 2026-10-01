@@ -5,7 +5,7 @@ export function createFeedRefreshAction({ refresh, onQueued, onError }) {
     if (pending.has(feedId)) return pending.get(feedId);
     const request = Promise.resolve().then(() => refresh(feedId))
       .then(response => {
-        onQueued(response.data);
+        onQueued(response.data, feedId);
         return response.data;
       })
       .catch(error => { onError(error); })
