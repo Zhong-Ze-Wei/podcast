@@ -25,3 +25,8 @@ export async function loadReportFavoriteIds(report, list) {
   }
   return ids;
 }
+
+export async function restoreReportTask(period, readingSource, list) {
+  const response = await list({ type: 'briefing-report', period_type: period.type, period_start: period.start, status: 'pending,processing', per_page: 100 });
+  return response.data.find(task => ['pending', 'processing'].includes(task.status) && (task.report_context?.kind !== 'reading' || task.report_context.source_id === readingSource));
+}
