@@ -6,6 +6,7 @@ import {
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { briefingTaskLabel, briefingTaskNavigation } from '../../utils/briefingTask';
 import { isActiveTask, isTerminalTask, canCancelTask } from '../../utils/taskActions';
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
@@ -34,7 +35,7 @@ const TaskPanel = ({
   historyWindowMinutes = 60,
   defaultOpen = false
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh } = useTasks();
   const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
   const historyTasks = allHistoryTasks.filter(task => task.completed_at && new Date(task.completed_at).getTime() > historyCutoff);
@@ -135,6 +136,8 @@ const TaskPanel = ({
   };
 
   const getTaskTargetLabel = (task) => {
+    const periodLabel = briefingTaskLabel(task, i18n.language);
+    if (periodLabel) return periodLabel;
     if (task.episode_title) return task.episode_title;
     if (task.feed_title) return task.feed_title;
     if (task.target_exists === false) return t('tasks.targetDeleted');
@@ -150,11 +153,12 @@ const TaskPanel = ({
     return parts.join(' · ');
   };
 
-  const canOpenTask = (task) => Boolean(task.target_id && task.target_type && task.target_exists !== false && onNavigate);
+  const canOpenTask = (task) => Boolean(onNavigate && (briefingTaskNavigation(task) || (task.target_id && task.target_type && task.target_exists !== false)));
 
   const handleOpenTask = (task) => {
     if (!canOpenTask(task)) return;
-    onNavigate({ type: task.target_type, id: task.target_id, task });
+    const briefing = briefingTaskNavigation(task);
+    onNavigate(briefing ? { type: 'briefing', ...briefing, task } : { type: task.target_type, id: task.target_id, task });
     setIsOpen(false);
   };
 
@@ -169,6 +173,7 @@ const TaskPanel = ({
       case 'download': return <Download size={16} />;
       case 'transcribe': return <Mic2 size={16} />;
       case 'summarize': return <Sparkles size={16} />;
+      case 'briefing-report': return <Sparkles size={16} />;
       case 'refresh': return <RefreshCw size={16} />;
       default: return <Loader2 size={16} />;
     }

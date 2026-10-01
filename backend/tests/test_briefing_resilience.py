@@ -8,6 +8,7 @@ import pytest
 from app.services.briefing_lab_service import BriefingLabService, analysis_coverage, split_text
 from app.services.briefing_modes_service import validate_mode_items
 from app.services.briefing_reading_service import BriefingReadingService
+from app.services.llm_client import EmptyLLMResponse
 from app.services.briefing_report_pdf import _document
 from tests.test_briefing_lab import source_document
 from tests.test_briefing_modes import modes_service, results
@@ -22,12 +23,37 @@ class RecordedClient:
     def chat(self, **kwargs):
         self.calls.append(deepcopy(kwargs))
         data = next(self.responses)
+        if isinstance(data, Exception):
+            raise data
         return {"content": json.dumps(data, ensure_ascii=False), "model": "test-model",
                 "usage": {"prompt": 10, "completion": 5, "total": 15}, "elapsed_seconds": 0.5}
 
 
 def claim_result(quote):
     return {"summary": "文稿的具体观点", "claims": [{"title": "真实观点", "body": "正文依据", "quote": quote}], "questions": []}
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+def test_empty_response_retries_and_is_audited_without_aborting_remaining_chunks(tmp_path, recovers):
+    report = create_service(tmp_path)
+    source = report.corpus()["sources"][0]
+    chunk = split_text(source["full_text"])[0]
+    empty = EmptyLLMResponse("LLM returned empty content", {
+        "content": "", "model": "test-model", "usage": {"prompt": 10, "completion": 20, "total": 30},
+        "elapsed_seconds": 1, "finish_reason": "length",
+    })
+    client = RecordedClient([empty, claim_result(TEXT) if recovers else empty])
+    report.lab.client_factory = lambda **kwargs: client
+    note = report.lab._analyze_chunk(source, chunk)
+    assert note["analysis_status"] == ("completed" if recovers else "skipped")
+    assert len(client.calls) == 2
+    assert all(message["content"] for message in client.calls[1]["messages"])
+    assert note["usage"]["total"] == (45 if recovers else 60)
+    cache_path = report.lab._chunk_path(source, chunk)
+    audit = json.loads((cache_path.parent / note["audit_record"]).read_text(encoding="utf-8"))
+    assert audit["attempts"][0]["finish_reason"] == "length"
+    assert audit["attempts"][0]["error"] == "模型返回空内容"
+    assert len(audit["attempts"]) == 2
 
 
 @pytest.mark.parametrize("stage", ["extraction", "claims"])
