@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 config = get_config()
 
 
+class EmptyLLMResponse(ValueError):
+    """模型已响应但没有正文；保留用量和结束原因供调用方审计、重试。"""
+
+    def __init__(self, message, response):
+        super().__init__(message)
+        self.response = response
+
+
 class LLMClient:
     """LLM 调用客户端"""
 
@@ -104,36 +112,29 @@ class LLMClient:
             response = self.client.chat.completions.create(**kwargs)
             elapsed = (datetime.now() - start_time).total_seconds()
 
-            # 检查响应是否有效
-            if not response.choices:
-                logger.error("LLM returned empty choices")
-                raise ValueError("LLM returned empty response (no choices)")
-
-            content = response.choices[0].message.content
-
-            # 检查内容是否为空
-            if content is None or content.strip() == "":
-                logger.error("LLM returned empty content")
-                raise ValueError("LLM returned empty content")
-
             usage = {
                 "prompt": response.usage.prompt_tokens if response.usage else 0,
                 "completion": response.usage.completion_tokens if response.usage else 0,
                 "total": response.usage.total_tokens if response.usage else 0,
             }
+            choice = response.choices[0] if response.choices else None
+            result = {
+                "content": (choice.message.content or "") if choice else "",
+                "usage": usage,
+                "model": model,
+                "elapsed_seconds": elapsed,
+                "finish_reason": choice.finish_reason if choice else None,
+            }
+            if not result["content"].strip():
+                reason = "LLM returned empty content" if choice else "LLM returned empty response (no choices)"
+                raise EmptyLLMResponse(reason, result)
 
             logger.info(
                 f"LLM call completed: model={model}, "
                 f"tokens={usage['total']}, elapsed={elapsed:.1f}s"
             )
 
-            return {
-                "content": content,
-                "usage": usage,
-                "model": model,
-                "elapsed_seconds": elapsed,
-                "finish_reason": response.choices[0].finish_reason,
-            }
+            return result
 
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
@@ -189,9 +190,6 @@ class LLMClient:
             for item in body.get("content", [])
             if item.get("type") == "text"
         ).strip()
-        if not content:
-            raise ValueError("LLM returned empty content")
-
         raw_usage = body.get("usage", {}) or {}
         usage = {
             "prompt": raw_usage.get("input_tokens", 0),
@@ -199,12 +197,16 @@ class LLMClient:
             "total": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
         }
 
-        return {
+        result = {
             "content": content,
             "usage": usage,
             "model": body.get("model", model),
             "elapsed_seconds": elapsed,
+            "finish_reason": body.get("stop_reason"),
         }
+        if not content:
+            raise EmptyLLMResponse("LLM returned empty content", result)
+        return result
 
     def chat_json(
         self,

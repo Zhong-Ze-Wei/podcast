@@ -811,9 +811,10 @@ export default function App() {
       {/* 任务进度面板 */}
       <TaskPanel
         onTaskComplete={loadData}
-        onNavigate={({ type, id }) => {
+        onNavigate={({ type, id, periodType, periodStart, mode }) => {
           if (type === 'episode') openEpisode(id);
           if (type === 'feed') openFeed(id);
+          if (type === 'briefing') handleBriefingNavigate('reports', { periodType, periodStart, mode });
         }}
         pollIntervalMs={taskPollSeconds * 1000}
         historyWindowMinutes={taskHistoryWindowMinutes}
