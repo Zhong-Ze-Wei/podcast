@@ -13,7 +13,9 @@ const sources = episodes.slice(0, 10).map((item, i) => ({ id: `source-${i + 1}`,
 const modes = [{ id: 'core', name: '核心提要' }, { id: 'quotes', name: '原话精选' }, { id: 'connections', name: '共性与分歧' }, { id: 'concepts', name: '新词与方法' }, { id: 'resources', name: '提到的资料' }];
 const reports = Object.fromEntries(modes.map(mode => [mode.id, { id: `report-${mode.id}`, mode: mode.id, title: mode.name, generated_at: '2026-09-28T00:05:00+08:00', period, sources, sections: [{ items: Array.from({ length: 16 }, (_, i) => ({ id: `item-${mode.id}-${i + 1}`, kind: mode.id === 'quotes' ? 'quote' : 'insight', source_id: sources[i % 10].id, episode_id: sources[i % 10].episode_id, title: `第 ${i + 1} 条：产品边界与可靠执行`, text: '用户关闭页面后业务任务仍应继续执行。架构需要明确职责，界面则突出当前阅读内容。'.repeat(3), quote: '用户关闭页面后，任务仍应继续执行。', feed: sources[i % 10].feed, source_title: sources[i % 10].title, start: i * 120, topic_tags: ['AI', '编程'], evidence: [] })) }] } ]));
 let preferences = { interests: [{ label: 'AI', enabled: true }], auto_period: 'week', layout: 'paper' };
-const favorites = new Map();
+const oldReport = { ...reports.core, id: 'report-old', title: '上周核心提要', period: { ...period, start: '2026-09-14', label: '9月14日 — 9月20日' } };
+const oldItem = { ...reports.core.sections[0].items[0], id: 'old-saved-item', title: '跨周期收藏：上周的架构观点' };
+const favorites = new Map([[oldItem.id, { item_id: oldItem.id, report_id: oldReport.id, item: oldItem, report: oldReport, created_at: '2026-09-21T00:00:00Z' }]]);
 const tasks = [];
 let taskCounter = 0;
 const template = { id: 'learning', name: 'learning', display_name: '学习笔记', optional_blocks: [], parameters: {} };
@@ -41,6 +43,8 @@ async function api(req, res) {
   const path = url.pathname;
   const payload = req.method === 'GET' ? {} : await body(req);
   requests.push({ method: req.method, path, params: Object.fromEntries(url.searchParams), payload });
+  if (path === '/api/__fixture/role') { user.role = payload.role; return send(res, user); }
+  if (path === '/api/__fixture/complete-task') { const task = tasks.find(item => item.id === payload.id); task.status = payload.status || 'completed'; task.progress = 100; task.result = payload.result || {}; return send(res, task); }
   if (path === '/api/__fixture/requests') return send(res, requests);
   if (path === '/api/auth/me') return send(res, { user });
   if (path === '/api/feeds') return paginated(res, feeds, url);
@@ -50,7 +54,7 @@ async function api(req, res) {
   if (path === '/api/episodes') return paginated(res, episodeList(url), url);
   if (/^\/api\/episodes\/[^/]+\/star$/.test(path)) { const item = episodes.find(item => item.id === path.split('/')[3]); item.is_starred = payload.starred; return send(res, item); }
   if (/^\/api\/episodes\/[^/]+$/.test(path)) return send(res, episodes.find(item => item.id === path.split('/')[3]));
-  if (path === '/api/tasks') { const statuses = url.searchParams.get('status')?.split(','); return paginated(res, tasks.filter(task => (!statuses || statuses.includes(task.status)) && (!url.searchParams.get('episode_id') || task.episode_id === url.searchParams.get('episode_id'))), url); }
+  if (path === '/api/tasks') { const statuses = url.searchParams.get('status')?.split(','); return paginated(res, tasks.filter(task => (!statuses || statuses.includes(task.status)) && (!url.searchParams.get('type') || task.type === url.searchParams.get('type')) && (!url.searchParams.get('period_start') || task.report_period?.start === url.searchParams.get('period_start')) && (!url.searchParams.get('period_type') || task.report_period?.type === url.searchParams.get('period_type')) && (!url.searchParams.get('episode_id') || task.episode_id === url.searchParams.get('episode_id'))), url); }
   if (/^\/api\/tasks\/[^/]+\/cancel$/.test(path)) { const task = tasks.find(item => item.id === path.split('/')[3]); if (!task?.can_cancel) return send(res, { message: '运行中的任务当前无法停止' }, 409); task.status = 'cancelled'; task.can_cancel = false; task.completed_at = new Date().toISOString(); return send(res, task); }
   if (/^\/api\/tasks\/[^/]+$/.test(path)) return send(res, tasks.find(item => item.id === path.split('/')[3]));
   if (/^\/api\/transcripts\/[^/]+\/check-external$/.test(path)) return send(res, { has_external_transcript: false });
@@ -59,10 +63,12 @@ async function api(req, res) {
   if (path.startsWith('/api/prompt-templates/')) return send(res, template);
   if (path.startsWith('/api/summaries/')) return send(res, { message: '尚无摘要' }, 404);
   if (path === '/api/settings/ai-analysis') return send(res, { enabled: true });
+  if (path === '/api/briefing-reports/modes/generate' || /^\/api\/briefing-reports\/reading\/[^/]+\/generate$/.test(path)) { const kind = path.includes('/reading/') ? 'reading' : 'modes'; const id = `task-${++taskCounter}`; tasks.unshift({ id, type: 'briefing-report', status: 'processing', can_cancel: false, progress: 40, progress_message: '整理原话与来源', report_period: { type: payload.period_type, start: payload.period_start }, report_context: { kind, mode: payload.mode, source_id: kind === 'reading' ? path.split('/')[4] : undefined }, created_at: new Date().toISOString() }); return send(res, { task_id: id, status: 'queued' }); }
+  if (/^\/api\/briefing-reports\/reading\/[^/]+$/.test(path)) return send(res, { source: sources.find(item => item.id === path.split('/')[4]), reading: null });
   if (path === '/api/briefing-reports/preferences') { if (req.method === 'PUT') preferences = { ...preferences, ...payload }; return send(res, preferences); }
   if (path === '/api/briefing-reports/modes') return send(res, { reports, modes, sources, period: { ...period, type: url.searchParams.get('period_type') || 'week', start: url.searchParams.get('period_start') || period.start }, periods: [period], preferences });
   if (path === '/api/briefing-reports/favorites/import') { const imported = []; const unresolved = []; for (const id of payload.ids || []) { const report = Object.values(reports).find(report => report.sections[0].items.some(item => item.id === id)); if (!report) unresolved.push(id); else { const item = report.sections[0].items.find(item => item.id === id); favorites.set(id, { item_id: id, report_id: report.id, item, report, created_at: new Date().toISOString() }); imported.push(id); } } return send(res, { imported, unresolved }); }
-  if (path === '/api/briefing-reports/favorites') return paginated(res, [...favorites.values()].filter(item => !url.searchParams.get('mode') || item.report.mode === url.searchParams.get('mode')), url);
+  if (path === '/api/briefing-reports/favorites') return paginated(res, [...favorites.values()].filter(item => (!url.searchParams.get('mode') || item.report.mode === url.searchParams.get('mode')) && (!url.searchParams.get('period_start') || item.report.period.start === url.searchParams.get('period_start')) && (!url.searchParams.get('period_type') || item.report.period.type === url.searchParams.get('period_type'))), url);
   if (path.startsWith('/api/briefing-reports/favorites/')) { const id = decodeURIComponent(path.split('/').at(-1)); if (req.method === 'DELETE') { favorites.delete(id); return send(res, { item_id: id, deleted: true }); } const report = Object.values(reports).find(report => report.id === payload.report_id); const item = report?.sections[0].items.find(item => item.id === id); if (!item) return send(res, { message: '条目不存在' }, 404); const favorite = { item_id: id, report_id: report.id, item, report, created_at: new Date().toISOString() }; favorites.set(id, favorite); return send(res, favorite); }
   if (path === '/api/briefing-reports/reading-theme.css') { res.writeHead(200, { 'content-type': 'text/css' }); return res.end(''); }
   if (path.startsWith('/api/admin/')) return send(res, {});
