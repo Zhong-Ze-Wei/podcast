@@ -213,6 +213,8 @@
       "daysAgo": "{{count}}d ago"
     },
     "types": {
+      "briefing-report": "Generate AI Briefing",
+      "briefing-lab": "Briefing Analysis",
       "download": "Download Audio",
       "transcribe": "AI Transcribe",
       "summarize": "Generate Summary",
