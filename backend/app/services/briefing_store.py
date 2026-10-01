@@ -22,14 +22,14 @@ class BriefingStore:
 
     def _directories(self):
         return [self.root / "reports", self.root / "content-modes-v1" / "reports",
-                *sorted(self.root.glob("reading-v*/editions")), *sorted(self.root.glob("reading-v*/sources"))]
+                *sorted(self.root.glob("reading-v*/editions"))]
 
     def _visible(self, report):
         return report.get("owner_id") in (None, self.owner_id)
 
     def _index(self, path, report):
         metadata = {key: deepcopy(report[key]) for key in REPORT_FIELDS if key in report}
-        metadata.update(report_id=report["id"], owner_id=report.get("owner_id"), path=str(path.relative_to(self.root)))
+        metadata.update(report_id=report["id"], owner_id=report.get("owner_id"), path=path.relative_to(self.root).as_posix())
         self.db.briefing_reports.update_one({"report_id": report["id"]}, {"$set": metadata}, upsert=True)
 
     def publish(self, report, directory):
@@ -41,7 +41,7 @@ class BriefingStore:
                 raise ValueError("已发布报告不可覆盖")
             try:
                 write_json(path, report)
-                if self.db is not None:
+                if self.db is not None and path.parent.name != "sources":
                     self._index(path, report)
             except Exception:
                 # 新版本发布失败不能进入目录扫描，也不能影响旧 UUID 文件。
@@ -80,9 +80,11 @@ class BriefingStore:
 
     def rebuild_index(self):
         with _PUBLICATION_LOCK:
-            # Mongo 写入响应丢失时可能留下已登记、文件未发布的记录。
+            # 清理未发布记录及早期误登记的单篇缓存；不删除原始文件。
+            directories = set(self._directories())
             for indexed in self.db.briefing_reports.find({}):
-                if not (self.root / indexed["path"]).is_file():
+                path = self.root / indexed["path"].replace("\\", "/")
+                if path.parent not in directories or not path.is_file():
                     self.db.briefing_reports.delete_one({"report_id": indexed["report_id"]})
             for directory in self._directories():
                 for path in directory.glob("*.json"):
