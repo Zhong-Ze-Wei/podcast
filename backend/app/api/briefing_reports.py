@@ -15,7 +15,7 @@ from ..services.briefing_modes_service import BriefingModesService, MODE_INDEX
 from ..services.briefing_scope_service import BriefingScopeService, validate_interests
 from ..services.briefing_lab_service import corpus_id, quote_offset
 from ..services.task_queue import task_queue
-from ..services.briefing_task_service import report_task_conflicts
+from ..services.briefing_task_service import submit_report_task
 from ..services.briefing_favorites import BriefingFavorites, valid_item_id
 
 
@@ -172,12 +172,6 @@ def source(source_id):
     return success_response({**source, "analysis": service.report_service.lab._source_notes(source, cached_only=True)})
 
 
-def _has_active_report_task(owner_id, period=None):
-    return any(report_task_conflicts(task, owner_id, period)
-               for status in ("pending", "processing")
-               for task in task_queue.get_all_tasks(task_type="briefing-report", status=status, limit=0))
-
-
 @briefing_reports_bp.route("/modes", methods=["GET"])
 @require_auth
 def modes():
@@ -221,13 +215,13 @@ def generate_modes():
         service = BriefingModesService(owner_id=owner_id)
     if not (scope["corpus"] if scope else service.report_service.corpus())["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
-    if _has_active_report_task(owner_id, scope["period"] if scope is not None else None):
-        return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
     kwargs = {"mode": mode, "topic": topic.strip(), "report_context": {"kind": "modes", "mode": mode}}
     if scope is not None:
         kwargs["scope"] = scope
         kwargs["report_period"] = scope["period"]
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, **kwargs)
+    task_id = submit_report_task(task_queue, func=service.generate, owner_id=owner_id, **kwargs)
+    if task_id is None:
+        return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -252,9 +246,9 @@ def generate_edition():
     service = BriefingReadingService(owner_id=owner_id)
     if not service.report_service.corpus()["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
-    if _has_active_report_task(owner_id):
+    task_id = submit_report_task(task_queue, func=service.generate_edition, owner_id=owner_id, topic=topic.strip(), report_context={"kind": "edition"})
+    if task_id is None:
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_edition, owner_id=owner_id, topic=topic.strip(), report_context={"kind": "edition"})
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -331,9 +325,9 @@ def generate_reading(source_id):
         if not scope_service.source_within_period(source, scope["period"]):
             return error_response("文稿不属于所选周期", "SOURCE_OUTSIDE_PERIOD", 400)
         kwargs["report_period"] = scope["period"]
-    if _has_active_report_task(owner_id):
+    task_id = submit_report_task(task_queue, func=service.generate_reading, owner_id=owner_id, **kwargs)
+    if task_id is None:
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_reading, owner_id=owner_id, **kwargs)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -367,9 +361,9 @@ def generate():
     if not service.corpus()["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
     owner_id = current_owner_id()
-    if any(task.get("owner_id") == owner_id and task["status"] in ("pending", "processing") for task in task_queue.get_all_tasks(task_type="briefing-report")):
+    task_id = submit_report_task(task_queue, func=service.generate, owner_id=owner_id, report_context={"kind": "legacy"}, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
+    if task_id is None:
         return error_response("已有报告正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, report_context={"kind": "legacy"}, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
