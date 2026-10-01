@@ -221,6 +221,21 @@ def test_briefing_period_is_persisted_without_being_forwarded_to_worker():
     assert stored["result"] == "october"
 
 
+def test_briefing_context_is_persisted_without_being_forwarded_or_mutated():
+    db = MockDB()
+    queue = TaskQueue(max_workers=1)
+    queue.set_db(db)
+    context = {"kind": "reading", "source_id": "ep-source"}
+    task_id = queue.submit("briefing-report", lambda progress_callback=None: "reading",
+                           report_context=context)
+    queue.shutdown()
+    context["source_id"] = "changed"
+    task = queue.get_status(task_id)
+    assert task["status"] == "completed"
+    assert task["report_context"] == {"kind": "reading", "source_id": "ep-source"}
+    assert db.tasks.find_one({"task_id": task_id})["report_context"] == task["report_context"]
+
+
 def test_unlimited_memory_task_listing_keeps_active_tasks_beyond_default_page():
     queue = TaskQueue(max_workers=1)
     queue.tasks = {str(index): {"created_at": index, "status": "pending", "task_type": "briefing-report"} for index in range(60)}

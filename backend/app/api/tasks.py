@@ -209,6 +209,7 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "can_cancel": (_task_is_owned(task) and current_user().get("role") in ("user", "admin")
                        and task_queue.can_cancel(task.get("task_id"))),
         "report_period": task.get("report_period"),
+        "report_context": task.get("report_context"),
         "progress": task.get("progress", 0),
         "progress_message": task.get("progress_message"),
         "episode_id": episode_id,
