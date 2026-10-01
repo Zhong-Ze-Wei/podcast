@@ -61,6 +61,12 @@ class BriefingStore:
             return [report for path in (self.root / directory).glob("*.json")
                     if (report := self._load(path)) is not None and self._visible(report)]
 
+    def all_reports(self):
+        with _PUBLICATION_LOCK:
+            return [report for directory in self._directories() for path in directory.glob("*.json")
+                    if re.fullmatch(r"[a-f0-9]{32}", path.stem)
+                    and (report := self._load(path)) is not None and self._visible(report)]
+
     def report(self, report_id):
         if not isinstance(report_id, str) or not re.fullmatch(r"[a-f0-9]{32}", report_id):
             return None
