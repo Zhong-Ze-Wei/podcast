@@ -113,6 +113,14 @@ class TaskQueue:
             updates["status"] = next_status
             self._db.episodes.update_one({"_id": episode_oid}, {"$set": updates})
 
+    def submit_unique(self, task_type: str, func: Callable, *args, dedup_key: str, **kwargs) -> str:
+        """同一业务操作只保留一个活动任务；终态后允许再次提交。"""
+        with self._lock:
+            for task in self.tasks.values():
+                if task.get("dedup_key") == dedup_key and task["status"] in {"pending", "processing"}:
+                    return task["task_id"]
+            return self.submit(task_type, func, *args, dedup_key=dedup_key, **kwargs)
+
     def submit(
         self,
         task_type: str,
@@ -123,6 +131,7 @@ class TaskQueue:
         on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
         report_period: dict = None,
+        dedup_key: str = None,
         **kwargs
     ) -> str:
         """
@@ -158,6 +167,8 @@ class TaskQueue:
         }
         if report_period is not None:
             task_info["report_period"] = {"type": report_period["type"], "start": report_period["start"]}
+        if dedup_key is not None:
+            task_info["dedup_key"] = dedup_key
 
         # 包装函数以更新状态
         def wrapper():
