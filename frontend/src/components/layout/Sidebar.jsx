@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   LayoutGrid, Plus, Mic2, Briefcase,
   Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings,
-  Sparkles, List
+  Sparkles, List, CalendarDays, Newspaper, Quote, Layers, Lightbulb, BookOpen
 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
 import { feedsApi } from '../../services/api';
@@ -36,7 +36,9 @@ const Sidebar = ({
   hasPlayer,
   currentView,
   viewMode = 'traditional',  // 'traditional' | 'ai-briefing'
-  onViewModeChange
+  onViewModeChange,
+  briefingState,
+  onBriefingNavigate
 }) => {
   const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -175,6 +177,26 @@ const Sidebar = ({
         </div>
       </div>
 
+      {viewMode === 'ai-briefing' ? <>
+        <nav className="px-4 mb-4 space-y-1" aria-label="AI简报导航">
+          {[
+            { id: 'week', label: '周报', icon: CalendarDays, section: 'reports', options: { periodType: 'week' }, active: currentView === 'briefing' && briefingState.periodType === 'week' },
+            { id: 'month', label: '月报', icon: CalendarDays, section: 'reports', options: { periodType: 'month' }, active: currentView === 'briefing' && briefingState.periodType === 'month' },
+            { id: 'saved', label: '简报收藏', icon: Heart, section: 'saved', active: currentView === 'briefingSaved' },
+            { id: 'settings', label: '简报设置', icon: Settings, section: 'settings', active: currentView === 'briefingSettings' },
+          ].map(item => <button key={item.id} aria-current={item.active ? 'page' : undefined} onClick={() => onBriefingNavigate(item.section, item.options)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${item.active ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/50' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}><item.icon size={18} />{item.label}</button>)}
+        </nav>
+        <nav className="flex-1 overflow-y-auto px-4 space-y-1 custom-scrollbar" aria-label="简报内容模式">
+          <div className="text-xs font-semibold text-zinc-500 px-3 py-2 tracking-wider">内容模式</div>
+          {[
+            { id: 'core', label: '核心提要', icon: Newspaper },
+            { id: 'quotes', label: '原话精选', icon: Quote },
+            { id: 'connections', label: '共性与分歧', icon: Layers },
+            { id: 'concepts', label: '新词与方法', icon: Lightbulb },
+            { id: 'resources', label: '提到的资料', icon: BookOpen },
+          ].map(item => <button key={item.id} aria-pressed={briefingState.mode === item.id} onClick={() => onBriefingNavigate(currentView === 'briefingSaved' ? 'saved' : 'reports', { mode: item.id })} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${briefingState.mode === item.id ? 'text-purple-300 bg-purple-500/10' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}><item.icon size={17} />{item.label}</button>)}
+        </nav>
+      </> : <>
       <div className="px-4 mb-4 space-y-1">
         <button
           onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('list'); }}
@@ -262,12 +284,13 @@ const Sidebar = ({
         ))}
       </div>
 
+      </>}
       <div className={`p-4 border-t border-zinc-800 space-y-2 ${hasPlayer ? 'pb-24' : ''}`}>
         <button
           onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('settings'); }}
           className={`flex items-center gap-2 text-zinc-400 hover:text-white text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-zinc-600 hover:bg-zinc-900 ${currentView === 'settings' ? 'bg-zinc-900 text-white border-zinc-600' : ''}`}
         >
-          <Settings size={14} /> {t('sidebar.settings')}
+          <Settings size={14} /> {viewMode === 'ai-briefing' ? '应用设置' : t('sidebar.settings')}
         </button>
         <button
           onClick={() => setShowAddModal(true)}
