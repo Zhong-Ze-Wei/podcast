@@ -20,7 +20,7 @@ const TaskProgress = ({
   className = ''
 }) => {
   const { t } = useTranslation();
-  const { task, error: requestError, cancel } = useTask(taskId);
+  const { task, error: requestError, missing, cancel } = useTask(taskId);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const callbacksRef = useRef({ onComplete, onError, onCancelled });
@@ -64,9 +64,11 @@ const TaskProgress = ({
     notifyRef.current(task);
   }, [task]);
 
+  useEffect(() => { if (missing) callbacksRef.current.onError?.(requestError); }, [taskId, missing]);
+
   // 更新已运行时间
   useEffect(() => {
-    if (task && !isActiveTask(task)) return;
+    if (missing || (task && !isActiveTask(task))) return;
     const interval = setInterval(() => {
       if (task?.started_at || task?.created_at) {
         const startTime = new Date(task.started_at || task.created_at).getTime();
@@ -74,7 +76,7 @@ const TaskProgress = ({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [task]);
+  }, [task, missing]);
 
   // 格式化时间
   const formatTime = (seconds) => {
@@ -92,7 +94,7 @@ const TaskProgress = ({
   };
 
   const progress = task?.progress || 0;
-  const active = !task || isActiveTask(task);
+  const active = !missing && (!task || isActiveTask(task));
   const isStale = active && Date.now() - lastUpdate > 30000;
   // 颜色映射
   const colorClasses = {
@@ -131,7 +133,7 @@ const TaskProgress = ({
         <div className={`${active ? 'animate-spin' : ''} ${colors.text}`}>
           <Icon size={20} />
         </div>
-        <span className={`font-medium ${colors.text}`}>{task?.cancel_requested ? t('tasks.cancelRequested') : active ? config.label : t(`tasks.status.${task.status}`)}</span>
+        <span className={`font-medium ${colors.text}`}>{missing ? '任务记录已不存在' : task?.cancel_requested ? t('tasks.cancelRequested') : active ? config.label : t(`tasks.status.${task.status}`)}</span>
         {task && canCancelTask(task) && <button onClick={() => cancel(task.id)} className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">{t('tasks.cancel')}</button>}
       </div>
 

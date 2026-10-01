@@ -80,3 +80,69 @@ test('活跃队列超过一页时仍全部可见，不因首屏请求上限遗�
   assert.equal(monitor.getState().activeTasks.length, 101);
   assert.deepEqual(pages, [1, 2]);
 });
+
+
+test('单个订阅任务404不阻断其它任务刷新，也不伪造failed终态', async () => {
+  let completed = false;
+  let missingCalls = 0;
+  const terminal = [];
+  const monitor = createTaskMonitor({
+    list: async params => ({data: params.status.includes('pending') ? (completed ? [] : [{id:'valid',status:'processing'}]) : completed ? [{id:'valid',status:'completed'}] : []}),
+    get: async id => { if (id === 'gone') { missingCalls += 1; throw {error_code:'TASK_NOT_FOUND',message:'任务记录不存在'}; } return {data:{id,status:'pending'}}; },
+    onTerminal: tasks => terminal.push(...tasks.map(task=>task.id)),
+  });
+  monitor.watch('gone'); monitor.watch('other');
+  await monitor.refresh();
+  assert.equal(monitor.getState().byId.valid.status,'processing');
+  assert.equal(monitor.getState().byId.other.status,'pending');
+  assert.equal(monitor.getState().byId.gone,undefined);
+  assert.equal(monitor.getState().errorsById.gone.code,'TASK_NOT_FOUND');
+  completed = true;
+  await monitor.refresh();
+  assert.deepEqual(terminal,['valid']);
+  assert.equal(missingCalls,1);
+});
+
+test('正在刷新的旧列表不能吞掉刷新期间新注册的任务，按服务器明确ID确认状态', async () => {
+  const pending = [];
+  const getIds = [];
+  const monitor = createTaskMonitor({
+    list: () => new Promise(resolve=>pending.push(resolve)),
+    get: async id => { getIds.push(id); return {data:{id,type:'refresh',status:'processing'}}; },
+  });
+  const oldRefresh = monitor.refresh();
+  monitor.add({id:'newly-queued',type:'refresh',status:'pending'});
+  assert.equal(monitor.refresh(),oldRefresh);
+  pending.forEach(resolve=>resolve({data:[]}));
+  await oldRefresh;
+  assert.deepEqual(monitor.getState().activeTasks.map(task=>task.id),['newly-queued']);
+  assert.deepEqual(getIds,['newly-queued']);
+});
+
+test('逐项恢复等待中注册的更晚任务也保留到下一次后端确认', async () => {
+  let resolveGet;
+  const monitor = createTaskMonitor({list:async()=>({data:[]}),get:()=>new Promise(resolve=>{resolveGet=resolve;})});
+  monitor.watch('previous');
+  const refresh = monitor.refresh();
+  await new Promise(resolve=>setImmediate(resolve));
+  monitor.add({id:'late',type:'refresh',status:'pending'});
+  resolveGet({data:{id:'previous',status:'completed'}});
+  await refresh;
+  assert.deepEqual(monitor.getState().activeTasks.map(task=>task.id),['late']);
+});
+
+test('暂时读取失败保留已知任务和具体错误，下一轮仍会重试', async () => {
+  let attempts = 0;
+  const monitor = createTaskMonitor({
+    list: async () => ({ data: [] }),
+    get: async id => { attempts += 1; if (attempts === 1) throw { message: '服务器暂时不可用' }; return { data: { id, status: 'processing' } }; },
+  });
+  monitor.add({ id: 'retry', status: 'pending' });
+  await monitor.refresh();
+  assert.equal(monitor.getState().byId.retry.status, 'pending');
+  assert.equal(monitor.getState().errorsById.retry.message, '服务器暂时不可用');
+  await monitor.refresh();
+  assert.equal(attempts, 2);
+  assert.equal(monitor.getState().byId.retry.status, 'processing');
+  assert.equal(monitor.getState().errorsById.retry, undefined);
+});

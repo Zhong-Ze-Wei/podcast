@@ -259,7 +259,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const period = snapshot?.period;
   const periodKey = !loading && period ? `${period.type}:${period.start}` : null;
   const task = taskState.owner === userId ? taskState.jobs[periodKey] : null;
-  const { task: observedTask, error: taskError } = useTask(task?.id);
+  const { task: observedTask, error: taskError, missing: taskMissing } = useTask(task?.id);
   const working = Boolean(task || submissions[periodKey]);
   const updateTask = useCallback((key, next) => {
     setTaskState(current => {
@@ -401,7 +401,9 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     return () => { active = false; };
   }, [periodKey, readingSource, updateTask, tasks.register]);
   useEffect(() => {
-    if (!task || !observedTask) return;
+    if (!task) return;
+    if (taskMissing) { setError(taskError); updateTask(periodKey, null); setProgress(null); return; }
+    if (!observedTask) return;
     const state = observedTask;
     setProgress(state); setPollError(taskError || '');
     if (state.status === 'completed') {
@@ -412,7 +414,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       setError(state.status === 'cancelled' ? '生成已取消，之前的内容仍可阅读。' : state.error || '本次生成未完成，之前的内容仍可阅读。');
       updateTask(periodKey, null); setProgress(null);
     }
-  }, [task, observedTask, taskError, reload, periodKey, updateTask]);
+  }, [task, observedTask, taskError, taskMissing, reload, periodKey, updateTask]);
 
   const generate = async (kind, target) => {
     const owner = userId;

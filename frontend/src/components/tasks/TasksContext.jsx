@@ -5,7 +5,7 @@ import { createTaskMonitor } from '../../utils/taskMonitor';
 const TasksContext = createContext(null);
 
 export function TasksProvider({ children, pollIntervalMs = 3000, onTaskComplete, queuedTask }) {
-  const [state, setState] = useState({ activeTasks: [], historyTasks: [], byId: {}, error: '' });
+  const [state, setState] = useState({ activeTasks: [], historyTasks: [], byId: {}, errorsById: {}, error: '' });
   const callbackRef = useRef(onTaskComplete);
   callbackRef.current = onTaskComplete;
   const monitor = useMemo(() => createTaskMonitor({ list: tasksApi.list, get: tasksApi.get, cancel: tasksApi.cancel, onChange: setState, onTerminal: tasks => callbackRef.current?.(tasks) }), []);
@@ -39,5 +39,6 @@ export function useTask(taskId) {
     tasks.refresh();
     return unwatch;
   }, [taskId, tasks.watch, tasks.refresh]);
-  return { task: tasks.byId[taskId], error: tasks.error, cancel: tasks.cancel };
+  const lookupError = tasks.errorsById[taskId];
+  return { task: tasks.byId[taskId], error: lookupError?.message || tasks.error, missing: lookupError?.code === 'TASK_NOT_FOUND', cancel: tasks.cancel };
 }
