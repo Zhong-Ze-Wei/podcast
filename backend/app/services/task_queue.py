@@ -95,6 +95,7 @@ class TaskQueue:
             "download": ("downloading", "last_download_error"),
             "transcribe": ("transcribing", "last_transcript_error"),
             "summarize": ("summarizing", "last_summary_error"),
+            "translate": ("summarizing", "last_summary_error"),
         }
         operation = operations.get(task_type)
         if operation is None or status != operation[0]:
