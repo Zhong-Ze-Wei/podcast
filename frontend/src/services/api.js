@@ -83,8 +83,11 @@ export const briefingLabApi = {
 };
 
 export const briefingReportsApi = {
-  modes: () => api.get('/briefing-reports/modes'),
+  modes: (params = {}) => api.get('/briefing-reports/modes', { params }),
   generateModes: (options) => api.post('/briefing-reports/modes/generate', options),
+  preferences: () => api.get('/briefing-reports/preferences'),
+  savePreferences: (options) => api.put('/briefing-reports/preferences', options),
+  source: (sourceId) => api.get(`/briefing-reports/sources/${sourceId}`),
   edition: () => api.get('/briefing-reports/edition'),
   generateEdition: (options) => api.post('/briefing-reports/edition/generate', options),
   reading: (sourceId) => api.get(`/briefing-reports/reading/${sourceId}`),
@@ -92,11 +95,11 @@ export const briefingReportsApi = {
   snapshot: () => api.get('/briefing-reports'),
   generate: (options) => api.post('/briefing-reports/generate', options),
   task: (id) => api.get(`/briefing-reports/tasks/${id}`),
-  html: (id, pages) => api.get(`/briefing-reports/reports/${id}/html`, {
-    params: { pages }, responseType: 'text'
+  html: (id, pages, style = 'legacy') => api.get(`/briefing-reports/reports/${id}/html`, {
+    params: { pages, style }, responseType: 'text'
   }),
-  pdf: (id, pages) => api.get(`/briefing-reports/reports/${id}/pdf`, {
-    params: { pages }, responseType: 'blob'
+  pdf: (id, pages, style = 'legacy') => api.get(`/briefing-reports/reports/${id}/pdf`, {
+    params: { pages, style }, responseType: 'blob'
   })
 };
 

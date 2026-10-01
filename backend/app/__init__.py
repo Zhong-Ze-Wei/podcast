@@ -55,6 +55,10 @@ def create_app():
 
     start_auto_refresher(app.db, interval_hours=1, stale_threshold_hours=6)
 
+    from .services.briefing_auto_reporter import start_auto_reporter
+
+    start_auto_reporter(app)
+
     # 注册蓝图
     register_media_routes(app)
     register_blueprints(app)
