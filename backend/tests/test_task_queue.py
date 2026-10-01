@@ -93,6 +93,31 @@ def test_task_queue_materializes_generator_results_before_persisting():
     assert stored["result"] == [{"value": 1}]
 
 
+def test_briefing_period_is_persisted_without_being_forwarded_to_worker():
+    db = MockDB()
+    queue = TaskQueue(max_workers=1)
+    queue.set_db(db)
+    period = {"type": "month", "start": "2026-10-01", "total_count": 8}
+
+    def generate(progress_callback=None):
+        return "october"
+
+    task_id = queue.submit("briefing-report", generate, report_period=period)
+    queue.shutdown(wait=True)
+    stored = db.tasks.find_one({"task_id": task_id})
+    assert queue.get_status(task_id)["status"] == "completed"
+    assert stored["report_period"] == {"type": "month", "start": "2026-10-01"}
+    assert stored["result"] == "october"
+
+
+def test_unlimited_memory_task_listing_keeps_active_tasks_beyond_default_page():
+    queue = TaskQueue(max_workers=1)
+    queue.tasks = {str(index): {"created_at": index, "status": "pending", "task_type": "briefing-report"} for index in range(60)}
+    assert len(queue.get_all_tasks(status="pending", task_type="briefing-report")) == 50
+    assert len(queue.get_all_tasks(status="pending", task_type="briefing-report", limit=0)) == 60
+    queue.shutdown(wait=True)
+
+
 def test_progress_callback_accepts_message_tuple():
     """progress_callback 支持传 (percent, message)，任务记录带 progress_message"""
     from app.services.task_queue import TaskQueue
