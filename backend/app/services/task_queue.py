@@ -91,27 +91,24 @@ class TaskQueue:
 
         task_type = task.get("task_type")
         status = episode.get("status")
-        next_status = None
-        updates = {"updated_at": now}
-
-        if task_type == "download" and status == "downloading":
+        operations = {
+            "download": ("downloading", "last_download_error"),
+            "transcribe": ("transcribing", "last_transcript_error"),
+            "summarize": ("summarizing", "last_summary_error"),
+        }
+        operation = operations.get(task_type)
+        if operation is None or status != operation[0]:
+            return
+        if episode.get("has_summary"):
+            next_status = "summarized"
+        elif episode.get("has_transcript"):
+            next_status = "transcribed"
+        elif episode.get("local_path") or episode.get("audio_path"):
+            next_status = "downloaded"
+        else:
             next_status = "new"
-            updates["last_download_error"] = message
-        elif task_type == "transcribe" and status == "transcribing":
-            next_status = "downloaded" if episode.get("local_path") or episode.get("audio_path") else "new"
-            updates["last_transcript_error"] = message
-        elif task_type == "summarize" and status == "summarizing":
-            if episode.get("has_transcript"):
-                next_status = "transcribed"
-            elif episode.get("local_path") or episode.get("audio_path"):
-                next_status = "downloaded"
-            else:
-                next_status = "new"
-            updates["last_summary_error"] = message
-
-        if next_status:
-            updates["status"] = next_status
-            self._db.episodes.update_one({"_id": episode_oid}, {"$set": updates})
+        updates = {"updated_at": now, "status": next_status, operation[1]: message}
+        self._db.episodes.update_one({"_id": episode_oid}, {"$set": updates})
 
     def submit_unique(self, task_type: str, func: Callable, *args, dedup_key: str, **kwargs) -> str:
         """同一业务操作只保留一个活动任务；终态后允许再次提交。"""
@@ -319,6 +316,14 @@ class TaskQueue:
             result = [t for t in result if t["task_type"] == task_type]
         result = sorted(result, key=lambda x: x["created_at"], reverse=True)
         return result[:limit] if limit else result
+
+    def can_cancel(self, task_id: str) -> bool:
+        """只有仍在本进程排队的 Future 可以被安全取消。"""
+        with self._lock:
+            task = self.tasks.get(task_id)
+            future = self._futures.get(task_id)
+            return bool(task and task["status"] == "pending" and future
+                        and not future.running() and not future.done())
 
     def cancel(self, task_id: str) -> bool:
         """真正移除尚未执行的任务；运行中的线程不伪装成已停止。"""

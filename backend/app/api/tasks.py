@@ -7,6 +7,7 @@ Tasks API
 from flask import Blueprint, request
 from bson import ObjectId
 from bson.errors import InvalidId
+from datetime import date
 
 from ..services.task_queue import task_queue
 from .utils import (
@@ -15,9 +16,26 @@ from .utils import (
     paginated_response,
     get_pagination_params
 )
-from .decorators import current_owner_id, owner_filter, require_auth
+from .decorators import current_owner_id, current_user, owner_filter, require_auth, require_role
 
 tasks_bp = Blueprint("tasks", __name__)
+PERSONAL_TASK_TYPES = ("briefing-report", "briefing-lab")
+
+
+def _visible_task_query():
+    return {"$or": [
+        {"task_type": {"$nin": list(PERSONAL_TASK_TYPES)}},
+        {"owner_id": current_owner_id()},
+    ]}
+
+
+def _task_is_visible(task):
+    return task.get("task_type") not in PERSONAL_TASK_TYPES or task.get("owner_id") == current_owner_id()
+
+
+def _task_is_owned(task):
+    owner = current_owner_id()
+    return owner is None or task.get("owner_id") == owner
 
 
 def get_db():
@@ -33,7 +51,7 @@ def list_tasks():
     page, per_page = get_pagination_params()
 
     # 构建查询条件
-    query = owner_filter()
+    query = _visible_task_query()
 
     status = request.args.get("status")
     if status:
@@ -52,6 +70,21 @@ def list_tasks():
     feed_id = request.args.get("feed_id")
     if feed_id:
         query["feed_id"] = feed_id
+
+    period_type = request.args.get("period_type")
+    period_start = request.args.get("period_start")
+    if period_type is not None:
+        if period_type not in ("week", "month"):
+            return error_response("周期请选择周或月", "INVALID_PERIOD", 400)
+        query["report_period.type"] = period_type
+    if period_start is not None:
+        try:
+            valid_date = date.fromisoformat(period_start)
+        except ValueError:
+            return error_response("周期日期须为 YYYY-MM-DD", "INVALID_PERIOD", 400)
+        if valid_date.isoformat() != period_start:
+            return error_response("周期日期须为 YYYY-MM-DD", "INVALID_PERIOD", 400)
+        query["report_period.start"] = period_start
 
     # 查询
     total = db.tasks.count_documents(query)
@@ -79,15 +112,9 @@ def get_task(task_id):
     # 先从任务队列获取 (内存中的最新状态)
     task = task_queue.get_status(task_id)
 
-    owner_id = current_owner_id()
-    if task and (owner_id is None or task.get("owner_id") == owner_id):
-        target_maps = _build_task_target_maps(db, [task])
-        return success_response(_format_task(task, target_maps))
-
-    # 从数据库获取
-    task = db.tasks.find_one(owner_filter({"task_id": task_id}))
-
-    if not task:
+    if task is None:
+        task = db.tasks.find_one({"task_id": task_id})
+    if not task or not _task_is_visible(task):
         return error_response("Task not found", "TASK_NOT_FOUND", 404)
 
     target_maps = _build_task_target_maps(db, [task])
@@ -95,27 +122,20 @@ def get_task(task_id):
 
 
 @tasks_bp.route("/<task_id>/cancel", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def cancel_task(task_id):
     """取消任务"""
-    owner_id = current_owner_id()
     task = task_queue.get_status(task_id)
-    if task and owner_id is not None and task.get("owner_id") != owner_id:
+    if task is None:
+        task = get_db().tasks.find_one({"task_id": task_id})
+    if not task or not _task_is_visible(task) or not _task_is_owned(task):
         return error_response("Task not found", "TASK_NOT_FOUND", 404)
 
     success = task_queue.cancel(task_id)
 
     if not success:
-        # 检查任务是否存在
-        task = task_queue.get_status(task_id)
-        if not task:
-            db = get_db()
-            task = db.tasks.find_one(owner_filter({"task_id": task_id}))
-            if not task:
-                return error_response("Task not found", "TASK_NOT_FOUND", 404)
-
         return error_response(
-            "Cannot cancel task (only pending tasks can be cancelled)",
+            "任务已开始执行或不在当前执行队列中，无法安全取消",
             "CANNOT_CANCEL",
             400
         )
@@ -186,6 +206,9 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "id": task.get("task_id"),
         "type": task.get("task_type"),
         "status": task.get("status"),
+        "can_cancel": (_task_is_owned(task) and current_user().get("role") in ("user", "admin")
+                       and task_queue.can_cancel(task.get("task_id"))),
+        "report_period": task.get("report_period"),
         "progress": task.get("progress", 0),
         "progress_message": task.get("progress_message"),
         "episode_id": episode_id,

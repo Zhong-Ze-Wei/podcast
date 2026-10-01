@@ -6,6 +6,7 @@ from app.services.task_queue import TaskQueue
 from app.models.episode import Episode
 from tests.conftest import MockDB
 from threading import Event
+import pytest
 
 
 def test_task_queue_runs_tasks_inside_flask_app_context():
@@ -124,6 +125,33 @@ def test_task_queue_calls_failure_callback_when_task_fails():
     assert task["status"] == "failed"
     assert task["error_message"] == "boom"
     assert failures == ["boom"]
+
+
+@pytest.mark.parametrize("task_type,status,artifacts,expected", [
+    ("download", "downloading", {"local_path": "saved.mp3"}, "downloaded"),
+    ("transcribe", "transcribing", {"has_transcript": True}, "transcribed"),
+    ("summarize", "summarizing", {"has_summary": True, "has_transcript": True}, "summarized"),
+])
+def test_cancelled_reprocessing_preserves_the_saved_artifact_state(task_type, status, artifacts, expected):
+    queue = TaskQueue(max_workers=1)
+    db = MockDB()
+    queue.set_db(db)
+    episode_id = db.episodes.insert_one({"status": status, **artifacts}).inserted_id
+    started, release = Event(), Event()
+
+    def blocker(progress_callback=None):
+        started.set()
+        assert release.wait(5)
+
+    try:
+        queue.submit("blocker", blocker)
+        assert started.wait(5)
+        task_id = queue.submit(task_type, lambda progress_callback=None: None, episode_id=str(episode_id))
+        assert queue.cancel(task_id)
+        assert db.episodes.find_one({"_id": episode_id})["status"] == expected
+    finally:
+        release.set()
+        queue.shutdown()
 
 
 def test_task_queue_recovers_interrupted_processing_tasks():
