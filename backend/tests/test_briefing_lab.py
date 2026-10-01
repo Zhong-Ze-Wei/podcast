@@ -7,6 +7,7 @@ from app.api import briefing_lab as lab_api
 from app.models.setting import SettingModel
 from app.services.briefing_lab_service import (
     BriefingLabService,
+    ModelValidationError,
     corpus_id,
     locate_time,
     split_text,
@@ -40,6 +41,41 @@ def save_corpus(directory, sources):
 
 def no_model_calls(**kwargs):
     raise AssertionError("A read-only operation must not instantiate an LLM client")
+
+
+def test_schema_and_field_correction_are_kept_on_validation_retry(tmp_path):
+    from app.services.briefing_scope_service import screening_schema, validate_screening
+    calls = []
+    responses = iter(['{"topics":[]}', '{"matches":[]}'])
+
+    class Client:
+        def chat(self, **kwargs):
+            calls.append({**kwargs, "messages": list(kwargs["messages"])})
+            return {"content": next(responses), "usage": {"prompt": 2, "completion": 1, "total": 3}, "model": "test", "elapsed_seconds": 1}
+
+    service = BriefingLabService(tmp_path, client_factory=lambda **kwargs: Client())
+    schema = screening_schema(["LLM"])
+    result, meta = service._model_call("筛选正文", "正文无关", lambda data: validate_screening(data, {"text": "实际文稿", "start": 0}, ["LLM"]), response_schema=schema)
+
+    assert result == {"matches": []}
+    assert all(call["response_schema"] == schema for call in calls)
+    assert "必须包含matches" in calls[1]["messages"][-1]["content"]
+    assert meta["usage"]["total"] == 6
+
+
+def test_validation_failure_retains_actual_model_outputs(tmp_path):
+    class Client:
+        def chat(self, **kwargs):
+            return {"content": '{"wrong":true}', "usage": {}, "model": "test", "elapsed_seconds": 0}
+
+    def reject(data):
+        raise ValueError("缺少必填字段")
+
+    service = BriefingLabService(tmp_path, client_factory=lambda **kwargs: Client())
+    with pytest.raises(ModelValidationError) as failed:
+        service._model_call("JSON", "文稿", reject)
+    assert len(failed.value.attempts) == 2
+    assert all(attempt["content"] == '{"wrong":true}' for attempt in failed.value.attempts)
 
 
 def test_long_podcast_analysis_preserves_every_character_and_final_conclusion():
