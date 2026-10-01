@@ -83,6 +83,10 @@ export const briefingLabApi = {
 };
 
 export const briefingReportsApi = {
+  edition: () => api.get('/briefing-reports/edition'),
+  generateEdition: (options) => api.post('/briefing-reports/edition/generate', options),
+  reading: (sourceId) => api.get(`/briefing-reports/reading/${sourceId}`),
+  generateReading: (sourceId) => api.post(`/briefing-reports/reading/${sourceId}/generate`),
   snapshot: () => api.get('/briefing-reports'),
   generate: (options) => api.post('/briefing-reports/generate', options),
   task: (id) => api.get(`/briefing-reports/tasks/${id}`),
