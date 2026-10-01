@@ -229,9 +229,9 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [task, setTask] = useState(null);
+  const [taskState, setTaskState] = useState({ owner: null, jobs: {} });
   const [progress, setProgress] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [submissions, setSubmissions] = useState({});
   const [pollError, setPollError] = useState('');
   const [selection, setSelection] = useState(null);
   const [preview, setPreview] = useState(false);
@@ -266,8 +266,18 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const matchingSourceCount = new Set(filteredItems.flatMap(card => [card.source_id, ...(card.source_ids || []), ...(card.evidence || []).map(quote => quote.source_id)]).filter(Boolean)).size;
   const prompt = report?.prompt || snapshot?.mode_prompts?.[mode]?.prompt || info.prompt;
   const inputDescription = report?.input_description || snapshot?.mode_prompts?.[mode]?.input_description || info.input_description;
-  const working = Boolean(task || submitting);
   const period = snapshot?.period;
+  const periodKey = !loading && period ? `${period.type}:${period.start}` : null;
+  const task = taskState.owner === userId ? taskState.jobs[periodKey] : null;
+  const working = Boolean(task || submissions[periodKey]);
+  const updateTask = useCallback((key, next) => {
+    setTaskState(current => {
+      const jobs = { ...(current.owner === userId ? current.jobs : {}) };
+      if (next) jobs[key] = next;
+      else delete jobs[key];
+      return { owner: userId, jobs };
+    });
+  }, [userId]);
   const hasMaterials = (period?.transcript_count ?? sources.length) > 0;
   useEffect(() => { onNavigationStateChange({ periodType: periodScope.type, mode }); }, [periodScope.type, mode, onNavigationStateChange]);
   useEffect(() => {
@@ -300,7 +310,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
 
   useEffect(() => {
     readingScrollRef.current = 0;
-    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmitting(false); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setSavingInterests(false); setPreferencesError(''); setSelectedTag(''); setShowAll(false);
+    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setSavingInterests(false); setPreferencesError(''); setSelectedTag(''); setShowAll(false);
     const storedLayout = localStorage.getItem(`${storagePrefix}:layout`);
     setLayout(LAYOUTS.some(item => item.id === storedLayout) ? storedLayout : 'paper');
     const storedMode = localStorage.getItem(`${storagePrefix}:mode`);
@@ -313,7 +323,13 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     const validQuery = ['week', 'month'].includes(queryType) && /^\d{4}-\d{2}-\d{2}$/.test(queryStart || '') && Number.isFinite(Date.parse(queryStart)) && new Date(queryStart).toISOString().slice(0, 10) === queryStart;
     setPeriodScope(validQuery ? { owner: userId, type: queryType, start: queryStart } : { owner: userId, type: savedPeriod?.type === 'month' ? 'month' : 'week', start: savedPeriod?.start || null });
     setInterests([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]); setAutoPeriod(null);
-    setTask(readStored(sessionStorage, `${storagePrefix}:task`, null));
+    const jobs = readStored(sessionStorage, `${storagePrefix}:tasks`, {});
+    const previousTask = readStored(sessionStorage, `${storagePrefix}:task`, null);
+    if (previousTask?.scope?.period_type && previousTask.scope.period_start) {
+      jobs[`${previousTask.scope.period_type}:${previousTask.scope.period_start}`] = previousTask;
+      sessionStorage.removeItem(`${storagePrefix}:task`);
+    }
+    setTaskState({ owner: userId, jobs });
     const saved = readStored(localStorage, `${storagePrefix}:quotes`, []);
     setSavedQuotes(saved);
   }, [storagePrefix]);
@@ -321,7 +337,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     if (periodScope.owner !== userId) return;
     let active = true;
     const requestId = ++snapshotRequestRef.current;
-    setLoading(true); setError(''); setReadingSource(null); setMaterialsOpen(false); setSelection(null); setEvidenceSelection(null); setPreview(false);
+    setLoading(true); setError(''); setProgress(null); setPollError(''); setReadingSource(null); setMaterialsOpen(false); setSelection(null); setEvidenceSelection(null); setPreview(false);
     briefingReportsApi.modes({ period_type: periodScope.type, ...(periodScope.start ? { period_start: periodScope.start } : {}) }).then(async response => {
       if (!active || requestId !== snapshotRequestRef.current) return;
       const data = payload(response);
@@ -344,10 +360,8 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   useEffect(() => { if (!loading) localStorage.setItem(`${storagePrefix}:layout`, layout); }, [layout, loading, storagePrefix]);
   useEffect(() => { if (!loading) localStorage.setItem(`${storagePrefix}:mode`, mode); }, [mode, loading, storagePrefix]);
   useEffect(() => {
-    if (loading) return;
-    if (task) sessionStorage.setItem(`${storagePrefix}:task`, JSON.stringify(task));
-    else sessionStorage.removeItem(`${storagePrefix}:task`);
-  }, [task, loading, storagePrefix]);
+    if (taskState.owner === userId) sessionStorage.setItem(`${storagePrefix}:tasks`, JSON.stringify(taskState.jobs));
+  }, [taskState, userId, storagePrefix]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 3000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { setEvidenceSelection(null); setPreview(false); }, [report?.id]);
   useEffect(() => { setShowAll(false); }, [mode, selectedTag, savedOnly, report?.id]);
@@ -362,40 +376,47 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     if (!task || loading) return;
     let active = true;
     let pending = false;
+    const requested = { ...scopeRef.current };
+    const sameScope = () => isCurrentOwner(userId) && scopeRef.current.type === requested.type && scopeRef.current.start === requested.start;
+    const current = () => active && sameScope();
     const poll = async () => {
       if (pending) return;
       pending = true;
       try {
         const state = payload(await briefingReportsApi.task(task.id));
-        if (!active) return;
+        if (!current()) return;
         setProgress(state); setPollError('');
         if (state.status === 'completed') {
           if (state.result?.reading) { const reading = state.result.reading; setReadings(previous => ({ ...previous, [reading.source_id]: { ...previous[reading.source_id], reading, source: reading.source } })); }
-          setTask(null); setProgress(null);
-          if (task.kind !== 'reading') { try { await reload(); } catch { if (active) setError('简报已生成，列表暂未刷新。请重新加载。'); } }
+          updateTask(periodKey, null); setProgress(null);
+          if (task.kind !== 'reading') { try { await reload(); } catch { if (sameScope()) setError('简报已生成，列表暂未刷新。请重新加载。'); } }
         } else if (['failed', 'cancelled'].includes(state.status)) {
-          setError(state.error || '本次生成未完成，之前的内容仍可阅读。'); setTask(null); setProgress(null);
+          setError(state.error || '本次生成未完成，之前的内容仍可阅读。'); updateTask(periodKey, null); setProgress(null);
         }
       } catch (err) {
-        if (!active) return;
-        if (err.error_code === 'TASK_NOT_FOUND' || err.code === 'TASK_NOT_FOUND') { setTask(null); setProgress(null); setError('任务记录已不存在，之前的内容仍可阅读。'); }
+        if (!current()) return;
+        if (err.error_code === 'TASK_NOT_FOUND' || err.code === 'TASK_NOT_FOUND') { updateTask(periodKey, null); setProgress(null); setError('任务记录已不存在，之前的内容仍可阅读。'); }
         else setPollError('进度连接中断，任务已保留，正在自动重试。');
       } finally { pending = false; }
     };
     poll(); const timer = setInterval(poll, 2000);
     return () => { active = false; clearInterval(timer); };
-  }, [task, loading, reload]);
+  }, [task, loading, reload, periodKey, updateTask, userId, isCurrentOwner]);
 
   const generate = async (kind, target) => {
     const owner = userId;
-    setSubmitting(true); setError(''); setPollError('');
+    const key = periodKey;
+    const requested = { ...scopeRef.current };
+    const current = () => isCurrentOwner(owner) && scopeRef.current.type === requested.type && scopeRef.current.start === requested.start;
+    const scope = { period_type: period.type, period_start: period.start, interests: interests.filter(item => item.enabled).map(item => item.label) };
+    setSubmissions(previous => ({ ...previous, [key]: true })); setError(''); setPollError('');
     try {
-      const data = payload(await (kind === 'reading' ? briefingReportsApi.generateReading(target) : briefingReportsApi.generateModes({ mode: target, period_type: period.type, period_start: period.start, interests: interests.filter(item => item.enabled).map(item => item.label) })));
+      const data = payload(await (kind === 'reading' ? briefingReportsApi.generateReading(target) : briefingReportsApi.generateModes({ mode: target, ...scope })));
       if (!isCurrentOwner(owner)) return;
-      setTask({ id: data.task_id, kind, sourceId: kind === 'reading' ? target : undefined, mode: kind === 'reading' ? undefined : target, scope: kind === 'reading' ? undefined : { period_type: period.type, period_start: period.start, interests: interests.filter(item => item.enabled).map(item => item.label) } });
-      setProgress({ progress: 0, progress_message: '已提交任务。' });
-    } catch (err) { if (isCurrentOwner(owner)) setError(err.message || '生成未能启动，之前的内容已保留。'); }
-    finally { if (isCurrentOwner(owner)) setSubmitting(false); }
+      updateTask(key, { id: data.task_id, kind, sourceId: kind === 'reading' ? target : undefined, mode: kind === 'reading' ? undefined : target, scope });
+      if (current()) setProgress({ progress: 0, progress_message: '已提交任务。' });
+    } catch (err) { if (current()) setError(err.message || '生成未能启动，之前的内容已保留。'); }
+    finally { if (isCurrentOwner(owner)) setSubmissions(previous => { const next = { ...previous }; delete next[key]; return next; }); }
   };
   const toggleQuote = id => setSavedQuotes(current => { const next = current.includes(id) ? current.filter(item => item !== id) : [...current, id]; localStorage.setItem(`${storagePrefix}:quotes`, JSON.stringify(next)); return next; });
   const copyQuote = async card => {

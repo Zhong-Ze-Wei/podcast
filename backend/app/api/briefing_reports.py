@@ -14,6 +14,7 @@ from ..services.briefing_modes_service import BriefingModesService, MODE_INDEX
 from ..services.briefing_scope_service import BriefingScopeService, validate_interests
 from ..services.briefing_lab_service import corpus_id, quote_offset
 from ..services.task_queue import task_queue
+from ..services.briefing_task_service import report_task_conflicts
 
 
 briefing_reports_bp = Blueprint("briefing_reports", __name__)
@@ -71,9 +72,10 @@ def source(source_id):
     return success_response({**source, "analysis": service.report_service.lab._source_notes(source, cached_only=True)})
 
 
-def _has_active_report_task(owner_id):
-    return any(task.get("owner_id") == owner_id and task["status"] in ("pending", "processing")
-               for task in task_queue.get_all_tasks(task_type="briefing-report"))
+def _has_active_report_task(owner_id, period=None):
+    return any(report_task_conflicts(task, owner_id, period)
+               for status in ("pending", "processing")
+               for task in task_queue.get_all_tasks(task_type="briefing-report", status=status, limit=0))
 
 
 @briefing_reports_bp.route("/modes", methods=["GET"])
@@ -119,11 +121,12 @@ def generate_modes():
         service = BriefingModesService(owner_id=owner_id)
     if not (scope["corpus"] if scope else service.report_service.corpus())["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
-    if _has_active_report_task(owner_id):
-        return error_response("已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
+    if _has_active_report_task(owner_id, scope["period"] if scope is not None else None):
+        return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
     kwargs = {"mode": mode, "topic": topic.strip()}
     if scope is not None:
         kwargs["scope"] = scope
+        kwargs["report_period"] = scope["period"]
     task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, **kwargs)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
@@ -260,7 +263,7 @@ def task_status(task_id):
     task = task_queue.get_status(task_id)
     if task is None or task.get("task_type") != "briefing-report" or task.get("owner_id") != current_owner_id():
         return error_response("任务不存在", "TASK_NOT_FOUND", 404)
-    return success_response({"task_id": task_id, "status": task["status"], "progress": task.get("progress", 0), "progress_message": task.get("progress_message"), "error": task.get("error_message"), "result": task.get("result")})
+    return success_response({"task_id": task_id, "status": task["status"], "progress": task.get("progress", 0), "progress_message": task.get("progress_message"), "error": task.get("error_message"), "result": task.get("result"), "period": task.get("report_period")})
 
 
 def _export_options(report_id):
