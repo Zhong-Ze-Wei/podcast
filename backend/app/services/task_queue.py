@@ -214,9 +214,9 @@ class TaskQueue:
 
         # 注册 Future 与任务状态必须在同一个锁内，避免取消与开始执行竞争。
         with self._lock:
-            self.tasks[task_id] = task_info
             if self._db is not None:
                 self._db.tasks.insert_one(task_info.copy())
+            self.tasks[task_id] = task_info
             future = self.executor.submit(wrapper)
             self._futures[task_id] = future
             future.add_done_callback(lambda _: self._forget_future(task_id))

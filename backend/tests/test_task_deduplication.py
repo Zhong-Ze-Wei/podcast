@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
+import pytest
 
 from app.services.task_queue import TaskQueue
 from tests.conftest import MockDB
@@ -82,3 +83,24 @@ def test_distinct_parameters_and_cancelled_operations_have_separate_tasks():
     finally:
         release.set()
         queue.shutdown()
+
+
+def test_failed_task_persistence_does_not_reserve_a_deduplication_key(monkeypatch):
+    db = MockDB()
+    queue = TaskQueue(max_workers=1)
+    queue.set_db(db)
+    original_insert = db.tasks.insert_one
+
+    def unavailable(doc):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(db.tasks, "insert_one", unavailable)
+    try:
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            queue.submit_unique("refresh", lambda progress_callback=None: "ok", dedup_key="refresh:feed")
+        assert queue.tasks == {}
+        monkeypatch.setattr(db.tasks, "insert_one", original_insert)
+        retry = queue.submit_unique("refresh", lambda progress_callback=None: "ok", dedup_key="refresh:feed")
+    finally:
+        queue.shutdown()
+    assert queue.get_status(retry)["status"] == "completed"
