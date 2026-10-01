@@ -1,4 +1,5 @@
 """日历周期、真实正文前置筛选与按账号偏好，不能串旧样本或伪造相关性。"""
+import json
 from datetime import date, datetime
 from copy import deepcopy
 
@@ -8,7 +9,8 @@ from app.api import briefing_reports as api
 from app.services.briefing_lab_service import split_text, write_json
 from app.services.briefing_modes_service import BriefingModesService
 from app.services.briefing_report_service import BriefingReportService, source_metadata
-from app.services.briefing_scope_service import BriefingScopeService, calendar_period, validate_screening
+from app.services.briefing_scope_service import BriefingScopeService, calendar_period, validate_screening, screening_schema
+from app.services.briefing_lab_service import ModelValidationError
 from tests.auth_helpers import add_user, auth_headers, make_auth_app
 from tests.conftest import MockDB
 
@@ -170,6 +172,36 @@ def test_screening_requires_actual_quote_and_requested_topic():
         validate_screening(bad, chunk, ["LLM"])
     with pytest.raises(ValueError, match="实际关注"):
         validate_screening(good, chunk, ["科学"])
+
+
+@pytest.mark.parametrize("value,message", [
+    ({"topics": []}, "必须包含matches"),
+    ({"matches": "AI"}, "必须是数组"),
+    ({"matches": [{}, {}, {}]}, "返回3条"),
+])
+def test_screening_contract_reports_the_specific_structure_failure(value, message):
+    with pytest.raises(ValueError, match=message):
+        validate_screening(value, split_text(TEXT)[0], ["AI", "LLM"])
+
+
+def test_failed_screening_records_both_responses_without_caching_a_result(tmp_path, monkeypatch):
+    service = scope_service(tmp_path)
+    add_episode(service.db, datetime(2026, 9, 29), "schema-failure", TEXT)
+    source = service.collect("week", "2026-09-28", ["LLM"])["corpus"]["sources"][0]
+    attempts = [{"content": '{"topics":[]}', "error": "缺少matches"}, {"content": '{"matches":"LLM"}', "error": "matches不是数组"}]
+
+    def fail(system, prompt, validator, **kwargs):
+        assert kwargs["response_schema"] == screening_schema(["LLM"])
+        raise ModelValidationError("模型结果未通过依据校验：matches不是数组", attempts)
+
+    monkeypatch.setattr(service.report_service.lab, "_model_call", fail)
+    with pytest.raises(ValueError, match="正文筛选失败.*C001"):
+        service._screen_source(source, ["LLM"])
+    path = service._screen_path(source, ["LLM"])
+    failure = json.loads((path / "C001.failure.json").read_text(encoding="utf-8"))
+    assert failure["attempts"] == attempts
+    assert failure["source_id"] == source["id"]
+    assert not (path / "result.json").exists()
 
 
 def test_screening_reads_tail_and_reuses_body_cache_with_correct_episode_binding(tmp_path, monkeypatch):

@@ -1,5 +1,6 @@
 from app.services import llm_client as llm_module
 from app.services.llm_client import LLMClient
+from types import SimpleNamespace
 
 
 def _chat_result(content, completion):
@@ -137,3 +138,19 @@ def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch):
     assert requests["json"]["temperature"] == 0.1
     assert result["content"] == "{\"ok\": true}"
     assert result["usage"] == {"prompt": 3, "completion": 4, "total": 7}
+
+
+def test_screening_schema_reaches_openai_compatible_api(monkeypatch):
+    captured = {}
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    schema = {"type": "object", "properties": {"matches": {"type": "array"}}, "required": ["matches"]}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"matches":[]}'), finish_reason="stop")], usage=None)
+
+    monkeypatch.setattr(client.client.chat.completions, "create", create)
+    result = client.chat(messages=[{"role": "user", "content": "Screen this transcript."}], json_mode=True, response_schema=schema)
+
+    assert captured["response_format"] == {"type": "json_schema", "json_schema": {"name": "structured_result", "strict": True, "schema": schema}}
+    assert result["finish_reason"] == "stop"
