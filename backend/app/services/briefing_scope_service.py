@@ -12,6 +12,7 @@ from .briefing_lab_service import ModelValidationError, locate_time, now_iso, qu
 
 HONG_KONG = timezone(timedelta(hours=8), "Asia/Hong_Kong")
 DEFAULT_INTERESTS = [{"label": "AI", "enabled": True}, {"label": "LLM", "enabled": True}]
+READING_LAYOUTS = ("space", "large", "list", "columns", "paper", "newspaper", "notes")
 SCREENING_VERSION = 1
 _UNSET = object()
 SCREENING_PROMPT = (
@@ -146,15 +147,20 @@ class BriefingScopeService:
                 enabled_at = enabled_at.replace(tzinfo=timezone.utc)
             enabled_at = enabled_at.astimezone(timezone.utc).isoformat()
         return {"interests": (user or {}).get("briefing_interests", [dict(item) for item in DEFAULT_INTERESTS]),
-                "auto_period": (user or {}).get("briefing_auto_period"), "auto_enabled_at": enabled_at}
+                "auto_period": (user or {}).get("briefing_auto_period"), "auto_enabled_at": enabled_at,
+                "layout": (user or {}).get("briefing_layout", "paper")}
 
-    def save_preferences(self, interests, auto_period=_UNSET):
+    def save_preferences(self, interests, auto_period=_UNSET, layout=_UNSET):
         tags = validate_preferences(interests)
         if self.owner_id is None:
             raise ValueError("请登录具体账号后保存关注话题")
         if auto_period is not _UNSET and auto_period not in (None, "week", "month"):
             raise ValueError("自动简报请选择关闭、每周或每月")
+        if layout is not _UNSET and (not isinstance(layout, str) or layout not in READING_LAYOUTS):
+            raise ValueError("请选择有效的简报阅读版式")
         changes = {"briefing_interests": tags}
+        if layout is not _UNSET:
+            changes["briefing_layout"] = layout
         if auto_period is not _UNSET:
             changes["briefing_auto_period"] = auto_period
             if auto_period != self.preferences()["auto_period"]:
