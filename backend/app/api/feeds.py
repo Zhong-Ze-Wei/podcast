@@ -7,7 +7,7 @@ Feeds API
 
 import logging
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 
 
 from bson import ObjectId
@@ -21,6 +21,8 @@ from ..services.feed_sync_service import (
     FeedSyncService, _build_episode_doc, _persist_feed_icon, _upsert_video_episode,
     _refresh_youtube_channel_feed, _refresh_bilibili_feed,
 )
+from ..services.episode_query_service import EpisodeQueryService
+from ..services.ai_control import is_ai_analysis_enabled
 from ..services.rss_service import RSSService
 from ..services.task_queue import task_queue
 from ..services.youtube_service import YouTubeService
@@ -75,7 +77,7 @@ def list_feeds():
     total = db.feeds.count_documents(query)
     skip = (page - 1) * per_page
 
-    feeds = list(db.feeds.find(query).sort("created_at", -1).skip(skip).limit(per_page))
+    feeds = list(db.feeds.find(query).sort([("created_at", -1), ("_id", -1)]).skip(skip).limit(per_page))
 
     # 转换响应格式；未读数按当前用户计算（已读状态按用户隔离）
     user_id = current_user()["id"]
@@ -446,35 +448,11 @@ def list_feed_episodes(feed_id):
 
     page, per_page = get_pagination_params()
 
-    # 构建查询条件
-    query = owner_filter({"feed_id": oid})
-
-    status = request.args.get("status")
-    if status:
-        query["status"] = status
-
-    # 已读/加星是用户个人状态，转为 _id 条件过滤
-    state_condition = user_filter_condition(
-        db,
-        current_user()["id"],
-        is_read=get_bool_param("is_read"),
-        is_starred=get_bool_param("is_starred"),
-    )
-    if state_condition:
-        query.update(state_condition)
-
-    # 查询
-    total = db.episodes.count_documents(query)
-    skip = (page - 1) * per_page
-
-    episodes = list(
-        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
-    )
-
-    # 添加feed_title并转换响应格式
-    for ep in episodes:
-        ep["feed_title"] = feed.get("title", "")
-
-    data = [Episode.to_response(ep, include_feed_title=True) for ep in episodes]
-
+    service = EpisodeQueryService(db, current_app.config.get("MEDIA_ROOT", "."),
+                                  current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False), is_ai_analysis_enabled(),
+                                  current_user()["role"] in {"user", "admin"})
+    try:
+        data, total = service.list(current_user()["id"], request.args, page, per_page, oid)
+    except ValueError as error:
+        return error_response(str(error), "INVALID_QUERY", 400)
     return paginated_response(data, page, per_page, total)

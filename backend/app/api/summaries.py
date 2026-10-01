@@ -66,7 +66,7 @@ def get_summary(episode_id):
 
 
 @summaries_bp.route("/<episode_id>", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def create_summary(episode_id):
     """
     创建摘要任务（异步）。
@@ -120,12 +120,11 @@ def create_summary(episode_id):
     # 检查进行中的任务
     existing_task = db.tasks.find_one({
         "episode_id": str(oid),
-        "owner_id": current_owner_id(),
-        "task_type": "summarize",
+        "task_type": {"$in": ["download", "transcribe", "summarize"]},
         "status": {"$in": ["pending", "processing"]}
     })
-    if existing_task:
-        return error_response("Summarize task already in progress", "TASK_IN_PROGRESS", 409)
+    if existing_task or episode.get("status") in Episode.PROCESSING_STATUSES:
+        return error_response("Episode is being processed", "TASK_IN_PROGRESS", 409)
 
     # 提交任务
     def do_summarize(progress_callback=None):
@@ -226,7 +225,7 @@ def _summarize_sync(
 
 
 @summaries_bp.route("/<episode_id>/translate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def translate_summary(episode_id):
     """
     翻译摘要为中文。
