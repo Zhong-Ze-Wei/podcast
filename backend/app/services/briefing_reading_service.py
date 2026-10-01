@@ -158,8 +158,7 @@ class BriefingReadingService:
 
     def _latest(self, directory, corpus_identifier, topic=None, source_id=None):
         matches = []
-        for path in (self.root / directory).glob("*.json"):
-            item = read_json(path)
+        for item in self.report_service.store.reports(f"reading-v{READING_VERSION}/{directory}"):
             if not self._visible(item) or item["corpus_id"] != corpus_identifier:
                 continue
             if topic is not None and item.get("topic", "") != topic:
@@ -180,13 +179,7 @@ class BriefingReadingService:
                 "extraction": self.report_service._extraction_status(corpus)}
 
     def report(self, report_id):
-        if not re.fullmatch(r"[a-f0-9]{32}", report_id):
-            return None
-        path = self.root / "editions" / f"{report_id}.json"
-        if not path.exists():
-            return None
-        edition = read_json(path)
-        return edition if self._visible(edition) else None
+        return self.report_service.store.report(report_id)
 
     @staticmethod
     def _candidate_prompt(cards):
@@ -232,7 +225,7 @@ class BriefingReadingService:
                    "coverage": {"sources": len(sources), "chunks": extraction["total_chunks"], "characters": sum(len(s["full_text"]) for s in corpus["sources"])},
                    "sections": [{"id": "selected-quotes", "title": "本期精选", "kind": "quote", "items": result["items"]}],
                    "threads": result["threads"], "topic_no_match": bool(topic and not result["items"]), "sources": sources, "web_mode": "disabled", **metadata}
-        write_json(self.root / "editions" / f"{edition['id']}.json", edition)
+        self.report_service.store.publish(edition, f"reading-v{READING_VERSION}/editions")
         if progress_callback:
             progress_callback((100, "精选已保存，五种排版共用这份原话"))
         return {"edition": edition}
@@ -284,7 +277,7 @@ class BriefingReadingService:
         source_meta = next(s for s in self.report_service._metadata(corpus) if s["id"] == source_id)
         reading = {"id": uuid.uuid4().hex, "owner_id": self.owner_id, "corpus_id": identifier, "source_id": source_id,
                    "source": source_meta, "generated_at": now_iso(), "version": READING_VERSION, "label": "AI解读", "points_label": "部分精选片段", **result, **metadata}
-        write_json(self.root / "sources" / f"{reading['id']}.json", reading)
+        self.report_service.store.publish(reading, f"reading-v{READING_VERSION}/sources")
         if progress_callback:
             progress_callback((100, "本期解读已保存"))
         return {"reading": reading}
