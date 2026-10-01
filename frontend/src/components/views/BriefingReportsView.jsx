@@ -279,17 +279,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       window.history.replaceState({ ...window.history.state, briefingContext: context }, '', briefingPath(savedOnly ? 'saved' : 'reports', context));
     }
   }, [periodScope.type, period?.start, mode, selectedTag, showAll, readingSource, loading, savedOnly, onNavigationStateChange]);
-  useEffect(() => {
-    if (!navigation) return;
-    setSelection(null); setEvidenceSelection(null); setPreview(false);
-    if (navigation.restore) {
-      setReadingSource(navigation.readingSource || null); setSelectedTag(navigation.selectedTag || ''); setShowAll(Boolean(navigation.showAll));
-      readingScrollRef.current = navigation.reportScrollTop || 0;
-      pendingRestoreRef.current = navigation.scroll;
-    } else { setReadingSource(null); setSelectedTag(''); setShowAll(false); viewRef.current?.scrollTo({ top: 0 }); }
-    if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
-    if (['week', 'month'].includes(navigation.periodType)) setPeriodScope(current => current.type === navigation.periodType && current.start === (navigation.periodStart || null) ? current : { owner: userId, type: navigation.periodType, start: navigation.periodStart || null });
-  }, [navigation]);
   const closeSource = useCallback(() => setSelection(null), []);
   const closePreview = useCallback(() => setPreview(false), []);
   const closeEvidence = useCallback(() => setEvidenceSelection(null), []);
@@ -341,6 +330,24 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     setTaskState({ owner: userId, jobs: {} });
     setSavedQuotes([]); setFavoriteReadingSources(null); setFavoriteMode('');
   }, [storagePrefix]);
+  useEffect(() => {
+    if (!navigation) return;
+    setSelection(null); setEvidenceSelection(null); setPreview(false);
+    if (navigation.restore) {
+      setReadingSource(navigation.readingSource || null); setSelectedTag(navigation.selectedTag || ''); setShowAll(Boolean(navigation.showAll));
+      readingScrollRef.current = navigation.reportScrollTop || 0;
+      pendingRestoreRef.current = navigation.scroll;
+    } else { setReadingSource(null); setSelectedTag(''); setShowAll(false); viewRef.current?.scrollTo({ top: 0 }); }
+    if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
+    if (['week', 'month'].includes(navigation.periodType)) {
+      const start = navigation.periodStart || null;
+      if (periodScope.owner === userId && periodScope.type === navigation.periodType && (!start || periodScope.start === start)) {
+        reload().catch(err => setError(err.message || '简报暂时无法加载。'));
+      }
+      setPeriodScope(current => current.type === navigation.periodType && (!start || current.start === start)
+        ? current : { owner: userId, type: navigation.periodType, start });
+    }
+  }, [navigation]);
   useEffect(() => {
     if (periodScope.owner !== userId) return;
     let active = true;
