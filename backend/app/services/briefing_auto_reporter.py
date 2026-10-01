@@ -84,7 +84,7 @@ class BriefingAutoReporter:
                 continue
             task_id = self.queue.submit(
                 task_type="briefing-report", owner_id=owner, func=self._generate,
-                report_period=period,
+                report_period=period, report_context={"kind": "modes", "mode": "all"},
                 run_id=run_id, user_id=user["_id"], period=period,
                 on_failure=lambda error, identifier=run_id: self._failed(identifier, error),
             )

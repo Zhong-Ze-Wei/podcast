@@ -223,7 +223,7 @@ def generate_modes():
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
     if _has_active_report_task(owner_id, scope["period"] if scope is not None else None):
         return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
-    kwargs = {"mode": mode, "topic": topic.strip()}
+    kwargs = {"mode": mode, "topic": topic.strip(), "report_context": {"kind": "modes", "mode": mode}}
     if scope is not None:
         kwargs["scope"] = scope
         kwargs["report_period"] = scope["period"]
@@ -254,7 +254,7 @@ def generate_edition():
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
     if _has_active_report_task(owner_id):
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_edition, owner_id=owner_id, topic=topic.strip())
+    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_edition, owner_id=owner_id, topic=topic.strip(), report_context={"kind": "edition"})
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -311,13 +311,29 @@ def _rebind_reading_evidence(quote, source, old_id):
 def generate_reading(source_id):
     if not is_ai_analysis_enabled():
         return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
+    options = {}
+    if request.content_length:
+        options = request.get_json(silent=True)
+        if not isinstance(options, dict):
+            return error_response("请求必须是 JSON 对象", "INVALID_JSON", 400)
     owner_id = current_owner_id()
     service = _reading_service(source_id)
-    if service is None or not any(source["id"] == source_id for source in service.report_service.corpus()["sources"]):
+    source = next((item for item in service.report_service.corpus()["sources"] if item["id"] == source_id), None) if service is not None else None
+    if source is None:
         return error_response("文稿不存在", "SOURCE_NOT_FOUND", 404)
+    kwargs = {"source_id": source_id, "report_context": {"kind": "reading", "source_id": source_id}}
+    if "period_type" in options or "period_start" in options:
+        scope_service = _scope_service(owner_id)
+        try:
+            scope = scope_service.collect(options.get("period_type", "week"), options.get("period_start"))
+        except ValueError as error:
+            return error_response(str(error), "INVALID_PERIOD", 400)
+        if not scope_service.source_within_period(source, scope["period"]):
+            return error_response("文稿不属于所选周期", "SOURCE_OUTSIDE_PERIOD", 400)
+        kwargs["report_period"] = scope["period"]
     if _has_active_report_task(owner_id):
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_reading, owner_id=owner_id, source_id=source_id)
+    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_reading, owner_id=owner_id, **kwargs)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -353,7 +369,7 @@ def generate():
     owner_id = current_owner_id()
     if any(task.get("owner_id") == owner_id and task["status"] in ("pending", "processing") for task in task_queue.get_all_tasks(task_type="briefing-report")):
         return error_response("已有报告正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
+    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, report_context={"kind": "legacy"}, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
