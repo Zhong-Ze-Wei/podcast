@@ -13,6 +13,7 @@ from app.api.feeds import _refresh_feed_sync
 from app.services.auto_refresher import FeedAutoRefresher
 from tests.auth_helpers import make_auth_app
 from tests.conftest import MockDB
+from tests.test_feed_refresh_queue import ImmediateQueue
 
 
 def _episode_info(guid):
@@ -73,7 +74,7 @@ def test_auto_refresher_inherits_feed_owner(monkeypatch):
     feed_id = _add_feed(db, "user-1")
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", _parse_feed_with(["ep-1"]))
 
-    refresher = FeedAutoRefresher(db)
+    refresher = FeedAutoRefresher(db, queue=ImmediateQueue())
     refresher._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
 
     episode = db.episodes.find_one({"feed_id": feed_id})
@@ -89,7 +90,9 @@ def test_auto_and_manual_refresh_share_service_and_keep_database_total(monkeypat
     feed_id = _add_feed(db, "user-1")
     db.episodes.insert_one({"feed_id": feed_id, "owner_id": "user-1", "guid": "old"})
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", _parse_feed_with(["new", "new"]))
-    result = FeedAutoRefresher(db)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    queue = ImmediateQueue()
+    task_id = FeedAutoRefresher(db, queue=queue)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    result = queue.tasks[task_id]["result"]
     assert result["new_episodes"] == 1
     assert result["total_episodes"] == 2
     assert db.feeds.find_one({"_id": feed_id})["episode_count"] == 2
@@ -105,6 +108,8 @@ def test_auto_refresher_delegates_to_feed_sync_service(monkeypatch):
     feed_id = _add_feed(db, "user-1")
     calls = []
     monkeypatch.setattr(FeedSyncService, "refresh", lambda self, feed_id, progress_callback=None: calls.append(feed_id) or {"new_episodes": 3})
-    result = FeedAutoRefresher(db)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    queue = ImmediateQueue()
+    task_id = FeedAutoRefresher(db, queue=queue)._refresh_single_feed(db.feeds.find_one({"_id": feed_id}))
+    result = queue.tasks[task_id]["result"]
     assert calls == [str(feed_id)]
     assert result == {"new_episodes": 3}
