@@ -75,6 +75,19 @@ blockquote { margin: 2mm 0; padding: 1.8mm 0 1.8mm 2.6mm; border-left: .65mm sol
 @media print { html { background: white; } .report-page { margin: 0; } }
 """
 
+READING_CSS = """
+body.reading-edition { font-size: 11pt; }
+.reading-edition .card { border: 0; border-bottom: .25mm solid #e2deea; border-radius: 0; padding: 4mm 0; margin-bottom: 4mm; }
+.reading-edition .card-kind { display: none; }
+.reading-edition blockquote { border: 0; padding: 0; font-size: 14pt; line-height: 1.65; margin: 2mm 0 4mm; }
+.reading-edition .source { border: 0; font-size: 9.5pt; }
+.reading-edition .label { font-size: 9.5pt; }
+.reading-edition .original-quote blockquote { font-size: 11pt; line-height: 1.6; }
+.reading-edition .report-thread { margin: 0 0 4mm; font-size: 11pt; }
+.reading-edition .report-thread .label { display: block; margin-bottom: 1mm; }
+.reading-edition .source-index { margin: 0 0 5mm; }
+"""
+
 
 def _escape(value):
     return html.escape(str(value or ""), quote=True)
@@ -154,16 +167,21 @@ def _card_html(item, sources, base_url, compact=False):
         relation = RELATION_NAMES.get(item.get("relation")) or item.get("relation") or relation
     if kind == "resource" and item.get("resource_kind") in RESOURCE_NAMES:
         relation = RESOURCE_NAMES[item["resource_kind"]] + " · " + relation
-    body = [f'<div class="card-kind">{_escape(relation)}</div>', f'<h2>{_escape(item.get("title"))}</h2>']
+    body = [f'<div class="card-kind">{_escape(relation)}</div>']
+    if item.get("title"):
+        body.append(f'<h2>{_escape(item["title"])}</h2>')
     if item.get("text") and not (kind == "episode" and item["text"].startswith("本期摘录：")):
         body.append(f'<p>{_escape(item["text"])}</p>')
     if kind == "quote":
+        if item.get("original_quote"):
+            body.append('<div class="label">英文原话 · 对照首页译文</div>')
         if item.get("translation"):
             body.append(f'<div class="label">译文 · 原句见节目文稿</div><blockquote>{_escape(item["translation"])}</blockquote>')
         elif item.get("quote"):
             body.append(f'<blockquote>{_escape(item["quote"])}</blockquote>')
-    if item.get("context"):
-        body.append(f'<p><span class="label">当时在谈：</span>{_escape(item["context"])}</p>')
+    context = item.get("brief") or item.get("context")
+    if context:
+        body.append(f'<p><span class="label">当时在谈：</span>{_escape(context)}</p>')
     if kind == "background" and item.get("relation") == "external":
         details = [item.get("publisher", "")]
         if item.get("accessed_at"):
@@ -172,7 +190,8 @@ def _card_html(item, sources, base_url, compact=False):
     for child in item.get("children", []):
         body.append(_episode_piece(child, sources, base_url))
     body.append(_source_html(item, sources, base_url, compact=compact))
-    return f'<article class="card {kind}-card" data-card-id="{_escape(item.get("id"))}">' + "".join(body) + "</article>"
+    original_class = " original-quote" if item.get("original_quote") else ""
+    return f'<article class="card {kind}-card{original_class}" data-card-id="{_escape(item.get("id"))}">' + "".join(body) + "</article>"
 
 
 def _episode_piece(item, sources, base_url):
@@ -230,7 +249,8 @@ def _index_html(report, base_url):
 
 def _document(report, columns, selected, omitted, base_url, measurement_cards=None):
     source_map = {source.get("id"): source for source in report.get("sources", [])}
-    name = VARIANT_NAMES[report["variant"]]
+    reading_edition = report.get("reading_edition")
+    name = "原话精选" if reading_edition else VARIANT_NAMES[report["variant"]]
     title = report.get("topic") or report.get("title") or name
     coverage = report.get("coverage", {})
     source_count = coverage.get("sources", len(source_map))
@@ -242,19 +262,37 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
             "concepts": "更多术语与相关背景", "quotes": "更多原话与相关背景",
             "resources": "更多资料与嘉宾背景",
         }[report["variant"]]
+        if reading_edition:
+            continuation = "原话对照与材料来源"
         heading = title if page_index == 0 else continuation
         meta = f"{name} · {source_count} 篇有文稿的节目 · {date}"
         header = f'<header class="report-header"><div class="brand">PodMaster · 播客简报</div><h1>{_escape(heading)}</h1><div class="report-meta">{_escape(meta)}</div></header>'
         body = '<div class="columns">' + "".join('<div class="column">' + "".join(_card_html(card, source_map, base_url) for card in column) + '</div>' for column in page_columns) + '</div>'
         index = _index_html(report, base_url) if page_index == 1 else ""
-        status = f"精选 {selected} 块 · 另有 {omitted} 块留在网页" if omitted else f"收录 {selected} 块"
+        threads = ""
+        if reading_edition and page_index == 1:
+            selected_quote_ids = {card["id"] for page in columns for column in page for card in column if not card.get("original_quote")}
+            supported_threads = [thread for thread in report.get("threads", [])
+                                 if measurement_cards is not None or all(item_id in selected_quote_ids for item_id in thread["supporting_item_ids"])]
+            threads = "".join('<section class="report-thread"><span class="label">共同谈到 · AI 归纳</span><p>' + _escape(thread["text"]) + '</p></section>' for thread in supported_threads)
+        unit = "句" if reading_edition else "块"
+        status = f"精选 {selected} {unit} · 另有 {omitted} {unit}留在网页" if omitted else f"收录 {selected} {unit}"
+        if reading_edition and page_index == 1:
+            original_total = sum(bool(card.get("translation")) for page in columns for column in page for card in column)
+            original_count = sum(bool(card.get("original_quote")) for column in page_columns for card in column)
+            if original_count < original_total:
+                status += f" · 英文原话对照 {original_count}/{original_total} 句，完整原话见文稿"
         full = _anchor("查看完整简报与原文", base_url.rstrip("/") + "/briefing") if _safe_url(base_url) else ""
-        footer = f'<footer class="report-footer"><div class="footer-row"><span>{status} · {full}</span><span>{page_index + 1} / {len(columns)}</span></div><div>引文来自保存的文稿；时间精度以字幕或转录段落为准。联网补充标明来源。</div></footer>'
-        pages.append(f'<section class="report-page" data-page="{page_index + 1}">{header}{body}{index}{footer}</section>')
+        note = "原话来自保存的文稿；译文辅助阅读。回听时间以字幕或转录段落为准。" if reading_edition else "引文来自保存的文稿；时间精度以字幕或转录段落为准。联网补充标明来源。"
+        footer = f'<footer class="report-footer"><div class="footer-row"><span>{status} · {full}</span><span>{page_index + 1} / {len(columns)}</span></div><div>{note}</div></footer>'
+        content = threads + index + body if reading_edition and page_index == 1 else body + index
+        pages.append(f'<section class="report-page" data-page="{page_index + 1}">{header}{content}{footer}</section>')
     measure = ""
     if measurement_cards is not None:
         measure = '<div class="measure-stack">' + "".join(_card_html(card, source_map, base_url) for card in measurement_cards) + '</div>'
-    return f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>{_escape(name)}</title><style>{CSS}</style></head><body data-selected-count="{selected}" data-omitted-count="{omitted}">' + "".join(pages) + measure + "</body></html>"
+    edition_class = ' class="reading-edition"' if report.get("reading_edition") else ""
+    styles = CSS + (READING_CSS if report.get("reading_edition") else "")
+    return f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>{_escape(name)}</title><style>{styles}</style></head><body{edition_class} data-selected-count="{selected}" data-omitted-count="{omitted}">' + "".join(pages) + measure + "</body></html>"
 
 
 def _chrome_path():
@@ -397,6 +435,11 @@ def _candidates(report, pages):
         if first_background is not None:
             chosen.remove(first_background)
             chosen.insert(0, first_background)
+    if report.get("reading_edition") and pages == 2:
+        originals = [{**card, "id": "original-" + card["id"], "original_quote": True,
+                      "original_item_id": card["id"], "translation": "", "title": "", "brief": "", "context": ""}
+                     for card in chosen if card.get("translation")]
+        chosen.extend(originals)
     return cards, chosen
 
 
@@ -413,9 +456,14 @@ def _prepare(serialized, pages, base_url):
         capacities = [page["available"] - 3 for page in metrics["pages"]]
         columns = [[[], []] for _ in range(pages)]
         used = [[0, 0] for _ in range(pages)]
+        selected_ids = set()
         for card in candidates:
             height = height_map[str(card.get("id", ""))]
             preferred_pages = [1, 0] if pages == 2 and card.get("kind") == "background" else list(range(pages))
+            if report.get("reading_edition"):
+                if card.get("original_quote") and card["original_item_id"] not in selected_ids:
+                    continue
+                preferred_pages = [1] if card.get("original_quote") else [0]
             if pages == 2 and report["variant"] == "episodes" and card.get("kind") == "background":
                 preferred_pages = [1]
             for page in preferred_pages:
@@ -423,8 +471,9 @@ def _prepare(serialized, pages, base_url):
                 if used[page][column] + height <= capacities[page]:
                     columns[page][column].append(card)
                     used[page][column] += height
+                    selected_ids.add(card["id"])
                     break
-        selected = sum(len(column) for page in columns for column in page)
+        selected = sum(not card.get("original_quote") for page in columns for column in page for card in column)
         content = _document(report, columns, selected, len(all_cards) - selected, base_url)
         browser.set_html(content)
         final = browser.measure()
