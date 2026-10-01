@@ -1,9 +1,9 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Mic2, Sparkles, Download, Languages, AlertCircle } from 'lucide-react';
-import { tasksApi } from '../../services/api';
-import { isActiveTask, isTerminalTask, canCancelTask, createTerminalNotifier, requestTaskCancellation } from '../../utils/taskActions';
+import { useTask } from '../tasks/TasksContext';
+import { isActiveTask, canCancelTask, createTerminalNotifier } from '../../utils/taskActions';
 
 /**
  * TaskProgress - 统一的任务进度组件
@@ -13,17 +13,16 @@ import { isActiveTask, isTerminalTask, canCancelTask, createTerminalNotifier, re
  */
 const TaskProgress = ({
   taskType,      // 'transcribe' | 'summarize' | 'download' | 'translate'
-  episodeId,     // episode ID
+  taskId,        // 后端返回或节目 active_tasks 中的明确任务 ID
   onComplete,    // 任务完成回调
   onError,       // 任务失败回调
   onCancelled,
   className = ''
 }) => {
   const { t } = useTranslation();
-  const [task, setTask] = useState(null);
+  const { task, error: requestError, cancel } = useTask(taskId);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [requestError, setRequestError] = useState('');
   const callbacksRef = useRef({ onComplete, onError, onCancelled });
   callbacksRef.current = { onComplete, onError, onCancelled };
   const notifyRef = useRef(createTerminalNotifier(terminal => {
@@ -59,49 +58,15 @@ const TaskProgress = ({
   const config = taskConfig[taskType] || taskConfig.transcribe;
   const Icon = config.icon;
 
-  // 轮询任务状态
-  const fetchTaskStatus = useCallback(async () => {
-    if (!episodeId) return;
-
-    try {
-      const response = await tasksApi.list({
-        episode_id: episodeId,
-        type: taskType,  // 后端参数名是 'type'
-        per_page: 1
-      });
-
-      const tasks = response.data?.data || response.data || [];
-      const activeTask = tasks.find(isActiveTask) || tasks[0];
-
-      if (activeTask) {
-        setTask(activeTask);
-        setLastUpdate(Date.now());
-        setRequestError('');
-
-        // 计算已运行时间
-        if (activeTask.started_at || activeTask.created_at) {
-          const startTime = new Date(activeTask.started_at || activeTask.created_at).getTime();
-          setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
-        }
-
-        // 任务完成或失败
-        notifyRef.current(activeTask);
-      }
-    } catch (err) {
-      setRequestError(err.message || t('tasks.loadError'));
-    }
-  }, [episodeId, taskType, t]);
-
-  // 轮询
   useEffect(() => {
-    fetchTaskStatus();
-    if (task && isTerminalTask(task)) return;
-    const interval = setInterval(fetchTaskStatus, 2000);
-    return () => clearInterval(interval);
-  }, [fetchTaskStatus, task?.status]);
+    if (!task) return;
+    setLastUpdate(Date.now());
+    notifyRef.current(task);
+  }, [task]);
 
   // 更新已运行时间
   useEffect(() => {
+    if (task && !isActiveTask(task)) return;
     const interval = setInterval(() => {
       if (task?.started_at || task?.created_at) {
         const startTime = new Date(task.started_at || task.created_at).getTime();
@@ -129,12 +94,6 @@ const TaskProgress = ({
   const progress = task?.progress || 0;
   const active = !task || isActiveTask(task);
   const isStale = active && Date.now() - lastUpdate > 30000;
-  const cancel = () => requestTaskCancellation(task.id, {
-    cancel: tasksApi.cancel,
-    refresh: fetchTaskStatus,
-    onError: error => setRequestError(error.message || t('tasks.cancelError')),
-  });
-
   // 颜色映射
   const colorClasses = {
     purple: {
@@ -173,7 +132,7 @@ const TaskProgress = ({
           <Icon size={20} />
         </div>
         <span className={`font-medium ${colors.text}`}>{task?.cancel_requested ? t('tasks.cancelRequested') : active ? config.label : t(`tasks.status.${task.status}`)}</span>
-        {task && canCancelTask(task) && <button onClick={cancel} className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">{t('tasks.cancel')}</button>}
+        {task && canCancelTask(task) && <button onClick={() => cancel(task.id)} className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">{t('tasks.cancel')}</button>}
       </div>
 
       {/* 进度条 */}
