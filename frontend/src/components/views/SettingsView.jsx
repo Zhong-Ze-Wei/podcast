@@ -1,18 +1,21 @@
 // -*- coding: utf-8 -*-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, ChevronLeft, Server, FileText, Sliders, UserCircle } from 'lucide-react';
+import { Settings, ChevronLeft, Server, FileText, Sliders, UserCircle, Sparkles } from 'lucide-react';
 import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
 import AccountPanel from './settings/AccountPanel';
+import BriefingPreferencesPanel from './settings/BriefingPreferencesPanel';
 import AdminUsersPanel from './settings/AdminUsersPanel';
 
-const SettingsView = ({ onBack, currentUser, onLogout }) => {
+const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', onOpenMenu }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('account');
+  const [activeTab, setActiveTab] = useState(initialTab);
 
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
   const tabs = [
+    { id: 'briefing', label: 'AI 简报', description: '个人关注话题、自动生成与阅读风格', icon: Sparkles },
     {
       id: 'account',
       label: t('settings.accountTab'),
@@ -55,6 +58,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={onBack}
+            aria-label="返回原页面"
             className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
           >
             <ChevronLeft size={24} />
@@ -89,6 +93,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
+        {activeTab === 'briefing' && <BriefingPreferencesPanel key={currentUser.id} />}
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
         {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}

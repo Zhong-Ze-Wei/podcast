@@ -19,6 +19,8 @@ import WorkspaceView from './components/views/WorkspaceView';
 import SettingsView from './components/views/SettingsView';
 import BriefingReportsView from './components/views/BriefingReportsView';
 import { getExternalPlaybackUrl, getPlaybackPosition } from './utils/briefingPlayback';
+import { parseAppPath } from './utils/appRoutes';
+import { readBriefingRoute, briefingPath, settingsReturnContext } from './utils/readingContext';
 import { createFeedRefreshAction } from './utils/taskActions';
 import AuthView from './components/views/AuthView';
 // Card components
@@ -44,20 +46,6 @@ const SIMPLE_VIEW_PATHS = {
   briefingSettings: '/briefing/settings'
 };
 
-function parseAppPath(pathname) {
-  const parts = pathname.split('/').filter(Boolean);
-  if (parts[0] === 'episodes' && parts[1]) {
-    return { type: 'episode', id: parts[1] };
-  }
-  if (parts[0] === 'feeds' && parts[1]) {
-    return { type: 'feed', id: parts[1] };
-  }
-  if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
-  if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
-  if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
-  if (parts[0] === 'briefing' || parts[0] === 'briefing-lab') return { type: 'view', view: parts[1] === 'settings' ? 'briefingSettings' : parts[1] === 'saved' ? 'briefingSaved' : 'briefing' };
-  return { type: 'view', view: 'workspace' };
-}
 
 function episodePath(id) {
   return `/episodes/${id}`;
@@ -73,6 +61,9 @@ export default function App() {
   const [previousView, setPreviousView] = useState('workspace'); // 记录进入详情页之前的视图，用于返回
   const [viewMode, setViewMode] = useState('traditional');
   const [briefingNavigation, setBriefingNavigation] = useState(null);
+  const briefingContextRef = useRef({ periodType: 'week', periodStart: null, mode: 'core', selectedTag: '', showAll: false, readingSource: null, scroll: { top: 0 } });
+  const [returnContext, setReturnContext] = useState(null);
+  const [settingsTab, setSettingsTab] = useState('account');
   const [briefingState, setBriefingState] = useState({ periodType: 'week', mode: 'core' });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false); // 'traditional' | 'ai-briefing'
   const [activeFeed, setActiveFeed] = useState(null);
@@ -247,19 +238,46 @@ export default function App() {
     window.history[method]({ appRoute: true, ...state }, '', path);
   }, []);
 
-  const navigateToView = useCallback((nextView, { replace = false } = {}) => {
-    setActiveFeed(null);
-    setSelectedFeed(null);
-    setSelectedEpisode(null);
-    setView(nextView);
-    setViewMode(nextView.startsWith('briefing') ? 'ai-briefing' : 'traditional');
-    const path = SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace;
-    const nextPath = nextView.startsWith('briefing') && window.location.pathname.startsWith('/briefing') ? `${path}${window.location.search}` : path;
-    updateBrowserPath(nextPath, {
-      replace,
-      state: { view: nextView }
-    });
-  }, [updateBrowserPath]);
+  const handleBriefingStateChange = useCallback(context => {
+    briefingContextRef.current = context;
+    setBriefingState(previous => previous.periodType === context.periodType && previous.mode === context.mode ? previous : context);
+  }, []);
+  useEffect(() => {
+    if (!currentUser || !window.location.pathname.startsWith('/settings')) return;
+    const stored = sessionStorage.getItem(`podmaster_settings_return:${currentUser.id}`);
+    const context = stored ? JSON.parse(stored) : null;
+    if (context) { setReturnContext(context); setViewMode(context.mode); }
+    const query = new URLSearchParams(window.location.search);
+    setSettingsTab(query.get('section') || 'account');
+    if (query.get('app_mode') === 'ai-briefing') setViewMode('ai-briefing');
+  }, [currentUser?.id]);
+  const openSettings = useCallback(({ context, replace = false, section, mode } = {}) => {
+    const originMode = mode || viewMode;
+    let origin = returnContext;
+    if (!replace && latestViewRef.current !== 'settings') {
+      origin = settingsReturnContext(latestViewRef.current, originMode, context || briefingContextRef.current, `${window.location.pathname}${window.location.search}`);
+      setReturnContext(origin);
+      sessionStorage.setItem(`podmaster_settings_return:${currentUser.id}`, JSON.stringify(origin));
+    }
+    const tab = section || (originMode === 'ai-briefing' ? 'briefing' : 'account');
+    setSettingsTab(tab); setView('settings'); setViewMode(originMode); setMobileSidebarOpen(false);
+    updateBrowserPath(`/settings?section=${tab}&app_mode=${originMode}`, { replace, state: { view: 'settings', returnContext: origin } });
+  }, [viewMode, returnContext, currentUser?.id, updateBrowserPath]);
+  const navigateToView = useCallback((nextView, { replace = false, path, mode } = {}) => {
+    if (nextView === 'settings' || nextView === 'briefingSettings') { openSettings({ replace, ...(nextView === 'briefingSettings' ? { section: 'briefing', mode: 'ai-briefing' } : {}) }); return; }
+    setActiveFeed(null); setSelectedFeed(null); setSelectedEpisode(null);
+    setView(nextView); setViewMode(mode || (nextView.startsWith('briefing') ? 'ai-briefing' : 'traditional'));
+    const routePath = SIMPLE_VIEW_PATHS[nextView] || SIMPLE_VIEW_PATHS.workspace;
+    const nextPath = path || (nextView.startsWith('briefing') && window.location.pathname.startsWith('/briefing') ? `${routePath}${window.location.search}` : routePath);
+    updateBrowserPath(nextPath, { replace, state: { view: nextView } });
+  }, [updateBrowserPath, openSettings]);
+  const returnFromSettings = () => {
+    const context = returnContext;
+    if (!context) { navigateToView(viewMode === 'ai-briefing' ? 'briefing' : 'workspace'); return; }
+    if (context.briefing) setBriefingNavigation({ ...context.briefing, restore: true });
+    updateBrowserPath(context.path, { state: { briefingContext: context.briefing } });
+    applyCurrentPath(true);
+  };
 
   // 简报是核心模式切换：切入时把界面带回首屏，避免停在详情/设置页时切换"无感"
   const handleViewModeChange = useCallback((mode) => {
@@ -273,8 +291,10 @@ export default function App() {
   }, [navigateToView]);
 
   const handleBriefingNavigate = (section, options = {}) => {
-    navigateToView(section === 'settings' ? 'briefingSettings' : section === 'saved' ? 'briefingSaved' : 'briefing');
-    setBriefingNavigation({ ...options });
+    if (section === 'settings') { openSettings({ context: briefingContextRef.current, section: 'briefing' }); return; }
+    const context = { ...briefingContextRef.current, ...options, ...(options.periodType && options.periodType !== briefingContextRef.current.periodType ? { periodStart: null } : {}) };
+    navigateToView(section === 'saved' ? 'briefingSaved' : 'briefing', { path: briefingPath(section, context) });
+    setBriefingNavigation({ ...context });
     setMobileSidebarOpen(false);
   };
 
@@ -353,8 +373,10 @@ export default function App() {
       openFeed(route.id, { replace, push: false });
       return;
     }
+    if (route.view === 'settings') { const query = new URLSearchParams(window.location.search); openSettings({ replace, section: route.section || query.get('section') || 'account', mode: route.mode || query.get('app_mode') || 'traditional' }); return; }
+    if (route.view.startsWith('briefing')) { const context = window.history.state?.briefingContext; setBriefingNavigation(context && context.owner === currentUser?.id ? { ...context, restore: true } : { ...readBriefingRoute(window.location.search) }); }
     navigateToView(route.view, { replace });
-  }, [navigateToView, openEpisode, openFeed]);
+  }, [navigateToView, openEpisode, openFeed, openSettings, currentUser?.id]);
 
   useEffect(() => {
     window.history.replaceState(
@@ -604,7 +626,8 @@ export default function App() {
             hasPlayer={!!currentPlaying}
             section={view === 'briefingSettings' ? 'settings' : view === 'briefingSaved' ? 'saved' : 'reports'}
             navigation={briefingNavigation}
-            onNavigationStateChange={setBriefingState}
+            onNavigationStateChange={handleBriefingStateChange}
+            onOpenSettings={context => openSettings({ context, section: 'briefing' })}
             onSectionChange={handleBriefingNavigate}
           />
         ) : view === 'list' ? (
@@ -688,7 +711,8 @@ export default function App() {
           />
         ) : view === 'settings' ? (
           <SettingsView
-            onBack={() => navigateToView('list')}
+            onBack={returnFromSettings}
+            initialTab={settingsTab}
             currentUser={currentUser}
             onLogout={handleLogout}
           />

@@ -10,21 +10,13 @@ import { ListPagination } from '../common/ListControls';
 import usePaginatedList from '../../hooks/usePaginatedList';
 import { useTask, useTasks } from '../tasks/TasksContext';
 import { importBrowserFavorites, loadReportFavoriteIds } from '../../utils/briefingPersistence';
-import BriefingSettings from './BriefingSettings';
+import { BRIEFING_LAYOUTS as LAYOUTS } from '../../utils/briefingLayouts';
+import { readBriefingRoute, briefingPath, captureReadingPosition, restoreReadingPosition } from '../../utils/readingContext';
 import BriefingPeriodBar from './BriefingPeriodBar';
 import BriefingQuotePopover from './BriefingQuotePopover';
 import './briefing-reports.css';
 import './briefing-modes.css';
 
-const LAYOUTS = [
-  { id: 'space', name: '留白', description: '一句主角，几句留给慢读' },
-  { id: 'large', name: '大字', description: '原话铺开，一句一句读' },
-  { id: 'list', name: '清单', description: '顺着读，快速挑想听的' },
-  { id: 'columns', name: '双栏', description: '并排读，看看观点的不同' },
-  { id: 'paper', name: '纸面', description: '一张可以带走的阅读页' },
-  { id: 'newspaper', name: '报刊', description: '暖白双栏，像读一份报刊' },
-  { id: 'notes', name: '便笺', description: '浅色便笺，一条一个重点' },
-];
 const MODES = [
   { id: 'core', name: '核心提要' }, { id: 'quotes', name: '原话精选' },
   { id: 'connections', name: '共性与分歧' }, { id: 'concepts', name: '新词与方法' },
@@ -206,7 +198,7 @@ function PdfPreview({ report, pages, style, onStyleChange, onPagesChange, onClos
   </section></div>, document.body);
 }
 
-export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpisode, onListen, onOpenMenu, hasPlayer = false, section = 'reports', navigation, onNavigationStateChange, onSectionChange }) {
+export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpisode, onListen, onOpenMenu, hasPlayer = false, section = 'reports', navigation, onNavigationStateChange, onSectionChange, onOpenSettings }) {
   const userId = currentUser?.id || currentUser?._id || 'guest';
   const storagePrefix = `podmaster_briefing_reading:${userId}`;
   const [layout, setLayout] = useState('paper');
@@ -216,9 +208,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const [showAll, setShowAll] = useState(false);
   const [periodScope, setPeriodScope] = useState({ owner: userId, type: 'week', start: null });
   const [interests, setInterests] = useState([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]);
-  const [savingInterests, setSavingInterests] = useState(false);
-  const [preferencesError, setPreferencesError] = useState('');
-  const [autoPeriod, setAutoPeriod] = useState(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
   const [pdfStyle, setPdfStyle] = useState('paper');
   const [snapshot, setSnapshot] = useState(null);
@@ -250,6 +239,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const viewRef = useRef(null);
   const userIdRef = useRef(userId);
   const readingScrollRef = useRef(0);
+  const pendingRestoreRef = useRef(null);
   const scopeRef = useRef(periodScope);
   const snapshotRequestRef = useRef(0);
   const mountedRef = useRef(true);
@@ -266,8 +256,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const filteredItems = allItems.filter(card => (!selectedTag || card.topic_tags?.includes(selectedTag)) && (!savedOnly || isSaved(card)));
   const visibleItems = showAll ? filteredItems : filteredItems.slice(0, 6);
   const matchingSourceCount = new Set(filteredItems.flatMap(card => [card.source_id, ...(card.source_ids || []), ...(card.evidence || []).map(quote => quote.source_id)]).filter(Boolean)).size;
-  const prompt = report?.prompt || snapshot?.mode_prompts?.[mode]?.prompt || info.prompt;
-  const inputDescription = report?.input_description || snapshot?.mode_prompts?.[mode]?.input_description || info.input_description;
   const period = snapshot?.period;
   const periodKey = !loading && period ? `${period.type}:${period.start}` : null;
   const task = taskState.owner === userId ? taskState.jobs[periodKey] : null;
@@ -282,15 +270,26 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     });
   }, [userId]);
   const hasMaterials = (period?.transcript_count ?? sources.length) > 0;
-  useEffect(() => { onNavigationStateChange({ periodType: periodScope.type, mode }); }, [periodScope.type, mode, onNavigationStateChange]);
+  const readingContext = () => ({ owner: userId, periodType: period?.type || periodScope.type, periodStart: period?.start || periodScope.start, mode, selectedTag, showAll, readingSource, reportScrollTop: readingScrollRef.current, scroll: captureReadingPosition(viewRef.current) });
+  const publishContext = () => onNavigationStateChange(readingContext());
+  useEffect(() => {
+    publishContext();
+    if (!loading && window.location.pathname.startsWith('/briefing')) {
+      const context = readingContext();
+      window.history.replaceState({ ...window.history.state, briefingContext: context }, '', briefingPath(savedOnly ? 'saved' : 'reports', context));
+    }
+  }, [periodScope.type, period?.start, mode, selectedTag, showAll, readingSource, loading, savedOnly, onNavigationStateChange]);
   useEffect(() => {
     if (!navigation) return;
-    setReadingSource(null); setSelectedTag(''); setSelection(null); setEvidenceSelection(null); setPreview(false);
+    setSelection(null); setEvidenceSelection(null); setPreview(false);
+    if (navigation.restore) {
+      setReadingSource(navigation.readingSource || null); setSelectedTag(navigation.selectedTag || ''); setShowAll(Boolean(navigation.showAll));
+      readingScrollRef.current = navigation.reportScrollTop || 0;
+      pendingRestoreRef.current = navigation.scroll;
+    } else { setReadingSource(null); setSelectedTag(''); setShowAll(false); viewRef.current?.scrollTo({ top: 0 }); }
     if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
-    if (['week', 'month'].includes(navigation.periodType)) setPeriodScope(current => current.type === navigation.periodType ? current : { owner: userId, type: navigation.periodType, start: null });
-    viewRef.current?.scrollTo({ top: 0 });
+    if (['week', 'month'].includes(navigation.periodType)) setPeriodScope(current => current.type === navigation.periodType && current.start === (navigation.periodStart || null) ? current : { owner: userId, type: navigation.periodType, start: navigation.periodStart || null });
   }, [navigation]);
-  useEffect(() => { setReadingSource(null); setSelectedTag(''); }, [section]);
   const closeSource = useCallback(() => setSelection(null), []);
   const closePreview = useCallback(() => setPreview(false), []);
   const closeEvidence = useCallback(() => setEvidenceSelection(null), []);
@@ -310,21 +309,35 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   }, [userId, isCurrentOwner]);
   const readEpisode = sourceId => { if (!readingSource) readingScrollRef.current = viewRef.current?.scrollTop || 0; setReadingSource(sourceId); setReadingError(''); };
   useLayoutEffect(() => { viewRef.current?.scrollTo({ top: readingSource ? 0 : readingScrollRef.current }); }, [readingSource]);
+  useLayoutEffect(() => {
+    if (loading || !pendingRestoreRef.current || (readingSource && (readingLoading || !readings[readingSource]))) return;
+    restoreReadingPosition(viewRef.current, pendingRestoreRef.current);
+    pendingRestoreRef.current = null;
+    publishContext();
+  }, [loading, readingSource, readingLoading, readings, report?.id, showAll]);
 
   useEffect(() => {
     readingScrollRef.current = 0;
-    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setSavingInterests(false); setPreferencesError(''); setSelectedTag(''); setShowAll(false);
+    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setSelectedTag(''); setShowAll(false);
     setLayout('paper');
     const storedMode = localStorage.getItem(`${storagePrefix}:mode`);
     const initialMode = MODES.some(item => item.id === storedMode) ? storedMode : 'core';
     setMode(initialMode);
     const savedPeriod = readStored(localStorage, `${storagePrefix}:period`, null);
+    const routeContext = readBriefingRoute(window.location.search);
+    const restore = navigation?.restore ? navigation : null;
     const query = new URLSearchParams(window.location.search);
     const queryType = query.get('period_type');
     const queryStart = query.get('period_start');
     const validQuery = ['week', 'month'].includes(queryType) && /^\d{4}-\d{2}-\d{2}$/.test(queryStart || '') && Number.isFinite(Date.parse(queryStart)) && new Date(queryStart).toISOString().slice(0, 10) === queryStart;
-    setPeriodScope(validQuery ? { owner: userId, type: queryType, start: queryStart } : { owner: userId, type: savedPeriod?.type === 'month' ? 'month' : 'week', start: savedPeriod?.start || null });
-    setInterests([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]); setAutoPeriod(null);
+    if (restore || query.has('mode')) setMode((restore || routeContext).mode);
+    setSelectedTag((restore || routeContext).selectedTag || '');
+    setShowAll(Boolean((restore || routeContext).showAll));
+    setReadingSource((restore || routeContext).readingSource || null);
+    readingScrollRef.current = restore?.reportScrollTop || 0;
+    pendingRestoreRef.current = restore?.scroll || (window.history.state?.briefingContext?.owner === userId ? window.history.state.briefingContext.scroll : null);
+    setPeriodScope(restore ? { owner: userId, type: restore.periodType, start: restore.periodStart } : validQuery ? { owner: userId, type: queryType, start: queryStart } : { owner: userId, type: savedPeriod?.type === 'month' ? 'month' : 'week', start: savedPeriod?.start || null });
+    setInterests([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]);
     const jobs = readStored(sessionStorage, `${storagePrefix}:tasks`, {});
     const previousTask = readStored(sessionStorage, `${storagePrefix}:task`, null);
     if (previousTask?.scope?.period_type && previousTask.scope.period_start) {
@@ -338,12 +351,12 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     if (periodScope.owner !== userId) return;
     let active = true;
     const requestId = ++snapshotRequestRef.current;
-    setLoading(true); setError(''); setProgress(null); setPollError(''); setReadingSource(null); setMaterialsOpen(false); setSelection(null); setEvidenceSelection(null); setPreview(false);
+    setLoading(true); setError(''); setProgress(null); setPollError(''); setMaterialsOpen(false); setSelection(null); setEvidenceSelection(null); setPreview(false);
     briefingReportsApi.modes({ period_type: periodScope.type, ...(periodScope.start ? { period_start: periodScope.start } : {}) }).then(async response => {
       if (!active || requestId !== snapshotRequestRef.current) return;
       const data = payload(response);
       setSnapshot(data);
-      if (data.preferences?.interests) { setInterests(data.preferences.interests); setAutoPeriod(data.preferences.auto_period || null); setLayout(data.preferences.layout || 'paper'); }
+      if (data.preferences?.interests) { setInterests(data.preferences.interests); setLayout(data.preferences.layout || 'paper'); }
       if (data.period) {
         localStorage.setItem(`${storagePrefix}:period`, JSON.stringify({ type: data.period.type, start: data.period.start }));
         const url = new URL(window.location.href);
@@ -377,7 +390,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   }, [taskState, userId, storagePrefix]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 3000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { setEvidenceSelection(null); setPreview(false); }, [report?.id]);
-  useEffect(() => { setShowAll(false); }, [mode, selectedTag, savedOnly, report?.id]);
+
   useEffect(() => {
     if (!readingSource) return;
     let active = true;
@@ -440,13 +453,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     } catch (err) { if (isCurrentOwner(owner)) setError(err.message || '收藏未能保存，请重试。'); }
     finally { if (isCurrentOwner(owner)) setSavingFavorite(null); }
   };
-  const updateLayout = async next => {
-    const owner = userId;
-    setSavingInterests(true); setPreferencesError('');
-    try { const data = payload(await briefingReportsApi.savePreferences({ layout: next })); if (isCurrentOwner(owner)) setLayout(data.layout); }
-    catch (err) { if (isCurrentOwner(owner)) setPreferencesError(err.message || '阅读风格未能保存。'); }
-    finally { if (isCurrentOwner(owner)) setSavingInterests(false); }
-  };
   const copyQuote = async card => {
     const source = sources.find(item => item.id === card.source_id);
     const text = [card.quote, card.translation ? `译文：${card.translation}` : '', `${card.feed || source?.feed || ''} · ${card.source_title || source?.title || ''}${card.speaker ? ` · ${card.speaker}` : ''}${card.start != null ? ` · ${timeText(card.start)}` : ''}`].filter(Boolean).join('\n\n');
@@ -467,47 +473,34 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     finally { if (isCurrentOwner(owner)) setDownloading(false); }
   };
   const retryReading = async () => { const owner = userId; setReadingLoading(true); setReadingError(''); try { const data = payload(await briefingReportsApi.reading(readingSource)); if (isCurrentOwner(owner)) setReadings(previous => ({ ...previous, [readingSource]: data })); } catch (err) { if (isCurrentOwner(owner)) setReadingError(err.message || '这期解读暂时无法读取。'); } finally { if (isCurrentOwner(owner)) setReadingLoading(false); } };
-  const updatePreferences = async (next, nextAutoPeriod) => {
-    const owner = userId;
-    const previous = interests;
-    const previousAuto = autoPeriod;
-    setAutoPeriod(nextAutoPeriod); setInterests(next); setSavingInterests(true); setError(''); setPreferencesError('');
-    try {
-      const preferences = payload(await briefingReportsApi.savePreferences({ interests: next, auto_period: nextAutoPeriod }));
-      if (!isCurrentOwner(owner)) return;
-      setInterests(preferences.interests); setAutoPeriod(preferences.auto_period || null);
-      try { await reload(); } catch { setSnapshot(current => ({ ...current, reports: {} })); setError('关注设置已保存，报告列表暂未刷新。请重新加载。'); setPreferencesError('关注设置已保存，报告列表暂未刷新。请重新加载。'); }
-    } catch (err) { if (isCurrentOwner(owner)) { setInterests(previous); setAutoPeriod(previousAuto); setError(err.message || '关注设置未能保存。'); setPreferencesError(err.message || '关注设置未能保存。'); } }
-    finally { if (isCurrentOwner(owner)) setSavingInterests(false); }
-  };
   const openPreview = () => { setPdfStyle(layout === 'newspaper' ? 'newspaper' : 'paper'); setPreview(true); };
   const excerptProps = { canFavorite, savingFavorite: Boolean(savingFavorite), sources, feeds, onRead: readEpisode, onListen, onSource: setSelection, savedQuotes, onToggleQuote: toggleQuote, onCopy: copyQuote, onTag: setSelectedTag, selectedTag, onEvidence: item => setEvidenceSelection({ ...item, sources }) };
   const readingData = readingSource ? readings[readingSource] || { source: sources.find(source => source.id === readingSource) } : null;
 
-  return <div ref={viewRef} className={`briefing-reports-view custom-scrollbar ${hasPlayer ? 'br-has-player' : ''}`}>
+  return <div ref={viewRef} onScroll={publishContext} className={`briefing-reports-view custom-scrollbar ${hasPlayer ? 'br-has-player' : ''}`}>
     <link rel="stylesheet" href="/api/briefing-reports/reading-theme.css" />
     <header className="br-page-header"><div className="br-page-heading"><button className="br-menu-button" onClick={onOpenMenu} aria-label="打开菜单"><Menu size={20} /></button>{readingSource && section !== 'settings' ? <button className="br-back-button" onClick={() => setReadingSource(null)}><ArrowLeft size={17} />返回简报</button> : <div><h1>{section === 'settings' ? '简报设置' : savedOnly ? '简报收藏' : 'AI 简报'}</h1><p>{section === 'settings' ? '关注话题、自动生成与阅读风格' : loading ? '正在读取简报' : period ? savedOnly ? '跨周期保存的内容与原始出处' : `${period.label}${period.is_current ? ' · 本期进行中' : ''}` : '按关注话题阅读节目'}</p></div>}</div></header>
     <main className="br-main">
-      {section === 'settings' && <BriefingSettings interests={interests} error={preferencesError} autoPeriod={autoPeriod} onAutoPeriod={next => updatePreferences(interests, next)} saving={savingInterests || loading} onChange={next => updatePreferences(next, autoPeriod)} layout={layout} layouts={LAYOUTS} onLayout={updateLayout} modeName={info.name} prompt={prompt} inputDescription={inputDescription} report={report} period={period} working={working} hasMaterials={hasMaterials} onGenerate={target => { generate('modes', target === 'current' ? mode : 'all'); onSectionChange('reports'); }} onBack={() => onSectionChange('reports')} />}
+
       {section !== 'settings' && !savedOnly && !readingSource && <>
         <BriefingPeriodBar period={period} periods={snapshot?.periods || []} periodType={periodScope.type} loading={loading} onPeriodType={type => setPeriodScope({ owner: userId, type, start: null })} onPeriod={item => setPeriodScope({ owner: userId, type: periodScope.type, start: item.start })} onMaterials={() => setMaterialsOpen(true)} onCurrent={() => setPeriodScope({ owner: userId, type: periodScope.type, start: currentPeriodStart(periodScope.type) })} />
         <div className="br-toolbar br-modes-toolbar"><nav className="br-content-tabs" aria-label="五种内容模式">{modes.map(item => <button key={item.id} className={mode === item.id ? 'is-active' : ''} aria-pressed={mode === item.id} onClick={() => { setMode(item.id); viewRef.current?.scrollTo({ top: 0 }); }}>{item.name}</button>)}</nav><div className="br-toolbar-actions">
-          <button className="br-text-button" onClick={() => onSectionChange('settings')}><Settings size={16} />简报设置</button>
+          <button className="br-text-button" onClick={() => onOpenSettings(readingContext())}><Settings size={16} />应用设置</button>
           {report && <button className="br-button br-export" onClick={openPreview}>导出 PDF</button>}
         </div></div>
         <div className="br-filter-bar"><nav className="br-topic-filters" aria-label="按主题筛选内容"><span className="br-content-filter-label">报告标签</span><button className={!selectedTag ? 'is-active' : ''} aria-pressed={!selectedTag} onClick={() => setSelectedTag('')}>全部</button>{TOPIC_TAGS.map(tag => { const count = allItems.filter(card => card.topic_tags?.includes(tag) && (!savedOnly || isSaved(card))).length; return <button key={tag} className={selectedTag === tag ? 'is-active' : ''} aria-pressed={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? '' : tag)}>{tag}<small>{count}</small></button>; })}</nav></div>
         {report && <div className="br-filter-result" aria-live="polite"><span>{selectedTag ? `${selectedTag} · ` : ''}{savedOnly ? '收藏 · ' : ''}{filteredItems.length} 条内容 · {matchingSourceCount} 期节目</span>{selectedTag && <button className="br-text-button" onClick={() => setSelectedTag('')}>清除筛选</button>}</div>}
       </>}
       {error && <div className="br-notice br-notice-error" role="alert"><AlertCircle size={17} /><span>{error}</span><button className="br-text-button" onClick={() => { setError(''); reload().catch(err => setError(err.message || '重新加载失败。')); }}>重新加载</button><button className="br-icon-button" onClick={() => setError('')} aria-label="关闭提示"><X size={16} /></button></div>}
-      {section !== 'settings' && !savedOnly && !readingSource && report?.analysis?.partial && <div className="br-notice" role="status"><AlertCircle size={17} /><span>已跳过 {report.analysis.rejected_items} 条未通过校验的内容。{report.analysis.skipped_chunks > 0 ? `另有 ${report.analysis.skipped_chunks} 个分析分块未完成，可复用已完成内容继续生成。` : '其余内容已保留，原话仍可查看出处。'}</span>{report.analysis.skipped_chunks > 0 && <button className="br-text-button" disabled={working || savingInterests} onClick={() => generate('modes', mode)}>补跑未完成部分</button>}</div>}
-      {section !== 'settings' && !savedOnly && !readingSource && !report && snapshot?.extraction?.completed_chunks > 0 && <div className="br-notice" role="status"><span>已保存 {snapshot.extraction.completed_chunks} 段摘录，再次生成会从已有记录继续。</span><button className="br-text-button" disabled={working || savingInterests} onClick={() => generate('modes', mode)}>继续生成当前模式</button></div>}
+      {section !== 'settings' && !savedOnly && !readingSource && report?.analysis?.partial && <div className="br-notice" role="status"><AlertCircle size={17} /><span>已跳过 {report.analysis.rejected_items} 条未通过校验的内容。{report.analysis.skipped_chunks > 0 ? `另有 ${report.analysis.skipped_chunks} 个分析分块未完成，可复用已完成内容继续生成。` : '其余内容已保留，原话仍可查看出处。'}</span>{report.analysis.skipped_chunks > 0 && <button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>补跑未完成部分</button>}</div>}
+      {section !== 'settings' && !savedOnly && !readingSource && !report && snapshot?.extraction?.completed_chunks > 0 && <div className="br-notice" role="status"><span>已保存 {snapshot.extraction.completed_chunks} 段摘录，再次生成会从已有记录继续。</span><button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>继续生成当前模式</button></div>}
       {working && <div className="br-task-status" role="status"><div><Loader2 size={16} className="br-spinning" /><strong>{task?.kind === 'reading' ? '正在解读这期节目' : task?.mode === 'all' ? '正在生成五种内容模式' : `正在生成${modes.find(item => item.id === task?.mode)?.name || '简报'}`}</strong><span>{progress?.progress_message || progress?.message || '已提交任务'}</span></div><progress max="100" value={progress?.progress || 0} />{pollError && <p>{pollError}</p>}</div>}
       {section !== 'settings' && (readingSource ? <EpisodeReading data={readingData} loading={readingLoading} error={readingError} working={working} feeds={feeds} onGenerate={() => generate('reading', readingSource)} onSource={setSelection} onListen={onListen} onRetry={retryReading} onEvidence={setEvidenceSelection} /> : savedOnly ? <>
         <div className="br-toolbar"><span>{favorites.pagination.total} 条收藏 · 跨全部周期</span><label className="br-style-control">内容类型<select aria-label="筛选收藏内容类型" value={favoriteMode} onChange={event => setFavoriteMode(event.target.value)}><option value="">全部内容</option>{MODES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
         <section className={`br-quote-layout br-layout-${layout}`} aria-label="跨周期简报收藏"><div className={layout === 'paper' ? 'br-paper-items' : layout === 'newspaper' ? 'br-newspaper-items' : ''}>{favorites.data.map(favorite => <div key={favorite.item_id}><p className="br-field-label">{favorite.report.period?.label || favorite.report.period?.start} · {favorite.report.title}</p><Excerpt {...excerptProps} card={favorite.item} sources={favorite.report.sources || []} savedQuotes={[favorite.item_id]} onToggleQuote={() => toggleQuote(favorite.item_id, favorite.report_id, true)} onRead={sourceId => { setFavoriteReadingSources(favorite.report.sources || []); readEpisode(sourceId); }} onEvidence={item => setEvidenceSelection({ ...item, sources: favorite.report.sources || [] })} /></div>)}</div></section>
         {!favorites.loading && !favorites.error && !favorites.data.length && <div className="br-empty"><h2>还没有收藏的内容</h2><p>阅读简报时点击爱心，即可保存内容和出处。</p><button className="br-button" onClick={() => onSectionChange('reports')}>阅读简报</button></div>}
         <ListPagination list={favorites} />
-      </> : loading ? <div className="br-loading"><Loader2 size={20} className="br-spinning" />读取已保存的简报</div> : !report ? <div className="br-empty"><h2>{!period?.total_count ? '这个周期没有节目' : !hasMaterials ? '这个周期还没有可分析的文稿' : `这个周期尚未生成${info.name}`}</h2><p>{!period?.total_count ? '可以滑动到其他周或月份查看。' : !hasMaterials ? '节目获得正文或转录后，才能按关注话题筛选和分析。' : `${period?.label || ''}，先按关注话题筛选正文，再整理${info.name}。`}</p>{hasMaterials && <><button className="br-button br-button-primary" disabled={working || savingInterests} onClick={() => generate('modes', mode)}>生成当前模式</button><button className="br-button br-generate-all" disabled={working || savingInterests} onClick={() => generate('modes', 'all')}>生成五种模式</button></>}</div> : <>
+      </> : loading ? <div className="br-loading"><Loader2 size={20} className="br-spinning" />读取已保存的简报</div> : !report ? <div className="br-empty"><h2>{!period?.total_count ? '这个周期没有节目' : !hasMaterials ? '这个周期还没有可分析的文稿' : `这个周期尚未生成${info.name}`}</h2><p>{!period?.total_count ? '可以滑动到其他周或月份查看。' : !hasMaterials ? '节目获得正文或转录后，才能按关注话题筛选和分析。' : `${period?.label || ''}，先按关注话题筛选正文，再整理${info.name}。`}</p>{hasMaterials && <><button className="br-button br-button-primary" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>生成当前模式</button><button className="br-button br-generate-all" disabled={working || !canFavorite} onClick={() => generate('modes', 'all')}>生成五种模式</button></>}</div> : <>
         {!['paper', 'newspaper'].includes(layout) && <header className="br-mode-intro"><h2>{info.name}</h2>{info.description && <p>{info.description}</p>}</header>}
         <section className={`br-quote-layout br-layout-${layout}`} aria-label={`${info.name} · ${LAYOUTS.find(item => item.id === layout).name}排版`}>
           {['paper', 'newspaper'].includes(layout) && <header className="br-paper-heading"><div><span>PodMaster · AI 简报</span><h2>{info.name}</h2></div><span>{period?.label || dateText(report.generated_at)}</span></header>}
@@ -516,7 +509,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
         </section>
         {filteredItems.length > 6 && <div className="br-expand-more"><button className="br-button" aria-expanded={showAll} onClick={() => setShowAll(current => !current)}>{showAll ? '收起，先看前 6 条' : `展开其余 ${filteredItems.length - 6} 条`}<ChevronDown size={14} /></button></div>}
         {!filteredItems.length && <div className="br-empty"><h2>{savedOnly ? '当前筛选中还没有收藏' : selectedTag ? `没有 ${selectedTag} 相关内容` : '这次没有符合主题的内容'}</h2><p>{savedOnly ? '点击内容下方的心形即可收藏。' : selectedTag ? '可切换主题标签或清除筛选。' : '可以调整关注主题后重新生成。'}</p></div>}
-        <footer className="br-edition-footer"><span>生成于 {dateText(report.generated_at)}</span><button className="br-text-button" disabled={working || savingInterests} onClick={() => generate('modes', mode)}>重新生成当前模式</button></footer>
+        <footer className="br-edition-footer"><span>生成于 {dateText(report.generated_at)}</span><button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', 'all')}>生成五种模式</button><button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>重新生成当前模式</button></footer>
       </>)}
     </main>
     {evidenceSelection && <BriefingQuotePopover selection={evidenceSelection} sources={evidenceSelection.sources || sources} onClose={closeEvidence} onRead={readEpisode} onListen={onListen} onSource={setSelection} />}
