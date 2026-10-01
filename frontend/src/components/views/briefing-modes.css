@@ -221,24 +221,36 @@
 .br-reading-point-content p { margin: 0; color: #b0b0be; font-size: 17px; line-height: 1.85; }
 .br-reading-point-content > .br-evidence-toggle { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; padding: 4px 0; border: 0; background: none; color: #bda8df; font-size: 14px; }
 .br-quote-backdrop { justify-content: center; align-items: center; padding: 24px; background: #07070b75; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
-.br-quote-popover { --br-light-x: 50%; --br-light-y: 20%; --br-tilt-x: 0deg; --br-tilt-y: 0deg; position: relative; display: flex; flex-direction: column; width: min(650px, 100%); max-height: 88vh; overflow: hidden; border: 1px solid #ffffff23; border-radius: 18px; background: #1c1b23e8; color: #ece8f3; box-shadow: 0 22px 90px #0009, inset 0 1px 0 #ffffff0c; backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); transform: perspective(1100px) rotateX(var(--br-tilt-x)) rotateY(var(--br-tilt-y)); transition: transform 140ms ease-out; animation: br-quote-arrive 180ms ease-out; }
+.br-quote-popover { --br-light-x: 50%; --br-light-y: 20%; --br-tilt-x: 0deg; --br-tilt-y: 0deg; position: relative; display: flex; flex-direction: column; width: min(650px, 100%); height: min(560px, calc(100dvh - 48px)); box-sizing: border-box; overflow: hidden; border: 1px solid #ffffff23; border-radius: 18px; background: #1c1b23e8; color: #ece8f3; box-shadow: 0 22px 90px #0009, inset 0 1px 0 #ffffff0c; backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); transform: perspective(1100px) rotateX(var(--br-tilt-x)) rotateY(var(--br-tilt-y)); transition: transform 140ms ease-out; animation: br-quote-arrive 180ms ease-out; }
 .br-quote-popover::before { position: absolute; content: ''; inset: 0; pointer-events: none; background: radial-gradient(250px circle at var(--br-light-x) var(--br-light-y), #ffffff0b, transparent 75%); }
-.br-quote-popover-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; padding: 25px 28px 20px; border-bottom: 1px solid #ffffff0d; }
+.br-quote-popover-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; height: 108px; box-sizing: border-box; padding: 20px 28px 16px; border-bottom: 1px solid #ffffff0d; }
 .br-quote-popover-heading > div { min-width: 0; }
-.br-quote-popover-heading span { display: block; color: #9d91ad; font-size: 12px; margin-bottom: 8px; letter-spacing: .08em; }
-.br-quote-popover-heading h2 { margin: 0; color: #d3c9de; font-size: 17px; font-weight: 500; line-height: 1.65; }
-.br-quote-popover-body { position: relative; flex: 1; min-height: 0; max-height: calc(88vh - 190px); overflow-y: auto; padding: 25px 30px 28px; scrollbar-width: thin; scrollbar-color: #534a61 transparent; }
-.br-quote-popover-heading, .br-quote-popover-footer { flex-shrink: 0; }
+.br-quote-popover-heading span { display: block; color: #9d91ad; font-size: 12px; line-height: 1.2; margin-bottom: 6px; letter-spacing: .08em; }
+.br-quote-popover-heading h2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: #d3c9de; font-size: 17px; font-weight: 500; line-height: 1.55; overflow-wrap: anywhere; }
+.br-quote-popover-body { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 10px 28px 18px; scrollbar-width: thin; scrollbar-color: #534a61 transparent; }
+.br-quote-popover-body:focus-visible { outline: 1px solid #a48bbd; outline-offset: -4px; }
+.br-quote-popover-body.has-more-text { mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent); }
+.br-quote-popover-heading, .br-quote-tools, .br-quote-attribution, .br-quote-scroll-hint, .br-quote-popover-footer { flex-shrink: 0; }
+.br-quote-reading { display: flex; flex-direction: column; justify-content: center; min-height: 100%; }
+.br-quote-tools { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 46px; padding: 0 28px; }
+.br-quote-language-label { color: #b7a8c6; font-size: 13px; }
+.br-quote-mark-tools { display: flex; align-items: center; gap: 11px; }
+.br-quote-mark-hint { color: #95889f; font-size: 13px; }
+.br-quote-mark-tools button { border: 0; padding: 4px 0; background: none; color: #c8b2df; font-size: 13px; cursor: pointer; }
+.br-quote-mark-tools button:disabled { color: #6f657b; cursor: default; }
+.br-quote-popover .br-quote-underline { color: inherit; background: transparent; text-decoration: underline; text-decoration-color: #bea0d9; text-decoration-thickness: 1.5px; text-underline-offset: .22em; text-decoration-skip-ink: auto; }
+.br-quote-scroll-hint { position: relative; height: 20px; padding: 0 28px; color: #95889f; font-size: 13px; line-height: 20px; text-align: right; }
 .br-quote-context { margin: 0 0 15px; color: #a39baa; font-size: 14px; line-height: 1.8; }
-.br-quote-language { display: flex; gap: 16px; margin-bottom: 15px; }
+.br-quote-language { display: flex; gap: 16px; }
 .br-quote-language button { padding: 0 0 4px; border: 0; border-bottom: 1px solid transparent; background: none; color: #82768f; font-size: 13px; }
 .br-quote-language button.is-active { color: #c3aedb; border-bottom-color: #a88bbf; }
-.br-quote-popover blockquote { margin: 0; color: #eee9f3; font-size: 21px; line-height: 1.9; font-weight: 400; overflow-wrap: anywhere; }
+.br-quote-popover blockquote { margin: 0; color: #eee9f3; font-size: 21px; line-height: 1.9; font-weight: 400; overflow-wrap: anywhere; white-space: pre-line; }
 .br-quote-popover blockquote[lang='en'] { font-size: 18px; line-height: 1.85; }
-.br-quote-attribution { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 23px; color: #8e819d; font-size: 13px; line-height: 1.7; }
+.br-quote-attribution { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 5px; height: 76px; box-sizing: border-box; padding: 12px 28px; color: #8e819d; font-size: 13px; line-height: 1.7; }
+.br-quote-byline { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.br-quote-byline > *, .br-quote-attribution > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .br-quote-attribution strong { font-weight: 500; color: #beb1ce; }
-.br-quote-attribution > span:last-child { flex-basis: 100%; }
-.br-quote-popover-footer { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 19px 28px 21px; border-top: 1px solid #ffffff0d; }
+.br-quote-popover-footer { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; height: 76px; box-sizing: border-box; padding: 17px 28px; border-top: 1px solid #ffffff0d; }
 .br-quote-links { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .br-quote-links .br-text-button { display: inline-flex; align-items: center; gap: 6px; font-size: 13px !important; color: #c4acdc !important; }
 .br-quote-pagination { display: flex; align-items: center; gap: 8px; margin-left: auto; color: #9b8eac; font-size: 12px; }
@@ -272,18 +284,46 @@
   .br-reading-point-content { gap: 15px; }
   .br-reading-point-content p { font-size: 16px; }
   .br-quote-backdrop { padding: 16px; }
-  .br-quote-popover { border-radius: 14px; max-height: 86vh; }
-  .br-quote-popover-heading { padding: 21px 21px 17px; gap: 12px; }
+  .br-quote-popover { border-radius: 14px; height: min(560px, calc(100dvh - 32px)); }
+  .br-quote-popover-heading { height: 104px; padding: 18px 21px 15px; gap: 12px; }
   .br-quote-popover-heading h2 { font-size: 16px; }
-  .br-quote-popover-body { min-height: 0; max-height: calc(86vh - 210px); padding: 21px; }
+  .br-quote-popover-body { padding: 10px 21px 16px; }
+  .br-quote-tools { padding: 0 21px; gap: 12px; }
+  .br-quote-language { gap: 12px; }
+  .br-quote-mark-hint { display: none; }
+  .br-quote-attribution { padding: 12px 21px; }
+  .br-quote-scroll-hint { padding: 0 21px; }
   .br-quote-popover blockquote { font-size: 19px; line-height: 1.85; }
-  .br-quote-popover-footer { padding: 17px 21px; gap: 12px; }
+  .br-quote-popover-footer { height: 98px; padding: 13px 21px; gap: 12px; }
   .br-quote-links { gap: 11px; }
   .br-materials-backdrop { padding: 14px; }
   .br-materials-modal { max-height: 89vh; }
   .br-materials-list { padding: 0 20px 10px; }
   .br-materials-list h3 { font-size: 16px; }
   .br-pdf-toolbar { flex-wrap: wrap; }
+}
+@media (max-height: 560px) {
+  .br-quote-popover-heading { height: 84px; padding-top: 10px; padding-bottom: 10px; }
+  .br-quote-popover-heading h2 { font-size: 16px; line-height: 1.4; }
+  .br-quote-tools { height: 40px; }
+  .br-quote-attribution { height: 60px; padding-top: 6px; padding-bottom: 6px; }
+  .br-quote-popover-footer { height: 60px; padding-top: 9px; padding-bottom: 9px; gap: 8px; }
+}
+@media (max-height: 560px) and (max-width: 600px) {
+  .br-quote-popover-footer { height: 86px; }
+}
+@media (max-height: 420px) {
+  .br-quote-popover-heading { height: 44px; padding-top: 10px; padding-bottom: 10px; }
+  .br-quote-popover-heading span { display: none; }
+  .br-quote-popover-heading h2 { -webkit-line-clamp: 1; }
+  .br-quote-tools { height: 32px; }
+  .br-quote-popover-body { padding-top: 6px; padding-bottom: 6px; }
+  .br-quote-scroll-hint { height: 16px; font-size: 12px; line-height: 16px; }
+  .br-quote-attribution { height: 44px; gap: 0; padding-top: 0; padding-bottom: 0; }
+  .br-quote-popover-footer { height: 44px; padding-top: 4px; padding-bottom: 4px; gap: 4px; }
+}
+@media (max-height: 420px) and (max-width: 600px) {
+  .br-quote-popover-footer { height: 64px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .br-period-track { scroll-behavior: auto; }
