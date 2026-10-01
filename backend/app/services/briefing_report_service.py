@@ -188,6 +188,7 @@ class BriefingReportService:
             return sources
 
         def enrich(db):
+            from ..config import Config
             episodes = {str(ep["_id"]): ep for ep in db.episodes.find({"_id": {"$in": ids}}, {"feed_id": 1, "image_url": 1, "image": 1, "link": 1, "guid": 1})}
             feed_ids = [ObjectId(ep["feed_id"]) for ep in episodes.values() if ObjectId.is_valid(ep.get("feed_id"))]
             feeds = {str(feed["_id"]): feed for feed in db.feeds.find({"_id": {"$in": feed_ids}}, {"image_url": 1, "image": 1})}
@@ -197,6 +198,12 @@ class BriefingReportService:
                 source["image"] = episode.get("image_url") or episode.get("image") or feed.get("image_url") or feed.get("image") or source["image"]
                 source["feed_id"] = str(episode["feed_id"]) if episode.get("feed_id") else source["feed_id"]
                 source["guid"] = episode.get("guid", source["guid"])
+                source["feed_image"] = feed.get("image_url") or feed.get("image") or ""
+                video = re.fullmatch(r"youtube:([A-Za-z0-9_-]{11})", source["guid"] or "")
+                if video:
+                    filename = f"yt_{video.group(1)}.jpg"
+                    if (Path(Config.COVERS_DIR) / filename).is_file():
+                        source["image"] = f"/api/media/covers/{filename}"
                 source["link"] = episode.get("link") or source["url"]
         if has_app_context() and hasattr(current_app, "db"):
             enrich(current_app.db)
@@ -211,7 +218,8 @@ class BriefingReportService:
             return None
         path = self.root / "reports" / f"{report_id}.json"
         if not path.exists():
-            return None
+            from .briefing_reading_service import BriefingReadingService
+            return BriefingReadingService(owner_id=self.owner_id, report_service=self).report(report_id)
         report = read_json(path)
         return report if report.get("owner_id") in (None, self.owner_id) else None
 
@@ -230,7 +238,9 @@ class BriefingReportService:
         extraction = self._extraction_status(corpus)
         search_available = self._search_available()
         saved_notes = (self.lab.root / "report-web-context.json").exists()
-        return {"corpus": {"id": identifier, "sources": sources, "characters": sum(len(source["full_text"]) for source in corpus["sources"]), "generated_at": corpus.get("generated_at")}, "variants": VARIANTS, "reports": reports, "extraction": extraction, "diagnostics": {**corpus.get("diagnostics", {}), "search_available": search_available, "saved_background_available": saved_notes, "search_mode": "configured_search" if search_available else "saved_primary_source_notes" if saved_notes else "disabled"}}
+        from .briefing_reading_service import BriefingReadingService
+        edition = BriefingReadingService(owner_id=self.owner_id, report_service=self)._latest("editions", identifier)
+        return {"corpus": {"id": identifier, "sources": sources, "characters": sum(len(source["full_text"]) for source in corpus["sources"]), "generated_at": corpus.get("generated_at")}, "variants": VARIANTS, "reports": reports, "edition": edition, "extraction": extraction, "diagnostics": {**corpus.get("diagnostics", {}), "search_available": search_available, "saved_background_available": saved_notes, "search_mode": "configured_search" if search_available else "saved_primary_source_notes" if saved_notes else "disabled"}}
 
     def _search_available(self):
         from flask import current_app, has_app_context

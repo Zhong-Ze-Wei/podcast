@@ -178,3 +178,70 @@ def test_two_page_episode_report_selects_at_least_four_actual_episodes():
     assert "本次材料索引" in content
     first_page = content.split('data-page="1"', 1)[1].split('data-page="2"', 1)[0]
     assert 'class="card background-card"' not in first_page
+
+
+@pytest.mark.parametrize("pages", [1, 2])
+def test_reading_edition_exports_all_five_quotes_with_short_context(pages):
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:5]
+    for quote in quotes:
+        quote.update(title="", brief="谈实际工作中的责任边界。")
+    report.update(reading_edition=True, sections=[{"id": "quotes", "items": quotes}])
+
+    content = render_report_html(report, pages=pages, base_url="http://localhost:3002")
+    assert ReportParser(content).counts == {"selected": 5, "omitted": 0}
+    assert 'class="reading-edition"' in content
+    assert "<h2></h2>" not in content
+    assert quotes[0]["context"] not in content
+    assert "谈实际工作中的责任边界。" in content
+    pdf = create_report_pdf(report, pages=pages, base_url="http://localhost:3002")
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == pages
+
+
+def test_reading_two_pages_adds_exact_originals_and_material_sources():
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:3]
+    for index, quote in enumerate(quotes):
+        quote.update(title="", brief="谈工具变化对工作的影响。",
+                     quote=f"The exact original quotation from the programme, with its full sentence preserved {index}.",
+                     translation="工具正在改变工作，原话需要结合具体语境阅读。")
+    report.update(reading_edition=True, sections=[{"id": "quotes", "items": quotes}],
+                  threads=[{"text": "两期节目都谈到了学习工具所需的投入。", "supporting_item_ids": [quotes[0]["id"], quotes[1]["id"]]}])
+
+    content = render_report_html(report, pages=2)
+    first_page, second_page = content.split('data-page="2"', 1)
+    assert all(quote["translation"] in first_page and quote["quote"] not in first_page for quote in quotes)
+    assert all(quote["quote"] in second_page for quote in quotes)
+    assert "原话对照与材料来源" in second_page
+    assert "共同谈到 · AI 归纳" in second_page
+    assert second_page.index("本次材料索引") < second_page.index('class="columns"')
+    assert ReportParser(content).counts == {"selected": 3, "omitted": 0}
+    pdf = create_report_pdf(report, pages=2)
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == 2
+
+
+def test_reading_original_that_cannot_fit_is_omitted_whole_with_count():
+    report = example_report("quotes")
+    quote = next(card for card in report["sections"][0]["items"] if card["kind"] == "quote")
+    quote.update(title="", brief="谈实际工作的责任边界。", quote="A long complete quotation cannot be cut in the middle. " * 300,
+                 translation="这句话的中文译文可以在首页完整显示。")
+    report.update(reading_edition=True, sections=[{"id": "quotes", "items": [quote]}])
+
+    content = render_report_html(report, pages=2)
+    assert ReportParser(content).counts == {"selected": 1, "omitted": 0}
+    assert quote["quote"] not in content
+    assert "英文原话对照 0/1 句，完整原话见文稿" in content
+
+
+def test_reading_pdf_omits_common_thread_when_its_evidence_cannot_fit():
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:3]
+    quotes[0]["quote"] *= 300
+    thread_text = "这句话需要两期原话共同支撑，不能在只选到一期时出现。"
+    report.update(reading_edition=True, sections=[{"id": "quotes", "items": quotes}],
+                  threads=[{"text": thread_text, "supporting_item_ids": [quotes[0]["id"], quotes[1]["id"]]}])
+
+    content = render_report_html(report, pages=2)
+    assert ReportParser(content).counts == {"selected": 2, "omitted": 1}
+    assert quotes[0]["quote"] not in content
+    assert thread_text not in content
