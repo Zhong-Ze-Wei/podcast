@@ -11,6 +11,7 @@ import {
 } from './components/views/settings/AppSettingsPanel';
 // Layout components
 import Sidebar from './components/layout/Sidebar';
+import MobileHeader from './components/layout/MobileHeader';
 // View components
 import EpisodeDetailView from './components/views/EpisodeDetailView';
 import FeedDetailView from './components/views/FeedDetailView';
@@ -81,6 +82,7 @@ export default function App() {
   const [playbackNotice, setPlaybackNotice] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
   const [queuedTask, setQueuedTask] = useState(null);
+  const [taskOpenRequest, setTaskOpenRequest] = useState(0);
   const currentUserIdRef = useRef(currentUser?.id);
   currentUserIdRef.current = currentUser?.id;
   // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
@@ -579,7 +581,7 @@ export default function App() {
 
   return (
     <TasksProvider key={currentUser.id} pollIntervalMs={taskPollSeconds * 1000} onTaskComplete={handleTaskComplete} queuedTask={queuedTask}>
-    <div className="flex h-screen bg-black text-zinc-100 font-sans selection:bg-indigo-500/30 overflow-hidden">
+    <div className="app-shell flex bg-black text-zinc-100 font-sans selection:bg-indigo-500/30 overflow-hidden" style={{ '--player-height': currentPlaying ? 'var(--player-size)' : '0px' }}>
       <Sidebar
         open={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
@@ -607,13 +609,15 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 bg-black relative">
+      <div className="app-main flex-1 flex flex-col min-w-0 bg-black relative">
+        <MobileHeader mode={viewMode} onOpenMenu={() => setMobileSidebarOpen(true)} onOpenTasks={() => setTaskOpenRequest(value => value + 1)} />
         <div className="absolute top-0 left-0 w-full h-96 bg-indigo-900/10 pointer-events-none blur-3xl rounded-full translate-y-[-50%]"></div>
 
-        <div className="absolute top-4 right-8 z-20">
+        <div className="absolute top-4 right-8 z-20 hidden md:block">
           <LanguageSwitcher />
         </div>
 
+        <div className="app-page-content">
         {/* AI简报模式 */}
         {view.startsWith('briefing') ? (
           <BriefingReportsView
@@ -731,6 +735,7 @@ export default function App() {
             onPlay={handlePlay}
           />
         )}
+        </div>
       </div>
 
       {/* 隐藏的audio元素 */}
@@ -743,14 +748,14 @@ export default function App() {
       />
 
       {actionNotice && (
-        <div role={actionNotice.error ? 'alert' : 'status'} className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border ${actionNotice.error ? 'border-red-800 text-red-300' : 'border-zinc-700'} bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+        <div role={actionNotice.error ? 'alert' : 'status'} className={`app-notice fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border ${actionNotice.error ? 'border-red-800 text-red-300' : 'border-zinc-700'} bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
           <span className="flex-1">{actionNotice.message}</span>
           <button onClick={() => setActionNotice(null)} aria-label="关闭操作提示" className="text-zinc-400">关闭</button>
         </div>
       )}
 
       {playbackNotice && (
-        <div role="status" className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+        <div role="status" className={`app-notice fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
           <span className="flex-1">{playbackNotice.message}</span>
           {playbackNotice.url && <a href={playbackNotice.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 shrink-0">去原平台</a>}
           <button onClick={() => setPlaybackNotice(null)} aria-label="关闭播放提示" className="text-zinc-400">关闭</button>
@@ -767,6 +772,7 @@ export default function App() {
 
       {/* 任务进度面板 */}
       <TaskPanel
+        openRequest={taskOpenRequest}
         onNavigate={({ type, id }) => {
           if (type === 'episode') openEpisode(id);
           if (type === 'feed') openFeed(id);

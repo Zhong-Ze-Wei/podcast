@@ -13,12 +13,12 @@ const ViewToolbar = ({
   const { t } = useTranslation();
 
   return (
-    <div className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm px-8 py-4 border-b border-zinc-800/50">
+    <div className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm px-4 md:px-8 py-4 border-b border-zinc-800/50">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-medium text-zinc-300 truncate">{count}</p>
           {description && (
-            <p className="mt-1 text-xs text-zinc-500 truncate">{description}</p>
+            <p className="view-toolbar-description mt-1 text-xs text-zinc-500 truncate">{description}</p>
           )}
         </div>
 

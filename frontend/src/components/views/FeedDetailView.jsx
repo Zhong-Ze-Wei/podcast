@@ -42,18 +42,18 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, onEpisodeClic
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* 头部区域 */}
-      <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
-        <div className="flex items-start gap-6">
+      <div className="px-4 md:px-8 py-4 md:py-6 border-b border-zinc-800 bg-zinc-900/20">
+        <div className="flex items-start gap-3 md:gap-6">
           <button onClick={onBack} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
             <ChevronLeft size={24} />
           </button>
 
           {/* 封面 */}
-          <FeedImage feed={feed} className="w-32 h-32 rounded-2xl object-cover shadow-xl shadow-black/50" />
+          <FeedImage feed={feed} className="hidden md:block w-32 h-32 rounded-2xl object-cover shadow-xl shadow-black/50" />
 
           {/* 信息区 */}
           <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold text-white mb-2 leading-tight">{feed.title}</h1>
+            <h1 className="text-xl md:text-3xl font-bold text-white mb-2 leading-tight">{feed.title}</h1>
 
             <div className="flex items-center gap-3 mb-4 text-sm">
               <span className="text-indigo-400 font-semibold">{feed.author || t('feed.unknownAuthor')}</span>
@@ -66,7 +66,7 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, onEpisodeClic
             </div>
 
             {/* 操作按钮 */}
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-3 mb-4">
               <button
                 onClick={playLatest}
                 disabled={feed.episode_count === 0}
@@ -115,7 +115,7 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, onEpisodeClic
         </div>
 
         {/* 统计信息 */}
-        <div className="flex items-center gap-6 mt-6 ml-14 text-sm text-zinc-500">
+        <div className="hidden md:flex items-center gap-6 mt-6 ml-14 text-sm text-zinc-500">
           <span className="flex items-center gap-2">
             <Rss size={14} className="text-indigo-400" />
             {feed.episode_count} {t('episode.episodes')}
@@ -148,7 +148,7 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, onEpisodeClic
             <Loader2 className="animate-spin text-indigo-500" size={32} />
           </div>
         ) : (
-          <div className={`p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {episodes.map(ep => (
               <EpisodeCard
                 key={ep.id}

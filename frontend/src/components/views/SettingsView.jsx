@@ -73,7 +73,7 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
+        <div className="settings-tabs flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
           {tabs.map(tab => (
             <button
               key={tab.id}

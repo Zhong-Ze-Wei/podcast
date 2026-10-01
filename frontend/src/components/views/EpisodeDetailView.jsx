@@ -437,11 +437,11 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden animate-in">
       <div className="px-4 md:px-8 py-6 border-b border-zinc-800 flex items-start gap-4 md:gap-6 bg-zinc-900/20">
-        <button onClick={onBack} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
+        <button onClick={onBack} aria-label="返回原页面" className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
           <ChevronLeft size={24} />
         </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="episode-header-meta flex items-center gap-3 mb-2">
             <span className="text-indigo-400 text-sm font-semibold tracking-wide uppercase">
               {episode.feed_title || episode.feed?.title}
             </span>
@@ -460,13 +460,14 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             <div className="flex gap-2">
               <button
                 onClick={generateTranscript}
+                aria-label={t('detail.generateTranscript')}
                 disabled={!episode.actions?.transcribe?.allowed || loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlyTranscribing
                     ? 'border-purple-500 bg-purple-900/30 text-purple-400 cursor-not-allowed'
                     : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : t('detail.generateTranscript'))}
+                title={!episode.actions?.transcribe?.allowed ? actionReasons[episode.actions?.transcribe?.reason_code] : isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : t('detail.generateTranscript'))}
               >
                 {isCurrentlyDownloading ? (
                   <div className="animate-spin"><Download size={20} /></div>
@@ -478,6 +479,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
+                aria-label={t('detail.generateSummary')}
                 disabled={!canSummarize || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
@@ -486,7 +488,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       ? 'border-zinc-800 text-zinc-600 cursor-not-allowed'
                       : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={!aiEnabled ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
+                title={!canSummarize ? actionReasons[episode.actions?.summarize?.reason_code] : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
               >
                 {isCurrentlySummarizing ? (
                   <div className="animate-spin"><Sparkles size={20} /></div>
@@ -496,6 +498,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
             </div>
           </div>
+          {Array.from(new Set([episode.actions?.transcribe?.reason_code, episode.actions?.summarize?.reason_code].filter(reason => reason && reason !== 'ALREADY_TRANSCRIBED').map(reason => actionReasons[reason]))).map(message => <p key={message} className="mt-2 text-xs text-zinc-500">{message}</p>)}
         </div>
       </div>
 

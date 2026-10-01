@@ -47,6 +47,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
   if (viewMode === 'grid') {
     return (
       <div
+        role="button" tabIndex={0} aria-label={`打开 ${episode.title}`} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(episode); } }}
         onClick={() => onClick(episode)}
         className="group bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-2xl overflow-hidden transition-all duration-300 cursor-pointer flex flex-col hover:shadow-xl hover:shadow-black/50"
       >
@@ -54,9 +55,9 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
         <div className="relative aspect-[3/2] overflow-hidden">
           <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
           {/* 悬停播放按钮 */}
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="touch-play absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <button
-              onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
+              aria-label={`播放 ${episode.title}`} onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
               className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-black hover:scale-110 transition-transform shadow-xl"
             >
               <Play size={24} fill="currentColor" stroke="none" className="ml-1" />
@@ -77,7 +78,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
               {episode.title}
             </h3>
             <button
-              onClick={(e) => { e.stopPropagation(); onStar(episode); }}
+              aria-label={episode.is_starred ? '取消收藏节目' : '收藏节目'} onClick={(e) => { e.stopPropagation(); onStar(episode); }}
               className={`p-1 rounded transition-colors flex-shrink-0 ${episode.is_starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-yellow-400'}`}
             >
               <Star size={14} fill={episode.is_starred ? 'currentColor' : 'none'} />
@@ -98,16 +99,17 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
   // 列表视图 - 紧凑横向
   return (
     <div
-      onClick={() => onClick(episode)}
+      role="button" tabIndex={0} aria-label={`打开 ${episode.title}`} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(episode); } }}
+        onClick={() => onClick(episode)}
       className="group flex items-center gap-4 p-3 bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-xl cursor-pointer transition-all"
     >
       {/* 封面缩略图 */}
       <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
         <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover" />
         {/* 悬停播放 */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="touch-play absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
-            onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
+            aria-label={`播放 ${episode.title}`} onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
             className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-black"
           >
             <Play size={14} fill="currentColor" stroke="none" className="ml-0.5" />
@@ -130,7 +132,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
       {/* 右侧操作区 */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={(e) => { e.stopPropagation(); onStar(episode); }}
+          aria-label={episode.is_starred ? '取消收藏节目' : '收藏节目'} onClick={(e) => { e.stopPropagation(); onStar(episode); }}
           className={`p-1.5 rounded-lg transition-colors ${episode.is_starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-yellow-400'}`}
         >
           <Star size={16} fill={episode.is_starred ? 'currentColor' : 'none'} />

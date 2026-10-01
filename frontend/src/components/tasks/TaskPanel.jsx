@@ -5,6 +5,9 @@ import {
   X, Download, Mic2, Sparkles, RefreshCw, CheckCircle2,
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
 } from 'lucide-react';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import useDialogFocus from '../../hooks/useDialogFocus';
+import { shouldAutoOpenTaskPanel } from '../../utils/taskPanelPolicy';
 import { useTasks } from './TasksContext';
 import { isActiveTask, isTerminalTask, canCancelTask } from '../../utils/taskActions';
 
@@ -32,13 +35,16 @@ function readPanelSize() {
 const TaskPanel = ({
   onNavigate,
   historyWindowMinutes = 60,
-  defaultOpen = false
+  defaultOpen = false,
+  openRequest = 0
 }) => {
   const { t } = useTranslation();
   const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh } = useTasks();
   const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
   const historyTasks = allHistoryTasks.filter(task => task.completed_at && new Date(task.completed_at).getTime() > historyCutoff);
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const mobile = useMediaQuery('(max-width: 767px)');
+  const [isOpen, setIsOpen] = useState(defaultOpen && !mobile);
+  const panelRef = useRef(null);
   const [activeTab, setActiveTab] = useState('active');
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [panelSize, setPanelSize] = useState(readPanelSize);
@@ -51,16 +57,18 @@ const TaskPanel = ({
 
   useEffect(() => {
     if (!activeTasks.length) userClosedDuringActiveRef.current = false;
-    if (activeTasks.length && previousActiveCountRef.current === 0 && !userClosedDuringActiveRef.current) {
+    if (shouldAutoOpenTaskPanel({ mobile, activeCount: activeTasks.length, previousActiveCount: previousActiveCountRef.current, userClosed: userClosedDuringActiveRef.current })) {
       setIsOpen(true);
       setActiveTab('active');
     }
     previousActiveCountRef.current = activeTasks.length;
-  }, [activeTasks.length]);
+  }, [activeTasks.length, mobile]);
 
   useEffect(() => {
-    if (defaultOpen) setIsOpen(true);
-  }, [defaultOpen]);
+    if (defaultOpen && !mobile) setIsOpen(true);
+  }, [defaultOpen, mobile]);
+  useEffect(() => { if (mobile) setIsOpen(false); }, [mobile]);
+  useEffect(() => { if (openRequest) { refresh(); setIsOpen(true); } }, [openRequest, refresh]);
 
   const closePanel = () => {
     if (activeTasks.length > 0) {
@@ -68,6 +76,8 @@ const TaskPanel = ({
     }
     setIsOpen(false);
   };
+
+  useDialogFocus(panelRef, mobile && isOpen, closePanel);
 
   useEffect(() => {
     const handlePointerMove = (event) => {
@@ -168,6 +178,7 @@ const TaskPanel = ({
     switch (type) {
       case 'download': return <Download size={16} />;
       case 'transcribe': return <Mic2 size={16} />;
+      case 'briefing-report': return <Sparkles size={16} />;
       case 'summarize': return <Sparkles size={16} />;
       case 'refresh': return <RefreshCw size={16} />;
       default: return <Loader2 size={16} />;
@@ -230,7 +241,7 @@ const TaskPanel = ({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm text-zinc-200 truncate">
-              {t(`tasks.types.${task.type}`)}
+              {task.type === 'briefing-report' ? 'AI 简报' : t(`tasks.types.${task.type}`)}
             </span>
             <span className={`flex items-center gap-1 text-xs ${getStatusStyle(task.status)}`}>
               {getStatusIcon(task.status)}
@@ -290,7 +301,7 @@ const TaskPanel = ({
           {isTerminalTask(task) && (
             <button
               onClick={(event) => { event.stopPropagation(); handleDismiss(task.id); }}
-              className="p-1 text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 transition-all"
+              className="touch-action p-1 text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 transition-all"
               title={t('tasks.dismiss')}
             >
               <X size={14} />
@@ -312,16 +323,16 @@ const TaskPanel = ({
     <>
       {isOpen && (
         <div
-          className="fixed bottom-40 right-5 z-50 flex max-h-[calc(100vh-12rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/50"
+          ref={panelRef} role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-label={t('tasks.title')} className="task-panel fixed bottom-40 right-5 z-50 flex max-h-[calc(100vh-12rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/50"
           style={{ width: `${panelSize.width}px`, height: `${panelSize.height}px` }}
         >
-          <button
+          {!mobile && <button
             onPointerDown={handleResizeStart}
             className="absolute left-1 top-1 z-10 flex h-6 w-6 cursor-nwse-resize items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
             title={t('tasks.resizePanel')}
           >
             <Grip size={13} />
-          </button>
+          </button>}
           <div className="flex items-center justify-between px-4 py-3 bg-zinc-950/70 border-b border-zinc-800">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-sky-400">
@@ -338,6 +349,7 @@ const TaskPanel = ({
             </div>
             <button
               onClick={closePanel}
+              aria-label="关闭任务"
               className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
               title={t('tasks.dismiss')}
             >
@@ -396,7 +408,7 @@ const TaskPanel = ({
 
       <button
         onClick={() => { refresh(); setIsOpen(prev => !prev); }}
-        className="fixed bottom-24 right-5 z-50 h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 transition-transform hover:scale-105 hover:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
+        aria-label={isOpen ? t('tasks.closePanel') : t('tasks.openPanel')} className="task-launcher fixed bottom-24 right-5 z-50 h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 transition-transform hover:scale-105 hover:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
         title={isOpen ? t('tasks.closePanel') : t('tasks.openPanel')}
       >
         <span

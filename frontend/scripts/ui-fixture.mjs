@@ -1,11 +1,13 @@
 // 使用：node scripts/ui-fixture.mjs。仅在 127.0.0.1:3007 提供测试数据，不连接生产后端。
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
+const readingTheme = await readFile(new URL('../../backend/app/static/briefing-reading-theme.css', import.meta.url), 'utf8');
 import { createServer } from 'vite';
 
 const requests = [];
 const user = { id: 'fixture-user', username: 'fixture', email: 'fixture@example.test', role: 'admin' };
 const feeds = Array.from({ length: 36 }, (_, i) => ({ id: `feed-${i + 1}`, title: `播客 ${i + 1}：人工智能与商业的长期观察`, author: '测试播客', description: '用于验证页面分页和长标题的真实长度示例。', rss_url: `https://example.test/feed-${i + 1}`, episode_count: 80, is_favorite: false }));
-const episodes = Array.from({ length: 80 }, (_, i) => ({ id: `episode-${i + 1}`, feed_id: 'feed-1', feed_title: feeds[0].title, title: `第 ${i + 1} 期：机器人与 AI Native 产品的商业实践和长期变化`, description: '从产品设计、工程架构到商业模式的讨论。', published: new Date(Date.UTC(2026, 8, 30 - i)).toISOString(), duration: 10800, status: i % 4 === 0 ? 'transcribing' : 'transcribed', has_transcript: i % 4 !== 0, has_summary: i % 3 === 0, local_audio_url: i % 2 === 0 ? '/api/audio/sample.wav' : null, audio_url: '/api/audio/sample.wav', is_starred: i >= 70, artifacts: { local_audio: i % 2 === 0, transcript: i % 4 !== 0, summary: i % 3 === 0 }, actions: { download: { allowed: true }, transcribe: { allowed: true }, summarize: { allowed: true } }, transcription_providers: [{ id: 'official', available: false, reason_code: 'NO_OFFICIAL_TRANSCRIPT' }, { id: 'local_whisper', available: true, download_required: i % 2 !== 0 }, { id: 'local_whisperx', available: false, reason_code: 'LOCAL_RUNTIME_UNAVAILABLE' }, { id: 'assemblyai', available: false, reason_code: 'CLOUD_DISABLED' }], active_tasks: [] }));
+const episodes = Array.from({ length: 80 }, (_, i) => ({ id: `episode-${i + 1}`, feed_id: 'feed-1', feed_title: feeds[0].title, title: `第 ${i + 1} 期：机器人与 AI Native 产品的商业实践和长期变化`, description: '从产品设计、工程架构到商业模式的讨论。', published: new Date(Date.UTC(2026, 8, 30 - i)).toISOString(), duration: 10800, status: i % 4 === 0 ? 'transcribing' : 'transcribed', has_transcript: i % 4 !== 0, has_summary: i % 3 === 0, local_audio_url: i % 2 === 0 ? '/api/audio/sample.wav' : null, audio_url: '/api/audio/sample.wav', is_starred: i >= 70, artifacts: { local_audio: i % 2 === 0, transcript: i % 4 !== 0, summary: i % 3 === 0 }, actions: { download: { allowed: true }, transcribe: { allowed: true }, summarize: { allowed: true } }, transcription_providers: [{ id: 'official', available: false, reason_code: 'NO_TRANSCRIPT_URL' }, { id: 'local_whisper', available: true, download_required: i % 2 !== 0 }, { id: 'local_whisperx', available: false, reason_code: 'LOCAL_AI_NOT_INSTALLED' }, { id: 'assemblyai', available: false, reason_code: 'CLOUD_TRANSCRIPTION_DISABLED' }], active_tasks: [] }));
 episodes[1].has_transcript = false; episodes[1].artifacts.transcript = false; episodes[1].has_summary = false; episodes[1].artifacts.summary = false; episodes[1].actions.summarize = { allowed: false, reason_code: 'TRANSCRIPT_NOT_FOUND' };
 for (const episode of episodes) episode.published_at = episode.published;
 const period = { type: 'week', start: '2026-09-21', end: '2026-09-27', label: '9月21日 — 9月27日', total_count: 10, transcript_count: 10, is_current: false };
@@ -38,22 +40,28 @@ function episodeList(url, feedId) {
   if (url.searchParams.get('sort') === 'title_asc') data = [...data].sort((a, b) => a.title.localeCompare(b.title));
   return data;
 }
+function episodeForUser(item) {
+  if (user.role !== 'viewer') return item;
+  return { ...item, actions: Object.fromEntries(Object.keys(item.actions).map(action => [action, { allowed: false, reason_code: 'ROLE_DENIED' }])), transcription_providers: item.transcription_providers.map(provider => ({ ...provider, available: false, reason_code: 'ROLE_DENIED' })) };
+}
 async function api(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1:3007');
   const path = url.pathname;
   const payload = req.method === 'GET' ? {} : await body(req);
   requests.push({ method: req.method, path, params: Object.fromEntries(url.searchParams), payload });
+  if (path === '/api/audio/sample.wav') { const samples = 8000 * 30; const wav = Buffer.alloc(44 + samples * 2); wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(samples * 2, 40); res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length }); return res.end(wav); }
+  if (path === '/api/__fixture/capability') { const item = episodes.find(item => item.id === payload.id); item.actions.transcribe = { allowed: !payload.busy, reason_code: payload.busy ? 'TASK_IN_PROGRESS' : null }; item.actions.summarize = { allowed: !payload.busy && item.has_transcript, reason_code: payload.busy ? 'TASK_IN_PROGRESS' : item.has_transcript ? null : 'TRANSCRIPT_NOT_FOUND' }; return send(res, item); }
   if (path === '/api/__fixture/role') { user.role = payload.role; return send(res, user); }
   if (path === '/api/__fixture/complete-task') { const task = tasks.find(item => item.id === payload.id); task.status = payload.status || 'completed'; task.progress = 100; task.result = payload.result || {}; return send(res, task); }
   if (path === '/api/__fixture/requests') return send(res, requests);
   if (path === '/api/auth/me') return send(res, { user });
   if (path === '/api/feeds') return paginated(res, feeds, url);
-  if (/^\/api\/feeds\/[^/]+\/episodes$/.test(path)) return paginated(res, episodeList(url, path.split('/')[3]), url);
+  if (/^\/api\/feeds\/[^/]+\/episodes$/.test(path)) return paginated(res, episodeList(url, path.split('/')[3]).map(episodeForUser), url);
   if (/^\/api\/feeds\/[^/]+\/refresh$/.test(path)) { const id = `task-${++taskCounter}`; tasks.unshift({ id, type: 'refresh', feed_id: path.split('/')[3], feed_title: feeds[0].title, status: 'pending', can_cancel: true, progress: 0, created_at: new Date().toISOString() }); return send(res, { task_id: id, status: 'queued' }); }
   if (/^\/api\/feeds\/[^/]+$/.test(path)) return send(res, feeds.find(item => item.id === path.split('/')[3]));
-  if (path === '/api/episodes') return paginated(res, episodeList(url), url);
+  if (path === '/api/episodes') return paginated(res, episodeList(url).map(episodeForUser), url);
   if (/^\/api\/episodes\/[^/]+\/star$/.test(path)) { const item = episodes.find(item => item.id === path.split('/')[3]); item.is_starred = payload.starred; return send(res, item); }
-  if (/^\/api\/episodes\/[^/]+$/.test(path)) return send(res, episodes.find(item => item.id === path.split('/')[3]));
+  if (/^\/api\/episodes\/[^/]+$/.test(path)) return send(res, episodeForUser(episodes.find(item => item.id === path.split('/')[3])));
   if (path === '/api/tasks') { const statuses = url.searchParams.get('status')?.split(','); return paginated(res, tasks.filter(task => (!statuses || statuses.includes(task.status)) && (!url.searchParams.get('type') || task.type === url.searchParams.get('type')) && (!url.searchParams.get('period_start') || task.report_period?.start === url.searchParams.get('period_start')) && (!url.searchParams.get('period_type') || task.report_period?.type === url.searchParams.get('period_type')) && (!url.searchParams.get('episode_id') || task.episode_id === url.searchParams.get('episode_id'))), url); }
   if (/^\/api\/tasks\/[^/]+\/cancel$/.test(path)) { const task = tasks.find(item => item.id === path.split('/')[3]); if (!task?.can_cancel) return send(res, { message: '运行中的任务当前无法停止' }, 409); task.status = 'cancelled'; task.can_cancel = false; task.completed_at = new Date().toISOString(); return send(res, task); }
   if (/^\/api\/tasks\/[^/]+$/.test(path)) return send(res, tasks.find(item => item.id === path.split('/')[3]));
@@ -70,7 +78,7 @@ async function api(req, res) {
   if (path === '/api/briefing-reports/favorites/import') { const imported = []; const unresolved = []; for (const id of payload.ids || []) { const report = Object.values(reports).find(report => report.sections[0].items.some(item => item.id === id)); if (!report) unresolved.push(id); else { const item = report.sections[0].items.find(item => item.id === id); favorites.set(id, { item_id: id, report_id: report.id, item, report, created_at: new Date().toISOString() }); imported.push(id); } } return send(res, { imported, unresolved }); }
   if (path === '/api/briefing-reports/favorites') return paginated(res, [...favorites.values()].filter(item => (!url.searchParams.get('mode') || item.report.mode === url.searchParams.get('mode')) && (!url.searchParams.get('period_start') || item.report.period.start === url.searchParams.get('period_start')) && (!url.searchParams.get('period_type') || item.report.period.type === url.searchParams.get('period_type'))), url);
   if (path.startsWith('/api/briefing-reports/favorites/')) { const id = decodeURIComponent(path.split('/').at(-1)); if (req.method === 'DELETE') { favorites.delete(id); return send(res, { item_id: id, deleted: true }); } const report = Object.values(reports).find(report => report.id === payload.report_id); const item = report?.sections[0].items.find(item => item.id === id); if (!item) return send(res, { message: '条目不存在' }, 404); const favorite = { item_id: id, report_id: report.id, item, report, created_at: new Date().toISOString() }; favorites.set(id, favorite); return send(res, favorite); }
-  if (path === '/api/briefing-reports/reading-theme.css') { res.writeHead(200, { 'content-type': 'text/css' }); return res.end(''); }
+  if (path === '/api/briefing-reports/reading-theme.css') { res.writeHead(200, { 'content-type': 'text/css' }); return res.end(readingTheme); }
   if (path.startsWith('/api/admin/')) return send(res, {});
   return send(res, { message: `Fixture route unavailable: ${path}` }, 404);
 }
