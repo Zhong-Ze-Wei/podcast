@@ -21,6 +21,7 @@ VARIANT_NAMES = {
 KIND_NAMES = {
     "concept": "本期术语", "quote": "原话摘录", "resource": "提到的资料",
     "background": "补充背景", "episode": "节目摘录",
+    "insight": "核心提要 · AI 归纳", "connection": "跨节目比较 · AI 归纳",
 }
 RELATION_NAMES = {"mentioned": "节目提到", "recommended": "嘉宾明确推荐", "external": "补充背景"}
 RESOURCE_NAMES = {"book": "书", "article": "文章", "paper": "论文", "tool": "工具", "website": "网站", "other": "资料"}
@@ -167,6 +168,8 @@ def _card_html(item, sources, base_url, compact=False):
         relation = RELATION_NAMES.get(item.get("relation")) or item.get("relation") or relation
     if kind == "resource" and item.get("resource_kind") in RESOURCE_NAMES:
         relation = RESOURCE_NAMES[item["resource_kind"]] + " · " + relation
+    if kind == "connection":
+        relation = {"commonality": "共同点", "difference": "分歧", "complementary": "互补"}.get(item.get("relation"), "联系") + " · AI 比较"
     body = [f'<div class="card-kind">{_escape(relation)}</div>']
     if item.get("title"):
         body.append(f'<h2>{_escape(item["title"])}</h2>')
@@ -189,6 +192,15 @@ def _card_html(item, sources, base_url, compact=False):
         body.append(f'<p class="label">{_escape(" · ".join(value for value in details if value))}</p>')
     for child in item.get("children", []):
         body.append(_episode_piece(child, sources, base_url))
+    if item.get("topic_tags"):
+        body.append(f'<p class="label">{_escape(" · ".join(item["topic_tags"]))}</p>')
+    if kind == "connection":
+        # 多来源比较必须把另一方的出处带进纸面，不能只印第一期。
+        seen_sources = {item.get("source_id")}
+        for evidence in item.get("evidence", []):
+            if evidence["source_id"] not in seen_sources:
+                body.append(_source_html(evidence, sources, base_url, compact=compact))
+                seen_sources.add(evidence["source_id"])
     body.append(_source_html(item, sources, base_url, compact=compact))
     original_class = " original-quote" if item.get("original_quote") else ""
     return f'<article class="card {kind}-card{original_class}" data-card-id="{_escape(item.get("id"))}">' + "".join(body) + "</article>"
@@ -250,7 +262,7 @@ def _index_html(report, base_url):
 def _document(report, columns, selected, omitted, base_url, measurement_cards=None):
     source_map = {source.get("id"): source for source in report.get("sources", [])}
     reading_edition = report.get("reading_edition")
-    name = "原话精选" if reading_edition else VARIANT_NAMES[report["variant"]]
+    name = report["title"] if report.get("mode_report") else "原话精选" if reading_edition else VARIANT_NAMES[report["variant"]]
     title = report.get("topic") or report.get("title") or name
     coverage = report.get("coverage", {})
     source_count = coverage.get("sources", len(source_map))
@@ -262,8 +274,12 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
             "concepts": "更多术语与相关背景", "quotes": "更多原话与相关背景",
             "resources": "更多资料与嘉宾背景",
         }[report["variant"]]
-        if reading_edition:
+        if reading_edition and report.get("mode_report") and report.get("mode") == "quotes":
+            continuation = "更多原话与材料来源"
+        elif reading_edition:
             continuation = "原话对照与材料来源"
+        elif report.get("mode_report"):
+            continuation = "更多内容与材料来源"
         heading = title if page_index == 0 else continuation
         meta = f"{name} · {source_count} 篇有文稿的节目 · {date}"
         header = f'<header class="report-header"><div class="brand">PodMaster · 播客简报</div><h1>{_escape(heading)}</h1><div class="report-meta">{_escape(meta)}</div></header>'
@@ -284,6 +300,8 @@ def _document(report, columns, selected, omitted, base_url, measurement_cards=No
                 status += f" · 英文原话对照 {original_count}/{original_total} 句，完整原话见文稿"
         full = _anchor("查看完整简报与原文", base_url.rstrip("/") + "/briefing") if _safe_url(base_url) else ""
         note = "原话来自保存的文稿；译文辅助阅读。回听时间以字幕或转录段落为准。" if reading_edition else "引文来自保存的文稿；时间精度以字幕或转录段落为准。联网补充标明来源。"
+        if report.get("mode_report") and not reading_edition:
+            note = "AI 提要与比较依据保存的全文记录。证据原话见网页或文稿；回听时间以转录段落为准。"
         footer = f'<footer class="report-footer"><div class="footer-row"><span>{status} · {full}</span><span>{page_index + 1} / {len(columns)}</span></div><div>{note}</div></footer>'
         content = threads + index + body if reading_edition and page_index == 1 else body + index
         pages.append(f'<section class="report-page" data-page="{page_index + 1}">{header}{content}{footer}</section>')
@@ -404,6 +422,8 @@ def _wait_debugger_address(active_port, process):
 
 def _candidates(report, pages):
     cards = [card for section in report.get("sections", []) for card in section.get("items", [])]
+    if report.get("mode_report") and report.get("mode") != "quotes":
+        return cards, cards
     kind_order = {
         "overview": ("concept", "quote", "resource", "episode", "background"),
         "episodes": ("episode", "background"), "concepts": ("concept", "background", "resource"),
@@ -463,7 +483,10 @@ def _prepare(serialized, pages, base_url):
             if report.get("reading_edition"):
                 if card.get("original_quote") and card["original_item_id"] not in selected_ids:
                     continue
-                preferred_pages = [1] if card.get("original_quote") else [0]
+                if card.get("original_quote"):
+                    preferred_pages = [1]
+                else:
+                    preferred_pages = list(range(pages)) if report.get("mode_report") and report.get("mode") == "quotes" else [0]
             if pages == 2 and report["variant"] == "episodes" and card.get("kind") == "background":
                 preferred_pages = [1]
             for page in preferred_pages:

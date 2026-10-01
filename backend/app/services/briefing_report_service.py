@@ -219,7 +219,9 @@ class BriefingReportService:
         path = self.root / "reports" / f"{report_id}.json"
         if not path.exists():
             from .briefing_reading_service import BriefingReadingService
-            return BriefingReadingService(owner_id=self.owner_id, report_service=self).report(report_id)
+            from .briefing_modes_service import BriefingModesService
+            edition = BriefingReadingService(owner_id=self.owner_id, report_service=self).report(report_id)
+            return edition or BriefingModesService(owner_id=self.owner_id, report_service=self).report(report_id)
         report = read_json(path)
         return report if report.get("owner_id") in (None, self.owner_id) else None
 

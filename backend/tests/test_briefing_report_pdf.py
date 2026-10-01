@@ -220,6 +220,26 @@ def test_reading_two_pages_adds_exact_originals_and_material_sources():
     assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == 2
 
 
+def test_content_quote_mode_continues_primary_quotes_on_page_two_while_legacy_does_not():
+    report = example_report("quotes")
+    quotes = [card for card in report["sections"][0]["items"] if card["kind"] == "quote"][:10]
+    for quote in quotes:
+        quote.update(title="", brief="谈实际工作中的责任边界。", quote=quote["quote"] * 4)
+    report.update(reading_edition=True, sections=[{"id": "quotes", "items": quotes}])
+    legacy_html = render_report_html(report, pages=2)
+    legacy_second = legacy_html.split('data-page="2"', 1)[1]
+    assert 'class="card quote-card"' not in legacy_second
+    assert "原话对照与材料来源" in legacy_second
+
+    report.update(mode_report=True, mode="quotes")
+    mode_html = render_report_html(report, pages=2)
+    mode_second = mode_html.split('data-page="2"', 1)[1]
+    assert 'class="card quote-card"' in mode_second
+    assert "更多原话与材料来源" in mode_second
+    assert ReportParser(mode_html).counts["selected"] > ReportParser(legacy_html).counts["selected"]
+    assert all(quote["quote"] in mode_html for quote in quotes if quote["id"] in ReportParser(mode_html).cards)
+
+
 def test_reading_original_that_cannot_fit_is_omitted_whole_with_count():
     report = example_report("quotes")
     quote = next(card for card in report["sections"][0]["items"] if card["kind"] == "quote")
