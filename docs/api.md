@@ -189,6 +189,39 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | GET | `/insights/briefing/count` | 窗口内剧集统计（滑块预览用）：`{total, with_transcript, with_summary}`，零 LLM | 登录 |
 | GET | `/insights/briefing/export` | 导出 PDF | 登录 |
 
+## 内容报告 — `/api/briefing-reports`（5 路由）
+
+前端 `/briefing` 使用五种固定内容编排；左侧导航保持原样。读取不触发 LLM，生成复用已校验的全文抽取。
+
+| 方法 | 路径 | 作用 | 权限 |
+| --- | --- | --- | --- |
+| GET | `/briefing-reports` | 材料、抽取覆盖、本人及共享报告、检索配置状态 | 登录 |
+| POST | `/briefing-reports/generate` | 提交生成任务，返回 202 与 task_id；尊重 AI 总开关 | 登录 |
+| GET | `/briefing-reports/tasks/<task_id>` | 本人的报告任务状态、进度和结果 | 登录 |
+| GET | `/briefing-reports/reports/<report_id>/html?pages=1` | 固定版式预览；pages 只允许 1 或 2 | 登录 |
+| GET | `/briefing-reports/reports/<report_id>/pdf?pages=2` | 下载与预览一致的一／两页 PDF | 登录 |
+
+生成请求：`{variant: "all" | "overview" | "episodes" | "concepts" | "quotes" | "resources", topic: "可选关键词，最多120字", interests: ["concepts", "quotes", "resources", "backgrounds"], web_enabled: false}`。关注项至少一项；同账号已有报告任务未结束时返回 409。
+
+报告与任务按 owner 隔离，共享 CLI 报告可读取；报告绑定材料指纹。报告存在本机 `backend/.runtime/briefing-reports/`，抽取缓存按正文指纹复用并重新绑定节目。导出失效报告返回 404，页数无效返回 400；Chrome 启动／排版失败返回 503 `REPORT_EXPORT_FAILED`。正文内的网页内容和来源按字段转义，模型不生成 HTML/CSS。
+
+PDF 的应用内链接取当前前端访问来源，形如 `/episodes/<id>?t=<seconds>`，同时保留可用的公开原节目／资料链接。`web_mode` 明确区分实时检索、已有资料、关闭与无结果。具体边界见 [内容报告](./briefing-reports.md)。
+
+## Briefing Lab — `/api/briefing-lab`（4 路由，保留兼容）
+
+正文简报实验页使用固定材料快照。读取不会触发 LLM；五种策略为 `daily`、`focus`、`debate`、`actions`、`research`。
+
+| 方法 | 路径 | 说明 | 权限 |
+| --- | --- | --- | --- |
+| GET | `/briefing-lab` | 材料元信息、实际覆盖、诊断、当前用户结果及共享实验结果 | 登录 |
+| GET | `/briefing-lab/sources/<source_id>` | 当前材料的完整原文、字幕段、逐篇分析 | 登录 |
+| POST | `/briefing-lab/run` | 异步提交分析，返回 202 和 task_id；尊重全局 AI 开关 | 登录 |
+| GET | `/briefing-lab/tasks/<task_id>` | 本人的任务状态、进度、错误及结果 | 登录 |
+
+生成参数：`{strategy, focus, web_enabled}`；focus 默认“Agent开发与产品落地”，最多1000字，web_enabled 为布尔值。已有个人任务运行时返回409；正文材料尚未采集时返回409；AI冻结时返回423。
+
+`web_mode` 区分 `disabled`、`live_search`、`saved_primary_source_notes`、`unavailable`。正文及运行结果保存在本机 `backend/.runtime/briefing-lab/`；结果绑定内容指纹，个人问题结果按 owner 隔离，公共实验结果共享。响应中的 `run.usage` 只计该版综合；`analysis.usage` 为已缓存全文阅读记录。
+
 ## Video Import — `/api/video-import`（1 路由）
 
 | 方法 | 路径 | 说明 | 权限 |

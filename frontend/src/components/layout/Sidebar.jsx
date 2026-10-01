@@ -20,6 +20,8 @@ import { feedsApi } from '../../services/api';
  * - 备注模态框
  */
 const Sidebar = ({
+  open = false,
+  onClose,
   feeds,
   activeFeed,
   setActiveFeed,
