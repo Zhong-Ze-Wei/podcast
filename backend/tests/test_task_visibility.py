@@ -38,7 +38,8 @@ def test_personal_briefing_tasks_are_hidden_in_list_and_database_fallback(task_t
 def test_period_filter_and_metadata_restore_only_the_selected_briefing_task():
     app, user, other = setup_app()
     period = {"type": "month", "start": "2026-10-01"}
-    insert_task(app.db, "selected", user, report_period=period)
+    context = {"kind": "modes", "mode": "all"}
+    insert_task(app.db, "selected", user, report_period=period, report_context=context)
     insert_task(app.db, "old", user, report_period={"type": "month", "start": "2026-09-01"})
     insert_task(app.db, "private", other, report_period=period)
     payload = app.test_client().get(
@@ -47,6 +48,7 @@ def test_period_filter_and_metadata_restore_only_the_selected_briefing_task():
     ).get_json()
     assert [task["id"] for task in payload["data"]] == ["selected"]
     assert payload["data"][0]["report_period"] == period
+    assert payload["data"][0]["report_context"] == context
 
 
 def test_foreign_persisted_task_cannot_be_cancelled():
