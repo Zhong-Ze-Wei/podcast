@@ -1,6 +1,7 @@
 from app.services import llm_client as llm_module
 from app.services.llm_client import LLMClient
 from types import SimpleNamespace
+import pytest
 
 
 def _chat_result(content, completion):
@@ -154,3 +155,28 @@ def test_screening_schema_reaches_openai_compatible_api(monkeypatch):
 
     assert captured["response_format"] == {"type": "json_schema", "json_schema": {"name": "structured_result", "strict": True, "schema": schema}}
     assert result["finish_reason"] == "stop"
+
+
+@pytest.mark.parametrize("choices", [[], [SimpleNamespace(message=SimpleNamespace(content=None), finish_reason="length")]])
+def test_empty_openai_response_preserves_usage_and_finish_reason(monkeypatch, choices):
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    response = SimpleNamespace(choices=choices, usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20, total_tokens=30))
+    monkeypatch.setattr(client.client.chat.completions, "create", lambda **kwargs: response)
+    with pytest.raises(llm_module.EmptyLLMResponse) as error:
+        client.chat(messages=[{"role": "user", "content": "hi"}])
+    assert error.value.response["content"] == ""
+    assert error.value.response["usage"]["total"] == 30
+    assert error.value.response["finish_reason"] == ("length" if choices else None)
+
+
+def test_empty_anthropic_response_preserves_usage_and_finish_reason(monkeypatch):
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+        "content": [], "stop_reason": "max_tokens", "usage": {"input_tokens": 10, "output_tokens": 20},
+    })
+    monkeypatch.setattr(llm_module.requests, "post", lambda *args, **kwargs: response)
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model", api_format="anthropic_messages")
+    with pytest.raises(llm_module.EmptyLLMResponse) as error:
+        client.chat(messages=[{"role": "user", "content": "hi"}])
+    assert error.value.response["content"] == ""
+    assert error.value.response["usage"]["total"] == 30
+    assert error.value.response["finish_reason"] == "max_tokens"
