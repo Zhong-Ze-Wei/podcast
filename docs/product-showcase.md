@@ -2,7 +2,9 @@
 
 PodMaster 是一个本地优先的播客与视频订阅工作台，把 RSS 播客、YouTube 频道和 B 站 UP 主的内容汇入同一个库。从订阅和收听开始，也可以进一步用 AI 理解内容、保留观点、整理周报与月报。
 
-**[项目首页与截图](../README.md)** · **[快速启动指南](./getting-started.md)** · **[本地交互演示](http://localhost:3000/product/index.html#demo)** · [完整文档](./index.md)
+**[在线产品展示](https://zhong-ze-wei.github.io/podcast/)** · **[项目首页与截图](../README.md)** · **[快速启动指南](./getting-started.md)** · [完整文档](./index.md)
+
+打开 **https://zhong-ze-wei.github.io/podcast/**，无需安装即可阅读产品介绍、查看截图、切换两个交互演示。README 顶部预览图与收听界面截图也可以点击进入。在线页面是静态演示，完整应用按启动指南在本地运行。
 
 ## 两个使用视角
 
@@ -44,14 +46,15 @@ python -m http.server 3008 --directory frontend/public/product
 
 ## GitHub Pages
 
-工作流在 [`.github/workflows/product-pages.yml`](../.github/workflows/product-pages.yml)。仅发布 `frontend/public/product` 目录；运行方式为手动触发。
+工作流在 [`.github/workflows/product-pages.yml`](../.github/workflows/product-pages.yml)。仅发布 `frontend/public/product` 目录；修改展示页或工作流并合并到 `master` 后自动发布，也支持手动触发。应用业务代码或 README 单独变更不会触发部署。
 
-1. 将页面与工作流提交到仓库默认分支。
-2. 在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。
-3. 在 **Actions → Publish product page → Run workflow**，选择默认分支运行。
-4. 等待工作流成功，查看部署给出的实际地址。此仓库预期地址为 **https://zhong-ze-wei.github.io/podcast/**。
+此仓库的展示地址为 **https://zhong-ze-wei.github.io/podcast/**，部署记录见 **[Publish product page](https://github.com/Zhong-Ze-Wei/podcast/actions/workflows/product-pages.yml)**。仓库 **Settings → Pages → Source** 使用 **GitHub Actions**。
 
-本地完成页面并不等于已上线，发布状态以工作流结果为准。工作流上传静态文件，无需安装应用依赖或启动后端。动作版本与权限参考 [GitHub Pages 官方工作流说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
+1. 更新静态页面、截图或交互，先在本地预览。
+2. 按项目分支规范提交，合并到 `master` 并推送。
+3. 查看自动部署结果；需要重新发布时，在 **Actions → Publish product page → Run workflow** 选择 `master`。
+
+发布状态以工作流结果为准。工作流先检查演示 JavaScript 语法，再上传静态文件，无需安装应用依赖或启动后端。动作版本与权限参考 [GitHub Pages 官方工作流说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
 
 页面不假定站点部署在域名根目录，相对资源路径可用于仓库子路径或其他静态托管服务。
 
