@@ -61,3 +61,5 @@ python -m http.server 3008 --directory frontend/public/product
 ## 页面维护
 
 页面源码：[`frontend/public/product/index.html`](../frontend/public/product/index.html)。样式和交互分别在同目录的 `style.css`、`demo.js`，截图与 SVG 在 `assets/`。
+
+README 预览图与截图引用展示站点的 `assets/` 地址，点击图片进入在线展示。更新源目录中的截图并发布后，README 展示的图片也随之更新。
