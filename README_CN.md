@@ -8,9 +8,9 @@
 
 **[本地打开产品介绍页](http://localhost:3000/product/index.html)** · **[GitHub Pages 发布说明](./docs/product-showcase.md#github-pages)** · [页面源码](./frontend/public/product/index.html)
 
-独立静态页，包含应用截图、动效、中英文切换、五栏目简报试读、收藏、原话卡片拖动和截图放大。演示使用示例数据，不需要登录、后端或调用 AI。
+从两个视角展示项目：订阅与收听，以及 AI 解读与简报。可以试用 RSS / YouTube / B 站链接识别、节目切换、文稿预览和模拟播放器，也能试读五栏目简报、收藏观点和拖动原话卡片。配有实际应用截图、中英文切换；不需要登录、后端或调用 AI。
 
-[![PodMaster 产品预览](./frontend/public/product/assets/briefing.jpg)](http://localhost:3000/product/index.html)
+[![PodMaster 播客收听界面](./frontend/public/product/assets/listening.jpg)](http://localhost:3000/product/index.html#demo)
 
 启动前端后可点击本地快捷入口，也可直接打开 `frontend/public/product/index.html`。已提供 GitHub Pages 发布工作流；发布后的预期地址为 [zhong-ze-wei.github.io/podcast](https://zhong-ze-wei.github.io/podcast/)。
 
