@@ -1,8 +1,18 @@
 # PodMaster — Local-first Podcast & Video Subscription Workbench
 
-Subscribe to RSS podcasts, YouTube channels, and Bilibili uploaders. Auto-fetch subtitles/transcripts, transcribe on demand locally, generate AI summaries and daily briefings. One shared library for the whole family — with per-user read/star/play states.
+Subscribe to RSS podcasts, YouTube channels, and Bilibili uploaders. Auto-fetch subtitles/transcripts, transcribe on demand locally, generate AI summaries and weekly/monthly briefings. One shared library for the whole family — with per-user read/star/play states.
 
 > 中文说明：[README_CN.md](./README_CN.md)
+
+## Product tour
+
+**[Open the product page locally](http://localhost:3000/product/index.html)** · **[GitHub Pages setup](./docs/product-showcase.md#github-pages)** · [Page source](./frontend/public/product/index.html)
+
+A standalone product page with application screenshots, motion, a bilingual interactive briefing, quotation cards and a screenshot viewer. The demo uses illustrative data and works without the backend or an AI API.
+
+[![PodMaster product preview](./frontend/public/product/assets/briefing.jpg)](http://localhost:3000/product/index.html)
+
+Start the frontend to use the local shortcut, or open `frontend/public/product/index.html` directly. The GitHub Pages publishing workflow is included; the expected address after publishing is [zhong-ze-wei.github.io/podcast](https://zhong-ze-wei.github.io/podcast/).
 
 ## Understand it in 30 seconds
 
