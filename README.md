@@ -8,9 +8,9 @@ Subscribe to RSS podcasts, YouTube channels, and Bilibili uploaders. Auto-fetch 
 
 **[Open the product page locally](http://localhost:3000/product/index.html)** · **[GitHub Pages setup](./docs/product-showcase.md#github-pages)** · [Page source](./frontend/public/product/index.html)
 
-A standalone product page with application screenshots, motion, a bilingual interactive briefing, quotation cards and a screenshot viewer. The demo uses illustrative data and works without the backend or an AI API.
+A standalone product page showing both perspectives: subscriptions and listening, then AI analysis and briefings. Try RSS / YouTube / Bilibili link detection, episode switching, transcript previews, a simulated player, interactive briefings and quotation cards. Includes actual application screenshots and Chinese / English UI; no backend or AI API required.
 
-[![PodMaster product preview](./frontend/public/product/assets/briefing.jpg)](http://localhost:3000/product/index.html)
+[![PodMaster listening interface](./frontend/public/product/assets/listening.jpg)](http://localhost:3000/product/index.html#demo)
 
 Start the frontend to use the local shortcut, or open `frontend/public/product/index.html` directly. The GitHub Pages publishing workflow is included; the expected address after publishing is [zhong-ze-wei.github.io/podcast](https://zhong-ze-wei.github.io/podcast/).
 
