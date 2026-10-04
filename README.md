@@ -4,7 +4,11 @@
 
 PodMaster 是一个本地优先的播客与视频订阅工具。粘贴 RSS、YouTube 频道或 B 站 UP 主链接，就能集中管理节目、查看更新、收听音频和阅读文稿；再用 AI 保存单篇解读，整理成自己关注的周报与月报。
 
-**[产品说明与交互演示](./docs/product-showcase.md)** · **[快速启动](#快速启动)** · **[完整文档](./docs/index.md)** · [English](./README_EN.md)
+**[在线产品展示](https://zhong-ze-wei.github.io/podcast/)** · **[快速启动](#快速启动)** · **[产品说明](./docs/product-showcase.md)** · [完整文档](./docs/index.md) · [English](./README_EN.md)
+
+[![PodMaster 产品展示：订阅与收听、AI 解读与简报，点击打开在线展示页](./frontend/public/product/assets/product-preview.jpg)](https://zhong-ze-wei.github.io/podcast/)
+
+**点击上图，直接体验在线展示。** 页面包含产品介绍、实际界面截图，以及订阅与收听、AI 简报两个交互演示，手机上也可以打开。演示使用示例内容，播放器模拟进度；实际订阅、音频播放和 AI 分析需启动本地应用。
 
 ## 界面预览
 
@@ -12,15 +16,15 @@ PodMaster 是一个本地优先的播客与视频订阅工具。粘贴 RSS、You
 
 把不同平台的内容放在一起，查看最近更新、收藏节目，边听边读文稿。底部播放器支持播放暂停、进度拖动、快进后退和音量调整。
 
-![PodMaster 收听界面：节目文稿与底部播放器](./frontend/public/product/assets/listening.jpg)
+[![PodMaster 收听界面：节目文稿与底部播放器，点击体验在线演示](./frontend/public/product/assets/listening.jpg)](https://zhong-ze-wei.github.io/podcast/#demo)
 
 ### AI 解读与简报
 
 基于完整文稿保存摘要、议题、原话、新词与方法；周报和月报继续复用单篇分析，整理共性与分歧。观点可以收藏，原话可以回到出处，完整报告可以导出 PDF。
 
-![PodMaster AI 简报：核心提要、原话依据与节目出处](./frontend/public/product/assets/briefing.jpg)
+[![PodMaster AI 简报：核心提要、原话依据与节目出处，点击查看在线展示](./frontend/public/product/assets/briefing.jpg)](https://zhong-ze-wei.github.io/podcast/#screenshots)
 
-截图来自实际应用，使用演示数据。[更多截图与交互演示说明](./docs/product-showcase.md) · [启动后的本地演示入口](http://localhost:3000/product/index.html#demo)。
+截图来自实际应用，使用演示数据。[打开在线交互演示](https://zhong-ze-wei.github.io/podcast/#demo) · [更多截图与演示说明](./docs/product-showcase.md)。
 
 ## 可以做什么
 
@@ -88,6 +92,7 @@ python setup_local_ai.py
 
 | 想了解什么 | 快捷入口 |
 | --- | --- |
+| 不安装，先了解产品与体验交互 | [在线产品展示](https://zhong-ze-wei.github.io/podcast/) |
 | 项目介绍、截图、交互演示 | [产品说明与演示](./docs/product-showcase.md) |
 | 环境安装、首次使用、配置与常见问题 | [快速启动指南](./docs/getting-started.md) |
 | 周报、月报、关注话题与阅读风格 | [内容报告说明](./docs/briefing-reports.md) |
