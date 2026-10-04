@@ -1,6 +1,15 @@
-# 静态产品介绍页
+# 产品说明与交互演示
 
-页面源码：[`frontend/public/product/index.html`](../frontend/public/product/index.html)。样式和交互分别在同目录的 `style.css`、`demo.js`，截图与 SVG 在 `assets/`。
+PodMaster 是一个本地优先的播客与视频订阅工作台，把 RSS 播客、YouTube 频道和 B 站 UP 主的内容汇入同一个库。从订阅和收听开始，也可以进一步用 AI 理解内容、保留观点、整理周报与月报。
+
+**[项目首页与截图](../README.md)** · **[快速启动指南](./getting-started.md)** · **[本地交互演示](http://localhost:3000/product/index.html#demo)** · [完整文档](./index.md)
+
+## 两个使用视角
+
+- **订阅与收听**：粘贴来源链接，等待同步节目，在最近更新里查看新内容；选择节目收听、调整进度和音量、阅读完整文稿。喜欢的节目、已读状态和收听进度按用户保留。
+- **AI 解读与简报**：从完整文稿中保存摘要、议题、原话、新词和方法。单篇分析保存后，周报与月报继续复用，再围绕关注话题整理共性与分歧。观点可以收藏，报告可以导出 PDF。
+
+两个视角共用订阅、文稿与已保存的单篇分析。没有字幕时，本地转写由用户手动触发；使用 AI 需要在应用设置中配置模型服务。
 
 ## 本地预览
 
@@ -45,3 +54,7 @@ python -m http.server 3008 --directory frontend/public/product
 本地完成页面并不等于已上线，发布状态以工作流结果为准。工作流上传静态文件，无需安装应用依赖或启动后端。动作版本与权限参考 [GitHub Pages 官方工作流说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
 
 页面不假定站点部署在域名根目录，相对资源路径可用于仓库子路径或其他静态托管服务。
+
+## 页面维护
+
+页面源码：[`frontend/public/product/index.html`](../frontend/public/product/index.html)。样式和交互分别在同目录的 `style.css`、`demo.js`，截图与 SVG 在 `assets/`。
