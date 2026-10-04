@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171c19">
+  <meta name="description" content="PodMaster：订阅播客与视频，保留单篇完整解读，再整理成有出处、可收藏的周报与月报。">
+  <title>PodMaster — 听见观点，读懂它们的关系</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/mark.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./demo.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-en="Skip to content">跳到正文</a>
+  <header class="site-header">
+    <a class="brand" href="#home" aria-label="PodMaster"><img src="./assets/mark.svg" width="28" height="28" alt=""><span>PodMaster<span class="brand-dot">.</span></span></a>
+    <nav aria-label="页面导航" data-en-aria-label="Page navigation">
+      <a href="#how" data-en="The idea">产品思路</a>
+      <a href="#demo" data-en="Try it">交互演示</a>
+      <a href="#screenshots" data-en="Inside the app">实际界面</a>
+    </nav>
+    <div class="header-tools">
+      <button id="motion-switch" type="button" aria-pressed="false" aria-label="暂停页面动效" data-en-aria-label="Pause page animations"><span class="motion-icon" aria-hidden="true">Ⅱ</span><span data-en="Motion">动效</span></button>
+      <button id="language-switch" type="button" aria-label="Switch to English">EN</button>
+      <a class="header-github" href="https://github.com/Zhong-Ze-Wei/podcast" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero section-shell" id="home">
+      <div class="hero-copy reveal">
+        <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span data-en="A home for the ideas you hear">给听见的好观点，一个去处</span></p>
+        <h1><span data-en="Listen closely.">听见观点。</span><br><em data-en="Connect the dots.">读懂它们的关系。</em></h1>
+        <p class="hero-description" data-en="Bring podcasts and videos into one library. Keep a thoughtful reading of each episode, then turn those ideas into weekly and monthly briefings.">把播客和视频放进同一个内容库。逐篇留下解读，再把值得记住的观点，整理成自己的周报与月报。</p>
+        <div class="hero-actions">
+          <a class="button button-lime" href="#demo"><span data-en="Read a sample briefing">试读一份简报</span><span aria-hidden="true">↗</span></a>
+          <a class="quiet-link" href="#screenshots"><span data-en="Explore the actual app">看看实际界面</span><span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-footnote"><span class="small-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span data-en="Local first. Your interests. Ideas worth keeping.">本地优先 · 关注由你定义 · 解读可以积累</span></div>
+      </div>
+      <div class="hero-visual reveal">
+        <div class="orbit-label"><span>01 / THE READING ROOM</span><span data-en="From listening to understanding">从听到，到理解</span></div>
+        <div class="hero-window">
+          <div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>PodMaster / AI Briefing</span><span class="window-status" data-en="SAVED & READABLE">已保存 · 可阅读</span></div>
+          <img class="hero-screen" src="./assets/briefing.jpg" width="1600" height="1000" alt="PodMaster AI 简报的纸面阅读界面，包含观点和节目出处" data-en-alt="PodMaster's paper-style AI briefing with insights and episode sources" fetchpriority="high">
+        </div>
+        <div class="floating-note">
+          <p><span class="note-rule"></span><span data-en="AN IDEA WORTH KEEPING">值得记住的一个观点</span></p>
+          <blockquote><span data-en="A tool’s value">工具的价值，</span><br><span data-en="depends on human judgment.">取决于人的判断。</span></blockquote>
+          <footer><span data-en="Sample insight · traceable to its source">演示观点 · 可以回到出处</span><span class="note-heart" aria-hidden="true">♡</span></footer>
+        </div>
+        <span class="hero-caption" data-en="Actual application UI · illustrative sample data">应用界面实拍 · 演示数据</span>
+      </div>
+    </section>
+    <div class="source-strip section-shell">
+      <span data-en="ONE LIBRARY. MANY VOICES.">多种声音，同一个内容库</span>
+      <div><span class="source-logo"><b class="rss-icon" aria-hidden="true">◔</b> RSS / PODCAST</span><span class="source-logo"><b class="youtube-icon" aria-hidden="true">▶</b> YouTube</span><span class="source-logo"><b class="bili-icon" aria-hidden="true">▤</b> bilibili</span></div>
+      <span class="strip-end" data-en="Listen. Read. Revisit.">听过，也能再找到。</span>
+    </div>
+
+    <section class="how section-shell" id="how">
+      <div class="section-intro reveal">
+        <p class="eyebrow muted">THE WAY IT WORKS</p>
+        <h2><span data-en="Long episodes.">长内容，</span><br><span data-en="A lasting understanding.">留下完整的理解。</span></h2>
+        <p data-en="A two-hour conversation deserves more than a fleeting highlight. Read each episode first, then look for the connections across them.">两小时的对话，不该只剩下几句零散金句。先理解每一篇，再看它们之间有什么联系。</p>
+        <div class="reuse-sketch" aria-hidden="true">
+          <div class="analysis-file"><span>↳</span><span data-en="Saved episode analysis">已保存的单篇解读</span><i></i><i></i><i></i></div>
+          <div class="reuse-path"><span></span><div><b data-en="Episode">单篇</b><b data-en="Weekly">周报</b><b data-en="Monthly">月报</b></div></div>
+          <p data-en="One foundation. Three ways to read.">同一份底层分析，三种阅读场景。</p>
+        </div>
+      </div>
+      <div class="steps">
+        <article class="step reveal"><span class="step-number">01</span><div><h3 data-en="Bring your subscriptions together">先把内容放在一起</h3><p data-en="Subscribe to RSS podcasts, YouTube channels and Bilibili creators. Fetch available transcripts; transcribe locally when needed.">订阅 RSS 播客、YouTube 频道和 B 站 UP 主。优先获取已有字幕，需要时再进行本地转写。</p><span class="step-detail" data-en="Your library, with read and play states per person.">共享内容库，每个人保留自己的阅读与收听进度。</span></div><span class="step-arrow" aria-hidden="true">↙</span></article>
+        <article class="step reveal"><span class="step-number">02</span><div><h3 data-en="Keep a reading of the whole episode">逐篇读懂，保留依据</h3><p data-en="Save the summary, questions, ideas, concepts and resources from a full transcript. Every quotation keeps its source.">基于完整文稿保存核心摘要、议题、观点、新词与资料。值得保留的原话，也保留它的出处。</p><span class="step-detail" data-en="A completed analysis stays available for reuse.">分析过的内容存下来，后面可以继续复用。</span></div><span class="step-arrow" aria-hidden="true">↙</span></article>
+        <article class="step reveal"><span class="step-number">03</span><div><h3 data-en="Follow the questions you care about">围绕你关心的问题整理</h3><p data-en="Choose interests to guide selection. Weekly and monthly briefings reuse saved episode analyses to find common ground, differences and useful methods.">按关注话题筛选材料。周报与月报复用单篇解读，继续整理共性、分歧和有帮助的方法。</p><span class="step-detail" data-en="Switching a reading layout does not regenerate the analysis.">换一种阅读风格，仍然是同一份已保存内容。</span></div><span class="step-arrow" aria-hidden="true">↙</span></article>
+      </div>
+    </section>
+
+    <section class="demo-section" id="demo">
+      <div class="section-shell">
+        <header class="demo-heading reveal"><div><p class="eyebrow">A LITTLE READING EXPERIMENT</p><h2 data-en="A briefing you can actually try.">一份可以动手试的简报。</h2></div><p data-en="Switch sections, save an idea, or open its quotation. This demo runs entirely on sample data.">切换栏目，收藏一个观点，<br>或打开它的原话依据。以下均为演示数据。</p></header>
+        <div class="demo-workbench reveal">
+          <aside class="demo-sidebar">
+            <span class="demo-brand">PodMaster<span> / demo</span></span>
+            <p class="demo-sidebar-label" data-en="YOUR READING ROOM">你的阅读室</p>
+            <div class="period-buttons" role="group" aria-label="演示报告周期" data-en-aria-label="Demo report period"><button type="button" data-period="week" aria-pressed="true"><span aria-hidden="true">▦</span><span data-en="Weekly briefing">周报</span></button><button type="button" data-period="month" aria-pressed="false"><span aria-hidden="true">▦</span><span data-en="Monthly briefing">月报</span></button></div>
+            <div class="demo-saved"><span aria-hidden="true">♡</span><span data-en="Saved ideas">已收藏的观点</span><span id="saved-count" aria-live="polite">0</span></div>
+            <div class="demo-interest"><p data-en="FOLLOWING">正在关注</p><span>AI</span><span data-en="Engineering">工程实践</span><span data-en="Organizations">组织与经营</span></div>
+            <p class="demo-sidebar-bottom"><span class="live-dot" aria-hidden="true"></span><span data-en="Sample data · no sign-in">演示数据 · 无需登录</span></p>
+          </aside>
+          <div class="demo-reading">
+            <header class="demo-reading-header"><div><p id="demo-period-label">2026.09.21 — 09.27 / 周报</p><h3 data-en="This week's ideas, connected.">把这一周的观点，放在一起。</h3></div><label class="layout-control"><span data-en="Layout">阅读风格</span><select id="demo-layout"><option value="paper" data-en="Paper">纸面</option><option value="columns" data-en="Columns">双栏</option><option value="notes" data-en="Notes">便笺</option></select></label></header>
+            <div class="demo-tabs" role="tablist" aria-label="简报栏目演示" data-en-aria-label="Briefing section demo">
+              <button id="tab-core" type="button" role="tab" data-mode="core" aria-selected="true" aria-controls="demo-panel" tabindex="0" data-en="Takeaways">核心提要</button>
+              <button id="tab-quotes" type="button" role="tab" data-mode="quotes" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-en="Quotations">原话精选</button>
+              <button id="tab-connections" type="button" role="tab" data-mode="connections" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-en="Connections">共性与分歧</button>
+              <button id="tab-concepts" type="button" role="tab" data-mode="concepts" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-en="Concepts">新词与方法</button>
+              <button id="tab-resources" type="button" role="tab" data-mode="resources" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-en="Resources">提到的资料</button>
+            </div>
+            <div class="demo-reuse"><span class="reuse-dot" aria-hidden="true"></span><span id="demo-reuse-label">复用 2 份已保存的单篇分析</span><span data-en="ILLUSTRATIVE SAMPLE">内容演示</span></div>
+            <div id="demo-panel" class="demo-panel layout-paper" role="tabpanel" aria-labelledby="tab-core" tabindex="0"><noscript>开启 JavaScript 后，可体验栏目切换、收藏与原话卡片演示。 / Enable JavaScript to try the interactive demo.</noscript></div>
+            <footer class="demo-reading-footer"><span data-en="A sample of how ideas are presented, not a real episode report.">用于展示内容组织方式，非真实节目的分析结果。</span><span>PodMaster · 2026</span></footer>
+          </div>
+        </div>
+        <div class="demo-hint"><span aria-hidden="true">↳</span><p data-en="Click “Source quotation” to open the card stack. Use the arrows, drag sideways, or swipe on your phone.">点开「原话依据」试试：卡片支持左右切换，也可以用鼠标拖动或在手机上横滑。</p></div>
+      </div>
+    </section>
+
+    <section class="screenshots section-shell" id="screenshots">
+      <header class="gallery-heading reveal"><div><p class="eyebrow muted">INSIDE PODMASTER</p><h2 data-en="The product, up close.">实际界面，近一点看。</h2></div><p data-en="Screenshots captured from the application with illustrative data. Click the image to see the details.">来自应用的界面截图，使用演示数据。<br>点击图片，可以放大查看细节。</p></header>
+      <div class="gallery-tabs" role="tablist" aria-label="应用截图" data-en-aria-label="Application screenshots">
+        <button type="button" role="tab" id="shot-briefing" data-shot="briefing" aria-selected="true" aria-controls="gallery-panel" tabindex="0"><span>01</span><span data-en="AI briefing">AI 简报</span></button>
+        <button type="button" role="tab" id="shot-library" data-shot="library" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"><span>02</span><span data-en="Subscription library">订阅工作台</span></button>
+        <button type="button" role="tab" id="shot-analysis" data-shot="analysis" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"><span>03</span><span data-en="Episode analysis">单篇解读</span></button>
+      </div>
+      <div id="gallery-panel" class="gallery-panel reveal" role="tabpanel" aria-labelledby="shot-briefing">
+        <div class="gallery-caption"><span id="gallery-description">五个内容栏目，同一份已保存报告。阅读风格随时可换。</span><span class="capture-tag" data-en="APP CAPTURE">界面实拍</span></div>
+        <button id="expand-screenshot" class="screenshot-button" type="button" aria-label="放大应用截图" data-en-aria-label="Enlarge application screenshot"><img id="gallery-image" src="./assets/briefing.jpg" width="1600" height="1000" alt="AI 简报纸面阅读界面" data-en-alt="Paper-style AI briefing" loading="lazy"><span class="expand-label"><span aria-hidden="true">⤢</span><span data-en="View details">放大查看</span></span></button>
+      </div>
+      <div class="feature-row">
+        <article class="reveal"><span>01 / PERSONAL</span><h3 data-en="Start with your questions">关注你想问的问题</h3><p data-en="Interests guide selection, including relevant ideas beyond a narrow keyword match.">话题与具体问题影响选材，也保留与它们相关的延伸观点。</p></article>
+        <article class="reveal"><span>02 / TRACEABLE</span><h3 data-en="Go back to the source">观点能回到出处</h3><p data-en="Open the original quotation and transcript, or return to the episode when timing is available.">查看原话与完整文稿；有时间信息时，可以回到节目继续听。</p></article>
+        <article class="reveal"><span>03 / KEEPABLE</span><h3 data-en="Keep what resonates">喜欢的内容留下来</h3><p data-en="Save ideas across report periods and revisit them in your own collection.">跨周期收藏值得记住的内容，在自己的收藏里重新找到它。</p></article>
+        <article class="reveal"><span>04 / PORTABLE</span><h3 data-en="Take the reading with you">把阅读带走</h3><p data-en="Export complete reports to PDF, with room for the content and its sources.">导出完整 PDF，让内容和出处一起留下，不必挤在一两页里。</p></article>
+      </div>
+    </section>
+    <section class="start-section" id="start"><div class="section-shell start-inner reveal"><p class="eyebrow">YOUR NEXT GOOD IDEA IS ALREADY OUT THERE</p><h2><span data-en="Give what you hear">给听过的内容，</span><br><em data-en="a place to stay.">留一份能找到的记忆。</em></h2><p data-en="Start with the sources you love. Build a library that keeps getting more useful.">从你喜欢的几个订阅开始，让内容库慢慢变得更有用。</p><div class="start-actions"><a class="button button-dark" href="https://github.com/Zhong-Ze-Wei/podcast#quick-start" target="_blank" rel="noopener noreferrer"><span data-en="Get started">查看启动说明</span><span aria-hidden="true">↗</span></a><a class="quiet-link" href="https://github.com/Zhong-Ze-Wei/podcast" target="_blank" rel="noopener noreferrer"><span data-en="Explore the source on GitHub">在 GitHub 查看项目</span><span aria-hidden="true">↗</span></a></div></div></section>
+  </main>
+  <footer class="site-footer section-shell"><a class="brand" href="#home"><img src="./assets/mark.svg" width="24" height="24" alt="">PodMaster.</a><span data-en="Listen with curiosity. Read with intention.">好好听，好好想，慢慢积累。</span><a href="#home"><span data-en="Back to top">回到顶部</span><span aria-hidden="true"> ↑</span></a></footer>
+
+  <dialog id="quote-dialog" class="quote-dialog" aria-labelledby="quote-dialog-title">
+    <header><div><span class="eyebrow" data-en="BACK TO THE ORIGINAL WORDS">回到原话</span><h2 id="quote-dialog-title" data-en="Every idea has a source.">每个观点，都有它的出处。</h2></div><button class="dialog-close" type="button" aria-label="关闭原话" data-en-aria-label="Close quotation">×</button></header>
+    <div class="quote-stack">
+      <button class="quote-neighbor quote-neighbor-prev" type="button" aria-label="上一段原话" data-en-aria-label="Previous quotation"><span aria-hidden="true">←</span><span class="neighbor-text"></span></button>
+      <article id="quote-card" class="quote-card"><p id="quote-context"></p><blockquote id="quote-text"></blockquote><footer><span id="quote-source"></span><span data-en="ILLUSTRATIVE QUOTATION">演示原话</span></footer></article>
+      <button class="quote-neighbor quote-neighbor-next" type="button" aria-label="下一段原话" data-en-aria-label="Next quotation"><span class="neighbor-text"></span><span aria-hidden="true">→</span></button>
+    </div>
+    <footer class="quote-controls"><span id="quote-count" aria-live="polite">1 / 3</span><span data-en="Drag, swipe, or use ← →">拖动 · 横滑 · 方向键 ← →</span><div><button id="quote-previous" type="button" aria-label="上一段" data-en-aria-label="Previous quotation">←</button><button id="quote-next" type="button" aria-label="下一段" data-en-aria-label="Next quotation">→</button></div></footer>
+  </dialog>
+  <dialog id="screenshot-dialog" class="screenshot-dialog" aria-label="放大的应用截图" data-en-aria-label="Enlarged application screenshot"><button class="dialog-close" type="button" aria-label="关闭截图" data-en-aria-label="Close screenshot">×</button><img id="large-screenshot" width="1600" height="1000" alt=""><p id="large-caption"></p></dialog>
+</body>
+</html>
