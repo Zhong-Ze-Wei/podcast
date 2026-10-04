@@ -6,7 +6,7 @@ PodMaster is a local-first podcast and video subscription tool. Paste an RSS fee
 
 **[Live product tour](https://zhong-ze-wei.github.io/podcast/)** · **[Quick start](#quick-start)** · **[Product guide](./docs/product-showcase.md)** · [Documentation](./docs/index.md) · [中文](./README.md)
 
-[![PodMaster product tour: subscriptions, listening and AI briefings. Click to open the live showcase](./frontend/public/product/assets/product-preview.jpg)](https://zhong-ze-wei.github.io/podcast/)
+[![PodMaster product tour: subscriptions, listening and AI briefings. Click to open the live showcase](https://zhong-ze-wei.github.io/podcast/assets/product-preview.jpg)](https://zhong-ze-wei.github.io/podcast/)
 
 **Click the image to explore the live showcase.** It includes product explanations, actual application screenshots and interactive listening and AI briefing demos, including on mobile. The demo uses sample content and simulated playback; real subscriptions, audio and AI analysis require the local application.
 
@@ -16,13 +16,13 @@ PodMaster is a local-first podcast and video subscription tool. Paste an RSS fee
 
 Follow recent updates, save episodes and listen alongside transcripts. The bottom player supports play/pause, seeking, skip controls and volume.
 
-[![PodMaster listening interface with transcript and bottom player. Click to try the online demo](./frontend/public/product/assets/listening.jpg)](https://zhong-ze-wei.github.io/podcast/#demo)
+[![PodMaster listening interface with transcript and bottom player. Click to try the online demo](https://zhong-ze-wei.github.io/podcast/assets/listening.jpg)](https://zhong-ze-wei.github.io/podcast/#demo)
 
 ### AI analysis & briefings
 
 Keep summaries, topics, quotations, concepts and methods from complete transcripts. Weekly and monthly briefings reuse saved episode analyses to compare common ground and differences. Save ideas, revisit their sources and export complete reports to PDF.
 
-[![PodMaster AI briefing with takeaways, quotations and episode sources. Click to view the showcase](./frontend/public/product/assets/briefing.jpg)](https://zhong-ze-wei.github.io/podcast/#screenshots)
+[![PodMaster AI briefing with takeaways, quotations and episode sources. Click to view the showcase](https://zhong-ze-wei.github.io/podcast/assets/briefing.jpg)](https://zhong-ze-wei.github.io/podcast/#screenshots)
 
 Screenshots show the actual application with illustrative data. [Try the online demo](https://zhong-ze-wei.github.io/podcast/#demo) · [Tour & demo guide](./docs/product-showcase.md).
 
