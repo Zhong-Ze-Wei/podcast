@@ -6,6 +6,24 @@ Feed (订阅源) 数据模型
 from datetime import datetime
 from bson import ObjectId
 
+# 刷新错误 → 展示层人话提示。库里仍存原始错误（排查用），这里只在 to_response 出口翻译。
+_ERROR_HINTS = (
+    ("Bilibili login required", "B站登录已失效：到 设置→AI Key 更新 SESSDATA，保存后即可恢复刷新"),
+    ("Bilibili access denied", "B站访问被拒：SESSDATA 可能已过期，请更新"),
+    ("RSS request timed out", "源请求超时：稍后重试，或检查网络/代理"),
+    ("HTTP 403", "源拒绝访问（反爬或地域限制）"),
+    ("RSS parse error", "源返回的内容无法解析，可能地址已变更"),
+)
+
+
+def _humanize_error(error):
+    if not error:
+        return error
+    for needle, hint in _ERROR_HINTS:
+        if needle in error:
+            return hint
+    return error
+
 
 class Feed:
     """订阅源模型（RSS / YouTube 频道 / B站 UP 主）"""
@@ -71,7 +89,7 @@ class Feed:
             "last_updated": doc.get("last_updated").isoformat() + "Z"
             if doc.get("last_updated")
             else None,
-            "check_error": doc.get("check_error"),
+            "check_error": _humanize_error(doc.get("check_error")),
             "is_starred": doc.get("is_starred", False),
             "is_favorite": doc.get("is_favorite", False),
             "note": doc.get("note", ""),
