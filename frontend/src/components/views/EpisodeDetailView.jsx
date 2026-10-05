@@ -25,12 +25,17 @@ const STATUS_BADGES = {
   error: { label: '出错', cls: 'bg-red-500/15 text-red-300' },
 };
 
-const EpisodeStatusBadge = ({ status }) => {
+const EpisodeStatusBadge = ({ status, transcriptSource }) => {
+  const { t } = useTranslation();
+  let transcriptLabel = t('status.transcribed');
+  if (transcriptSource?.startsWith('official')) transcriptLabel = t('status.officialTranscript');
+  else if (['youtube', 'bilibili'].includes(transcriptSource)) transcriptLabel = t('status.platformTranscript');
+  else if (['local_whisper', 'local_whisperx', 'assemblyai'].includes(transcriptSource)) transcriptLabel = t('status.audioTranscribed');
   const badge = STATUS_BADGES[status];
   if (!badge) return null;
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
-      {badge.label}
+      {status === 'transcribed' ? transcriptLabel : badge.label}
     </span>
   );
 };
@@ -135,8 +140,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   const transcriptionOptions = [
     {
       value: 'official',
-      label: '官方字幕',
-      description: hasOfficialTranscript ? '免费，优先使用节目源提供的字幕。' : '当前单集没有官方字幕地址。',
+      label: t('status.officialTranscript'),
+      description: hasOfficialTranscript ? t('status.officialTranscriptHint') : t('status.noOfficialTranscript'),
       disabled: !hasOfficialTranscript
     },
     {
@@ -178,7 +183,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     local_whisper: '本地 Whisper',
     local_whisperx: 'WhisperX',
     assemblyai: 'AssemblyAI 云端',
-    official: '官方字幕',
+    official: t('status.officialTranscript'),
     official_srt: '官方 SRT',
     official_vtt: '官方 VTT',
     official_json: '官方 JSON',
@@ -527,7 +532,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             </span>
             <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
             <span className="text-zinc-500 text-sm">{new Date(episode.published_at).toLocaleDateString()}</span>
-            <EpisodeStatusBadge status={episode.status} />
+            <EpisodeStatusBadge status={episode.status} transcriptSource={transcript?.source || episode.transcript_source} />
           </div>
           <h1 className="text-xl md:text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
           <div className="flex flex-wrap items-center gap-3 md:gap-4">
@@ -546,7 +551,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     ? 'border-purple-500 bg-purple-900/30 text-purple-400 cursor-not-allowed'
                     : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : t('detail.generateTranscript'))}
+                title={isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') : t('detail.generateTranscript'))}
               >
                 {isCurrentlyDownloading ? (
                   <div className="animate-spin"><Download size={20} /></div>
@@ -832,6 +837,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                           {isCurrentlyDownloading ? '正在下载音频' :
                            isCurrentlyTranscribing ? t('detail.transcribingStatus') :
                            loading ? t('detail.generating') :
+                            transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') :
                             (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? '先下载音频' : `开始${selectedTranscriptionOption?.label || '转录'}`}
                         </button>
                       </div>
