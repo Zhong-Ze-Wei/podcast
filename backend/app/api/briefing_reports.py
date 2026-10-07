@@ -54,6 +54,8 @@ def preferences():
         values = {"interests": options.get("interests", service.preferences()["interests"])}
         if "auto_period" in options:
             values["auto_period"] = options["auto_period"]
+        if "materials_layout" in options:
+            values["materials_layout"] = options["materials_layout"]
         result = service.save_preferences(**values)
     except ValueError as error:
         return error_response(str(error), "INVALID_INTERESTS", 400)
