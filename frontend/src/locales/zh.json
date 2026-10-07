@@ -26,8 +26,7 @@
     "galleryDescription": "整齐的封面卡片，点击后在固定区域阅读简介。",
     "stackDescription": "倾斜叠放，拖动或点击侧卡逐期翻阅。",
     "savedToAccount": "按账号保存，周报和月报共用。"
-  }
-,
+  },
   "app": {
     "title": "PodMaster"
   },
@@ -260,7 +259,8 @@
       "transcribe": "AI转录",
       "summarize": "生成摘要",
       "refresh": "刷新订阅",
-      "fetch_transcripts": "获取文稿"
+      "fetch_transcripts": "获取文稿",
+      "subscribe": "添加订阅"
     },
     "status": {
       "pending": "等待中",
@@ -271,8 +271,12 @@
     "progress": {
       "videos": "视频列表已更新：新增 {{count}} 期",
       "transcripts": "后台获取文稿 {{done}}/{{total}}",
-      "transcriptsDone": "文稿已更新：{{count}} 期，暂不可用 {{failed}} 期"
-    }
+      "transcriptsDone": "文稿已更新：{{count}} 期，暂不可用 {{failed}} 期",
+      "subscriptionResolving": "正在识别订阅来源",
+      "subscriptionSaved": "订阅已保存，正在获取频道封面",
+      "subscriptionDone": "订阅已添加，正在后台更新节目"
+    },
+    "retrySubscription": "重试添加"
   },
   "settings": {
     "title": "设置",
