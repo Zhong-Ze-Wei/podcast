@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
 import { feedsApi } from '../../services/api';
+import { readableSubscriptionUrl } from '../../utils/subscriptionTask';
 
 /**
  * Sidebar - 侧边栏组件
@@ -69,10 +70,10 @@ const Sidebar = ({
     setLoading(true);
     setError('');
     try {
-      await feedsApi.create({ rss_url: newFeedUrl });
+      const response = await feedsApi.create({ rss_url: newFeedUrl.trim(), asynchronous: true });
       setShowAddModal(false);
       setNewFeedUrl('');
-      if (onAddFeed) onAddFeed();
+      if (onAddFeed) onAddFeed(response.data);
     } catch (err) {
       setError(err.message || t('feed.addFailed'));
     } finally {
@@ -318,6 +319,7 @@ const Sidebar = ({
                 type="url"
                 value={newFeedUrl}
                 onChange={(e) => setNewFeedUrl(e.target.value)}
+                onPaste={event => { const value = event.clipboardData.getData('text').trim(); if (/^https?:\/\//i.test(value)) { event.preventDefault(); setNewFeedUrl(readableSubscriptionUrl(value)); } }}
                 placeholder={t('feed.urlPlaceholder')}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 mb-3"
                 required

@@ -26,8 +26,7 @@
     "galleryDescription": "Aligned cover cards with descriptions in a fixed reading area.",
     "stackDescription": "Tilted cards: drag or select a side card to browse episodes.",
     "savedToAccount": "Saved to your account and shared by weekly and monthly reports."
-  }
-,
+  },
   "app": {
     "title": "PodMaster"
   },
@@ -260,7 +259,8 @@
       "transcribe": "AI Transcribe",
       "summarize": "Generate Summary",
       "refresh": "Refresh Feed",
-      "fetch_transcripts": "Fetch transcripts"
+      "fetch_transcripts": "Fetch transcripts",
+      "subscribe": "Add subscription"
     },
     "status": {
       "pending": "Pending",
@@ -271,8 +271,12 @@
     "progress": {
       "videos": "Video list updated: {{count}} new episodes",
       "transcripts": "Fetching transcripts in the background {{done}}/{{total}}",
-      "transcriptsDone": "Transcripts updated: {{count}} episodes, {{failed}} unavailable"
-    }
+      "transcriptsDone": "Transcripts updated: {{count}} episodes, {{failed}} unavailable",
+      "subscriptionResolving": "Identifying the subscription source",
+      "subscriptionSaved": "Subscription saved · fetching the channel cover",
+      "subscriptionDone": "Subscription added · updating episodes in the background"
+    },
+    "retrySubscription": "Retry subscription"
   },
   "settings": {
     "title": "Settings",
