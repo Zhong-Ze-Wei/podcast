@@ -2,7 +2,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Rss, RefreshCw, Heart } from 'lucide-react';
-import { decodeHtmlEntities } from '../../utils/helpers';
+import { getFeedDescription } from '../../utils/helpers';
 import FeedImage from '../common/FeedImage';
 
 /**
@@ -43,7 +43,7 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
             {feed.title}
           </h3>
           <p className="text-xs text-indigo-400 font-medium mb-2">{feed.author || t('feed.unknownAuthor')}</p>
-          <p className="text-xs text-zinc-500 line-clamp-2 flex-1">{decodeHtmlEntities(feed.description) || t('episode.noDescription')}</p>
+          <p className="text-xs text-zinc-500 line-clamp-2 flex-1">{getFeedDescription(feed) || t('episode.noDescription')}</p>
           <div className="flex items-center justify-between text-xs text-zinc-500 mt-3 pt-2 border-t border-zinc-800/50">
             <span className="flex items-center gap-1.5">
               <Rss size={12} /> {feed.language || 'Unknown'}

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, Loader2 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
-import { decodeHtmlEntities } from '../../utils/helpers';
+import { getFeedDescription } from '../../utils/helpers';
 import EpisodeCard from '../cards/EpisodeCard';
 import ViewToolbar from '../common/ViewToolbar';
 
@@ -36,7 +36,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, ca
 
   if (!feed) return null;
 
-  const description = decodeHtmlEntities(feed.description) || '';
+  const description = getFeedDescription(feed) || '';
   const isLongDesc = description.length > 200;
 
   return (
