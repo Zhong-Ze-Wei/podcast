@@ -74,6 +74,43 @@ def test_metadata_failure_does_not_prevent_captions_and_caption_failure_keeps_vi
     assert "禁用" in db.episodes.find_one({"guid": "youtube:1"})["transcript_fetch_error"]
 
 
+def test_refresh_retries_failed_captions_and_clears_error_without_refetching_saved_text(channel, monkeypatch):
+    db, feed, _ = channel
+    unavailable = "YouTube 暂时限制了当前代理的访问，请稍后重试或切换代理节点。"
+    captions = Mock(side_effect=lambda vid: (None, unavailable) if vid == "1" else (
+        {"text": f"Transcript {vid}", "segments": []}, None))
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
+    queue = RecordingQueue()
+    service = FeedSyncService(db, queue)
+    first = service.refresh(str(feed["_id"]))
+    assert queue.run(first["transcript_task_id"])["transcript_failures"] == 1
+    episode = db.episodes.find_one({"guid": "youtube:1"})
+    assert episode["transcript_fetch_error"] == unavailable
+
+    captions.reset_mock()
+    captions.side_effect = lambda vid: ({"text": "Recovered transcript", "segments": []}, None)
+    retry = service.refresh(str(feed["_id"]))
+    assert retry["new_episodes"] == 0
+    assert retry["transcript_task_id"] != first["transcript_task_id"]
+    assert queue.run(retry["transcript_task_id"]) == {"new_transcripts": 1, "transcript_failures": 0}
+    captions.assert_called_once_with("1")
+    assert "transcript_fetch_error" not in db.episodes.find_one({"_id": episode["_id"]})
+    assert db.transcripts.find_one({"episode_id": episode["_id"]})["text"] == "Recovered transcript"
+    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
+
+
+def test_refresh_recovers_from_channel_fetch_failure(channel, monkeypatch):
+    db, feed, videos = channel
+    listing = Mock(side_effect=[(None, "upstream unavailable"), (videos, None)])
+    monkeypatch.setattr(YouTubeService, "fetch_channel_videos", listing)
+    service = FeedSyncService(db, RecordingQueue())
+    with pytest.raises(ValueError, match="upstream unavailable"):
+        service.refresh(str(feed["_id"]))
+    assert db.feeds.find_one({"_id": feed["_id"]})["check_error"]
+    assert service.refresh(str(feed["_id"]))["new_episodes"] == 3
+    assert db.feeds.find_one({"_id": feed["_id"]})["check_error"] is None
+
+
 def test_caption_worker_does_not_block_discovery_and_picks_up_new_video(channel, monkeypatch):
     db, feed, videos = channel
     started, release, finished = Event(), Event(), Event()

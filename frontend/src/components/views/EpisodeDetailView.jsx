@@ -705,21 +705,14 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   <p className="text-lg font-medium mb-4">{t('detail.noTranscript')}</p>
 
                   {isVideoEpisode && !localTranscribing && (
-                    <div className="mb-6 max-w-md rounded-lg border border-amber-700/40 bg-amber-900/10 px-4 py-3 text-left">
-                      <div className="flex items-start gap-2">
-                        <span className="mt-0.5 text-amber-400">ⓘ</span>
-                        <div>
-                          <p className="text-sm text-amber-200">
-                            {episode.transcript_fetch_error || t('detail.videoNoSubtitleReason')}
-                          </p>
-                          <button
-                            onClick={transcribeVideoNow}
-                            className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
-                          >
-                            {t('detail.transcribeVideoNow')}
-                          </button>
-                        </div>
-                      </div>
+                    <div className="mb-6 flex flex-col items-center gap-3">
+                      <p role="status" className="text-sm text-zinc-500">{t('common.fetchUnavailable')}</p>
+                      <button
+                        onClick={transcribeVideoNow}
+                        className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                      >
+                        {t('detail.transcribeVideoNow')}
+                      </button>
                     </div>
                   )}
 
