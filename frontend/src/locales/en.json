@@ -262,7 +262,7 @@
       "transcribe": "AI Transcribe",
       "summarize": "Generate Summary",
       "refresh": "Refresh Feed",
-      "fetch_transcripts": "Fetch transcripts",
+      "fetch_transcripts": "Complete episode details",
       "subscribe": "Add subscription"
     },
     "status": {
@@ -275,6 +275,8 @@
       "videos": "Video list updated: {{count}} new episodes",
       "transcripts": "Fetching transcripts in the background {{done}}/{{total}}",
       "transcriptsDone": "Transcripts updated: {{count}} episodes, {{failed}} unavailable",
+      "episodeDetails": "Completing episode details in the background {{done}}/{{total}}",
+      "episodeDetailsDone": "Episode details updated: {{count}} new transcripts, {{failed}} unavailable",
       "subscriptionResolving": "Identifying the subscription source",
       "subscriptionSaved": "Subscription saved · fetching the channel cover",
       "subscriptionDone": "Subscription added · updating episodes in the background"
