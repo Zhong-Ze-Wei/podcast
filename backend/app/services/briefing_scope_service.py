@@ -145,15 +145,20 @@ class BriefingScopeService:
                 enabled_at = enabled_at.replace(tzinfo=timezone.utc)
             enabled_at = enabled_at.astimezone(timezone.utc).isoformat()
         return {"interests": (user or {}).get("briefing_interests", [dict(item) for item in DEFAULT_INTERESTS]),
-                "auto_period": (user or {}).get("briefing_auto_period"), "auto_enabled_at": enabled_at}
+                "auto_period": (user or {}).get("briefing_auto_period"), "auto_enabled_at": enabled_at,
+                "materials_layout": (user or {}).get("briefing_materials_layout", "gallery")}
 
-    def save_preferences(self, interests, auto_period=_UNSET):
+    def save_preferences(self, interests, auto_period=_UNSET, materials_layout=_UNSET):
         tags = validate_preferences(interests)
         if self.owner_id is None:
             raise ValueError("请登录具体账号后保存关注话题")
         if auto_period is not _UNSET and auto_period not in (None, "week", "month"):
             raise ValueError("自动简报请选择关闭、每周或每月")
+        if materials_layout is not _UNSET and materials_layout not in ("gallery", "stack"):
+            raise ValueError("节目卡片请选择封面画廊或叠放翻阅")
         changes = {"briefing_interests": tags}
+        if materials_layout is not _UNSET:
+            changes["briefing_materials_layout"] = materials_layout
         if auto_period is not _UNSET:
             changes["briefing_auto_period"] = auto_period
             if auto_period != self.preferences()["auto_period"]:

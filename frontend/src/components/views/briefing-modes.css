@@ -255,22 +255,6 @@
 .br-quote-links .br-text-button { display: inline-flex; align-items: center; gap: 6px; font-size: 13px !important; color: #c4acdc !important; }
 .br-quote-pagination { display: flex; align-items: center; gap: 8px; margin-left: auto; color: #9b8eac; font-size: 12px; }
 .br-quote-pagination .br-icon-button { width: 28px; height: 28px; }
-.br-materials-backdrop { align-items: center; justify-content: center; padding: 24px; background: #07070ba1; backdrop-filter: blur(4px); }
-.br-materials-modal { display: flex; flex-direction: column; width: min(750px, 100%); max-height: 84vh; border: 1px solid #37323f; border-radius: 13px; background: #141217; box-shadow: 0 25px 90px #0009; overflow: hidden; }
-.br-materials-list { overflow-y: auto; min-height: 0; padding: 0 28px 15px; }
-.br-materials-list article { display: flex; align-items: flex-start; gap: 13px; padding: 22px 0; border-bottom: 1px solid #2a2630; }
-.br-materials-list article:last-child { border-bottom: 0; }
-.br-materials-list article > .br-cover { width: 37px; height: 37px; flex-shrink: 0; margin-top: 3px; }
-.br-materials-list article > div { min-width: 0; flex: 1; }
-.br-material-byline { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; color: #82798e; font-size: 12px; }
-.br-material-byline strong { color: #bfb2d0; font-size: 13px; font-weight: 500; }
-.br-materials-list h3 { margin: 7px 0 8px; color: #e2dbe9; font-size: 17px; line-height: 1.7; font-weight: 500; overflow-wrap: anywhere; }
-.br-material-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; color: #857b92; font-size: 12px; }
-.br-material-status > span.is-selected { color: #ad97c5; }
-.br-material-status summary { color: #a48bbd; cursor: pointer; }
-.br-material-status p { margin: 8px 0 0; line-height: 1.75; }
-.br-material-actions { display: flex; gap: 15px; margin-top: 9px; }
-.br-material-actions .br-text-button { font-size: 13px !important; }
 @keyframes br-quote-arrive { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
 @media (max-width: 600px) {
   .br-period-bar { margin-bottom: 22px; min-height: 126px; }
@@ -296,10 +280,6 @@
   .br-quote-popover blockquote { font-size: 19px; line-height: 1.85; }
   .br-quote-popover-footer { height: 98px; padding: 13px 21px; gap: 12px; }
   .br-quote-links { gap: 11px; }
-  .br-materials-backdrop { padding: 14px; }
-  .br-materials-modal { max-height: 89vh; }
-  .br-materials-list { padding: 0 20px 10px; }
-  .br-materials-list h3 { font-size: 16px; }
   .br-pdf-toolbar { flex-wrap: wrap; }
 }
 @media (max-height: 560px) {

@@ -8,6 +8,7 @@ import { briefingReportsApi } from '../../services/api';
 import FeedImage from '../common/FeedImage';
 import BriefingSettings from './BriefingSettings';
 import BriefingPeriodBar from './BriefingPeriodBar';
+import BriefingMaterialsDialog from './BriefingMaterialsDialog';
 import BriefingQuotePopover from './BriefingQuotePopover';
 import './briefing-reports.css';
 import './briefing-modes.css';
@@ -182,14 +183,10 @@ function SourceDrawer({ selection, onClose, onOpenEpisode, onListen }) {
   </aside></div>, document.body);
 }
 
-function MaterialsDialog({ snapshot, feeds, onClose, onRead, onOpenEpisode }) {
+function MaterialsDialog(props) {
   const ref = useRef(null);
-  useModalFocus(ref, onClose);
-  const period = snapshot.period;
-  return createPortal(<div className="br-modal-backdrop br-materials-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="br-materials-modal" ref={ref} role="dialog" aria-modal="true" aria-labelledby="br-materials-title">
-    <header className="br-modal-heading"><div><span className="br-field-label">{period.label}</span><h2 id="br-materials-title">这个周期的节目</h2><p>总计 {period.total_count} 期 · 有文稿 {period.transcript_count} 期{period.selected_count != null ? ` · 已纳入 ${period.selected_count} 期` : ' · 尚未按关注筛选'}</p></div><button className="br-icon-button" aria-label="关闭节目清单" onClick={onClose}><X size={19} /></button></header>
-    <div className="br-materials-list custom-scrollbar">{snapshot.materials?.length ? snapshot.materials.map(material => <article key={material.episode_id}><Cover source={material} feeds={feeds} /><div><div className="br-material-byline"><strong>{material.feed}</strong><span>{dateText(material.published_at)}</span></div><h3>{material.title}</h3><div className="br-material-status"><span className={material.selected ? 'is-selected' : ''}>{material.selected === true ? '已纳入报告' : material.selected === false ? '与关注话题不相关' : material.has_transcript ? '已有文稿' : '尚无文稿'}</span>{material.relevance_reason && <details><summary>筛选依据</summary><p>{material.relevance_reason}</p></details>}</div><div className="br-material-actions">{material.has_transcript && material.source_id && <button className="br-text-button" onClick={() => { onClose(); onRead(material.source_id); }}>读这期</button>}<button className="br-text-button" onClick={() => { onClose(); onOpenEpisode(material.episode_id); }}>打开节目</button></div></div></article>) : <div className="br-empty"><h2>这个周期没有发布的节目</h2><p>可以滑动到其他周或月份查看。</p></div>}</div>
-  </section></div>, document.body);
+  useModalFocus(ref, props.onClose);
+  return <BriefingMaterialsDialog {...props} dialogRef={ref} CoverComponent={Cover} />;
 }
 
 function PdfPreview({ report, pages, style, onStyleChange, onPagesChange, onClose, onDownload, downloading, exportError }) {
@@ -225,6 +222,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const [preferencesError, setPreferencesError] = useState('');
   const [autoPeriod, setAutoPeriod] = useState(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
+  const [materialsLayout, setMaterialsLayout] = useState('gallery');
   const [pdfStyle, setPdfStyle] = useState('paper');
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -304,6 +302,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   useEffect(() => {
     readingScrollRef.current = 0;
     setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setSavingInterests(false); setPreferencesError(''); setSelectedTag(''); setShowAll(false);
+    setMaterialsLayout('gallery');
     const storedLayout = localStorage.getItem(`${storagePrefix}:layout`);
     setLayout(LAYOUTS.some(item => item.id === storedLayout) ? storedLayout : 'paper');
     const storedMode = localStorage.getItem(`${storagePrefix}:mode`);
@@ -349,6 +348,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       if (!active || requestId !== snapshotRequestRef.current) return;
       const data = payload(response);
       setSnapshot(data);
+      setMaterialsLayout(data.preferences?.materials_layout || 'gallery');
       if (data.preferences?.interests) { setInterests(data.preferences.interests); setAutoPeriod(data.preferences.auto_period || null); }
       if (data.period) {
         localStorage.setItem(`${storagePrefix}:period`, JSON.stringify({ type: data.period.type, start: data.period.start }));
@@ -459,6 +459,15 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     } catch (err) { if (isCurrentOwner(owner)) { setInterests(previous); setAutoPeriod(previousAuto); setError(err.message || '关注设置未能保存。'); setPreferencesError(err.message || '关注设置未能保存。'); } }
     finally { if (isCurrentOwner(owner)) setSavingInterests(false); }
   };
+  const updateMaterialsLayout = async next => {
+    const owner = userId;
+    setSavingInterests(true); setPreferencesError('');
+    try {
+      const preferences = payload(await briefingReportsApi.savePreferences({ materials_layout: next }));
+      if (isCurrentOwner(owner)) setMaterialsLayout(preferences.materials_layout);
+    } catch (err) { if (isCurrentOwner(owner)) setPreferencesError(err.message || '节目卡片样式未能保存。'); }
+    finally { if (isCurrentOwner(owner)) setSavingInterests(false); }
+  };
   const openPreview = () => { setPdfStyle(layout === 'newspaper' ? 'newspaper' : 'paper'); setPreview(true); };
   const excerptProps = { sources, feeds, onRead: readEpisode, onListen, onSource: setSelection, savedQuotes, onToggleQuote: toggleQuote, onCopy: copyQuote, onTag: setSelectedTag, selectedTag, onEvidence: setEvidenceSelection };
   const readingData = readingSource ? readings[readingSource] || { source: sources.find(source => source.id === readingSource) } : null;
@@ -467,7 +476,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     <link rel="stylesheet" href="/api/briefing-reports/reading-theme.css" />
     <header className="br-page-header"><div className="br-page-heading"><button className="br-menu-button" onClick={onOpenMenu} aria-label="打开菜单"><Menu size={20} /></button>{readingSource && section !== 'settings' ? <button className="br-back-button" onClick={() => setReadingSource(null)}><ArrowLeft size={17} />返回简报</button> : <div><h1>{section === 'settings' ? '简报设置' : savedOnly ? '简报收藏' : 'AI 简报'}</h1><p>{section === 'settings' ? '关注话题、自动生成与阅读风格' : loading ? '正在读取简报' : period ? `${period.label}${savedOnly ? ' · 查看本期收藏，可切换周期和内容模式' : period.is_current ? ' · 本期进行中' : ''}` : '按关注话题阅读节目'}</p></div>}</div></header>
     <main className="br-main">
-      {section === 'settings' && <BriefingSettings interests={interests} error={preferencesError} autoPeriod={autoPeriod} onAutoPeriod={next => updatePreferences(interests, next)} saving={savingInterests || loading} onChange={next => updatePreferences(next, autoPeriod)} layout={layout} layouts={LAYOUTS} onLayout={setLayout} modeName={info.name} prompt={prompt} inputDescription={inputDescription} report={report} period={period} working={working} hasMaterials={hasMaterials} onGenerate={target => { generate('modes', target === 'current' ? mode : 'all'); onSectionChange('reports'); }} onBack={() => onSectionChange('reports')} />}
+      {section === 'settings' && <BriefingSettings interests={interests} error={preferencesError} autoPeriod={autoPeriod} onAutoPeriod={next => updatePreferences(interests, next)} saving={savingInterests || loading} onChange={next => updatePreferences(next, autoPeriod)} layout={layout} layouts={LAYOUTS} onLayout={setLayout} materialsLayout={materialsLayout} onMaterialsLayout={updateMaterialsLayout} modeName={info.name} prompt={prompt} inputDescription={inputDescription} report={report} period={period} working={working} hasMaterials={hasMaterials} onGenerate={target => { generate('modes', target === 'current' ? mode : 'all'); onSectionChange('reports'); }} onBack={() => onSectionChange('reports')} />}
       {section !== 'settings' && !readingSource && <>
         <BriefingPeriodBar period={period} periods={snapshot?.periods || []} periodType={periodScope.type} loading={loading} onPeriodType={type => setPeriodScope({ owner: userId, type, start: null })} onPeriod={item => setPeriodScope({ owner: userId, type: periodScope.type, start: item.start })} onMaterials={() => setMaterialsOpen(true)} onCurrent={() => setPeriodScope({ owner: userId, type: periodScope.type, start: currentPeriodStart(periodScope.type) })} />
         <div className="br-toolbar br-modes-toolbar"><nav className="br-content-tabs" aria-label="五种内容模式">{modes.map(item => <button key={item.id} className={mode === item.id ? 'is-active' : ''} aria-pressed={mode === item.id} onClick={() => { setMode(item.id); viewRef.current?.scrollTo({ top: 0 }); }}>{item.name}</button>)}</nav><div className="br-toolbar-actions">
@@ -494,7 +503,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       </>)}
     </main>
     {evidenceSelection && <BriefingQuotePopover selection={evidenceSelection} sources={sources} onClose={closeEvidence} onRead={readEpisode} onListen={onListen} onSource={setSelection} />}
-    {materialsOpen && snapshot && <MaterialsDialog snapshot={snapshot} feeds={feeds} onClose={closeMaterials} onRead={readEpisode} onOpenEpisode={onOpenEpisode} />}
+    {materialsOpen && snapshot && <MaterialsDialog snapshot={snapshot} feeds={feeds} layout={materialsLayout} onClose={closeMaterials} onRead={readEpisode} onOpenEpisode={onOpenEpisode} />}
     {selection && <SourceDrawer selection={selection} onClose={closeSource} onOpenEpisode={onOpenEpisode} onListen={onListen} />}
     {preview && report && <PdfPreview report={report} style={pdfStyle} onStyleChange={setPdfStyle} pages={pages} onPagesChange={setPages} onClose={closePreview} onDownload={download} downloading={downloading} exportError={exportError} />}
     {toast && <div className="br-toast" role="status"><Check size={16} />{toast}</div>}
