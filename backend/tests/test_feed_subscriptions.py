@@ -11,6 +11,7 @@ from app.models.feed import Feed
 from app.services.bilibili_service import BilibiliService
 from app.services.youtube_service import YouTubeService
 from tests.auth_helpers import add_user, auth_headers, make_auth_app
+from tests.test_feed_refresh_queue import RecordingQueue, ImmediateQueue
 
 
 def _add_feed(db, feed_type, channel_ref, title="Channel"):
@@ -52,11 +53,15 @@ def test_refresh_youtube_channel_feed_creates_transcribed_episodes(monkeypatch):
                              "language": "en"}, None) if vid == "aaa11111111" else (None, "no transcript")))
 
     with app.app_context():
-        result = _refresh_youtube_channel_feed(app.db, feed)
+        queue = RecordingQueue()
+        result = _refresh_youtube_channel_feed(app.db, feed, queue=queue)
 
     assert result["new_episodes"] == 2
-    assert result["new_transcripts"] == 1
-    assert result["transcript_failures"] == 1
+    assert app.db.transcripts.count_documents({}) == 0
+    assert app.db.episodes.count_documents({"feed_id": feed["_id"]}) == 2
+    enrichment = queue.run(result["transcript_task_id"])
+    assert enrichment["new_transcripts"] == 1
+    assert enrichment["transcript_failures"] == 1
 
     with_sub = app.db.episodes.find_one({"guid": "youtube:aaa11111111"})
     assert with_sub["status"] == "transcribed"
@@ -114,7 +119,9 @@ def test_create_feed_routes_bilibili_space_url(monkeypatch):
 
     monkeypatch.setattr(BilibiliService, "fetch_uploader_info",
                         classmethod(lambda cls, mid: ({"mid": mid, "name": "测试UP", "sign": "简介", "face": ""}, None)))
-    monkeypatch.setattr("app.api.feeds.task_queue.submit", lambda **kw: "task-1")
+    def unexpected_automatic_refresh(**kwargs):
+        raise AssertionError("Bilibili automatic refresh is paused")
+    monkeypatch.setattr("app.api.feeds.task_queue.submit_unique", unexpected_automatic_refresh)
 
     client = app.test_client()
     resp = client.post("/api/feeds", json={"rss_url": "https://space.bilibili.com/1208823126/video"},
@@ -131,7 +138,7 @@ def test_create_feed_routes_youtube_channel_url(monkeypatch):
 
     monkeypatch.setattr(YouTubeService, "resolve_channel",
                         classmethod(lambda cls, url: ({"channel_id": "UCx123", "title": "Test Channel"}, None)))
-    monkeypatch.setattr("app.api.feeds.task_queue.submit", lambda **kw: "task-1")
+    monkeypatch.setattr("app.api.feeds.task_queue.submit_unique", lambda **kw: "task-1")
 
     client = app.test_client()
     resp = client.post("/api/feeds", json={"rss_url": "https://www.youtube.com/@somebody/videos"},
@@ -143,6 +150,9 @@ def test_create_feed_routes_youtube_channel_url(monkeypatch):
 
 
 def test_ai_subtitle_rejected_when_timeline_exceeds_duration(monkeypatch):
+    monkeypatch.setenv("BILI_SESSDATA", "test-session")
+    monkeypatch.setattr("app.services.bilibili_service.Config.BILI_SESSDATA", "test-session")
+    monkeypatch.setattr(BilibiliService, "_wbi_key_cache", {"key": None, "fetched_at": 0})
     """串台校验：字幕时间轴超出视频时长 → 拒收"""
     app = make_auth_app()
 
@@ -201,7 +211,7 @@ def test_subtitle_error_is_humanized_on_episode(monkeypatch):
                         classmethod(lambda cls, vid: (None, "No transcript available: Subtitles are disabled for this video")))
 
     with app.app_context():
-        _refresh_youtube_channel_feed(app.db, feed)
+        _refresh_youtube_channel_feed(app.db, feed, queue=ImmediateQueue())
 
     ep = app.db.episodes.find_one({"guid": "youtube:ccc33333333"})
     assert "禁用" in (ep.get("transcript_fetch_error") or "")

@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, RefreshCw } from 'lucide-react';
 import { authApi, feedsApi, episodesApi, tasksApi, setAuthToken } from './services/api';
@@ -30,6 +30,7 @@ import ViewToolbar from './components/common/ViewToolbar';
 import PlayerBar from './components/player/PlayerBar';
 // Task components
 import TaskPanel from './components/tasks/TaskPanel';
+import { createFeedRefreshAction } from './utils/taskActions';
 
 const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
@@ -80,11 +81,15 @@ export default function App() {
   const [feeds, setFeeds] = useState([]);
   const [episodes, setEpisodes] = useState([]);
   const [workspaceEpisodes, setWorkspaceEpisodes] = useState([]); // 已转录/已摘要的episodes
+  const [activeTasks, setActiveTasks] = useState([]);
+  const [actionNotice, setActionNotice] = useState('');
+  const viewedRef = useRef({});
   const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
   const [feedEpisodesLoading, setFeedEpisodesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  viewedRef.current = { feed: selectedFeed, episode: selectedEpisode, owner: currentUser?.id };
   const [searchQuery, setSearchQuery] = useState('');
   const [episodeViewMode, setEpisodeViewMode] = useState('grid'); // grid | list
   const audioRef = useRef(null);
@@ -132,8 +137,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentPlaying, isPlaying]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = useCallback(async () => {
     try {
       const [feedsData, episodesData, transcribedData] = await Promise.all([
         feedsApi.list(),
@@ -141,6 +145,7 @@ export default function App() {
         episodesApi.listTranscribed()
       ]);
       setFeeds(feedsData.data || feedsData);
+      setSelectedFeed(previous => previous ? (feedsData.data || feedsData).find(feed => feed.id === previous.id) || previous : previous);
       setEpisodes(episodesData.data || episodesData);
       setWorkspaceEpisodes(transcribedData.data || transcribedData);
     } catch (err) {
@@ -148,7 +153,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -227,9 +232,40 @@ export default function App() {
     loadData();
   };
 
-  const handleRefreshFeed = () => {
+  const handleRefreshFeed = useMemo(() => createFeedRefreshAction({
+    refresh: feedId => feedsApi.refresh(feedId),
+    onQueued: () => setActionNotice('feedDetail.syncStarted'),
+    onError: error => setActionNotice(error.message),
+  }), [currentUser?.id]);
+
+  const refreshViewedContent = useCallback(async tasks => {
+    const { feed, episode, owner } = viewedRef.current;
+    try {
+      if (feed && tasks.some(task => task.feed_id === feed.id)) {
+        const [feedResponse, episodesResponse] = await Promise.all([
+          feedsApi.get(feed.id), feedsApi.getEpisodes(feed.id, { per_page: 100 }),
+        ]);
+        if (viewedRef.current.owner === owner && viewedRef.current.feed?.id === feed.id) {
+          setSelectedFeed(feedResponse.data);
+          setFeedEpisodes(episodesResponse.data);
+        }
+      }
+      if (episode && tasks.some(task => task.episode_id === episode.id || (task.type === 'fetch_transcripts' && task.feed_id === episode.feed_id))) {
+        const response = await episodesApi.get(episode.id);
+        if (viewedRef.current.owner === owner && viewedRef.current.episode?.id === episode.id) setSelectedEpisode(response.data);
+      }
+    } catch (error) { setActionNotice(error.message); }
+  }, []);
+  const handleTaskComplete = useCallback(tasks => {
     loadData();
-  };
+    refreshViewedContent(tasks);
+  }, [loadData, refreshViewedContent]);
+  useEffect(() => {
+    if (!currentUser) return;
+    const visible = () => { if (!document.hidden) loadData(); };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [currentUser?.id, loadData]);
 
   const handleDeleteFeed = () => {
     setActiveFeed(null);
@@ -735,6 +771,8 @@ export default function App() {
             loading={feedEpisodesLoading}
             onBack={() => navigateToView('list')}
             onRefresh={handleRefreshFeed}
+            canAutoRefresh={['user', 'admin'].includes(currentUser.role)}
+            activeTasks={activeTasks}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
             onStar={handleStar}
@@ -808,9 +846,12 @@ export default function App() {
         audioRef={audioRef}
       />
 
+      {actionNotice && <div role="status" className="fixed bottom-6 right-6 max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-200 shadow-xl" onClick={() => setActionNotice('')}>{t(actionNotice, { defaultValue: actionNotice })}</div>}
       {/* 任务进度面板 */}
       <TaskPanel
-        onTaskComplete={loadData}
+        onTaskComplete={handleTaskComplete}
+        onTaskProgress={refreshViewedContent}
+        onTasksChange={setActiveTasks}
         onNavigate={({ type, id, periodType, periodStart, mode }) => {
           if (type === 'episode') openEpisode(id);
           if (type === 'feed') openFeed(id);
