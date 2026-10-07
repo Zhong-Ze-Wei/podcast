@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   LayoutGrid, Plus, Mic2, Briefcase,
   Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings,
-  Sparkles, List, CalendarDays, Newspaper, Quote, Layers, Lightbulb, BookOpen
+  Sparkles, List, CalendarDays, Youtube, Tv, Rss, Newspaper, Quote, Layers, Lightbulb, BookOpen
 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
 import { feedsApi } from '../../services/api';
@@ -83,8 +83,7 @@ const Sidebar = ({
   const handleRefresh = async (feedId) => {
     setMenuOpen(null);
     try {
-      await feedsApi.refresh(feedId);
-      if (onRefreshFeed) onRefreshFeed();
+      await onRefreshFeed(feedId);
     } catch (err) {
       console.error('Refresh failed:', err);
     }
@@ -229,7 +228,12 @@ const Sidebar = ({
             className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group cursor-pointer ${activeFeed === feed.id ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
             onClick={() => { onFeedClick ? onFeedClick(feed) : null; onClose && onClose(); }}
           >
-            <FeedImage feed={feed} className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100" />
+            <span className="relative w-6 h-6 shrink-0">
+              <FeedImage feed={feed} className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100" />
+              <span role="img" aria-label={feed.type === 'youtube' ? 'YouTube' : feed.type === 'bilibili' ? 'Bilibili' : 'RSS'} className="absolute -bottom-1 -right-1 rounded bg-zinc-950 p-0.5 ring-1 ring-zinc-800">
+                {feed.type === 'youtube' ? <Youtube size={10} className="text-red-400" /> : feed.type === 'bilibili' ? <Tv size={10} className="text-pink-400" /> : <Rss size={10} className="text-zinc-400" />}
+              </span>
+            </span>
             <span className="truncate flex-1 text-left">{feed.title}</span>
             {feed.is_favorite && <Heart size={12} className="text-pink-400" fill="currentColor" />}
             {feed.unread_count > 0 && (

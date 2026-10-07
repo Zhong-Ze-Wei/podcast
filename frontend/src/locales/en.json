@@ -54,7 +54,14 @@
     "lastUpdated": "Last updated",
     "subscribedAt": "Subscribed",
     "allEpisodes": "All Episodes",
-    "toggleStar": "Toggle star"
+    "toggleStar": "Toggle star",
+    "syncStarted": "Updating the episode list. New episodes will appear automatically.",
+    "bilibiliAutoPaused": "Bilibili automatic updates are paused. Manual refresh is available.",
+    "fetchingTranscripts": "Videos are ready to browse. Transcripts are being fetched in the background.",
+    "checkingVideos": "Fetching recent videos. The list will update automatically…",
+    "syncFailed": "Could not fetch episodes. Check the error above and retry.",
+    "noMatches": "No episodes match these filters.",
+    "noEpisodes": "No episodes have been fetched yet. Refresh to check."
   },
   "episode": {
     "library": "Your Library",
@@ -224,13 +231,19 @@
       "download": "Download Audio",
       "transcribe": "AI Transcribe",
       "summarize": "Generate Summary",
-      "refresh": "Refresh Feed"
+      "refresh": "Refresh Feed",
+      "fetch_transcripts": "Fetch transcripts"
     },
     "status": {
       "pending": "Pending",
       "processing": "Processing",
       "completed": "Completed",
       "failed": "Failed"
+    },
+    "progress": {
+      "videos": "Video list updated: {{count}} new episodes",
+      "transcripts": "Fetching transcripts in the background {{done}}/{{total}}",
+      "transcriptsDone": "Transcripts updated: {{count}} episodes, {{failed}} unavailable"
     }
   },
   "settings": {

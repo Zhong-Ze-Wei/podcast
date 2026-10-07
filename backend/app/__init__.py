@@ -53,7 +53,7 @@ def create_app():
     # 启动自动刷新服务（每小时检查一次，超过6小时未更新的订阅源自动刷新）
     from .services.auto_refresher import start_auto_refresher
 
-    start_auto_refresher(app.db, interval_hours=1, stale_threshold_hours=6)
+    start_auto_refresher(app.db, interval_hours=5 / 60, stale_threshold_hours=6)
 
     from .services.briefing_auto_reporter import start_auto_reporter
 
