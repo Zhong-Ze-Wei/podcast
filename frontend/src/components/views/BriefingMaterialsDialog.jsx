@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Check, ChevronLeft, ChevronRight, ExternalLink, FileText, Search, Sparkles, X } from 'lucide-react';
@@ -12,7 +12,7 @@ function EpisodeCard({ material, feeds, CoverComponent, expanded, onExpand, onRe
   const { t } = useTranslation();
   const label = key => t(`briefingMaterials.${key}`);
   const contentId = `material-${material.episode_id}`;
-  return <article className={`bm-card${expanded ? ' is-open' : ''}`}>
+  return <article className={`bm-card${expanded ? ' is-open' : ''}`} data-episode-id={material.episode_id}>
     <button className="bm-art" onClick={onExpand} aria-expanded={expanded} aria-controls={contentId} aria-label={`${label('preview')}: ${material.title}`}>
       <span className="bm-art-ambient" aria-hidden="true"><CoverComponent source={material} feeds={feeds} /></span>
       <CoverComponent source={material} feeds={feeds} />
@@ -38,6 +38,8 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
   const [activeIndex, setActiveIndex] = useState(0);
   const dragStart = useRef(null);
   const dragged = useRef(false);
+  const galleryRef = useRef(null);
+  const previousCardRects = useRef(null);
   const language = i18n.resolvedLanguage || i18n.language;
   const dateText = value => value ? new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', timeZone: 'Asia/Hong_Kong' }).format(new Date(value)) : '';
   const materials = snapshot.materials || [];
@@ -47,7 +49,36 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
   const move = direction => { setActiveIndex(Math.max(0, Math.min(episodes.length - 1, index + direction))); setExpandedId(null); };
   const openEpisode = id => { onClose(); onOpenEpisode(id); };
   const read = id => { onClose(); onRead(id); };
-  const episodeCard = material => <EpisodeCard key={material.episode_id} material={material} feeds={feeds} CoverComponent={CoverComponent} dateText={dateText} expanded={expandedId === material.episode_id} onExpand={() => setExpandedId(current => current === material.episode_id ? null : material.episode_id)} onRead={read} onOpenEpisode={openEpisode} />;
+  const expand = id => {
+    if (galleryRef.current) previousCardRects.current = new Map(Array.from(galleryRef.current.children, card => [card.dataset.episodeId, card.getBoundingClientRect()]));
+    setExpandedId(current => current === id ? null : id);
+  };
+  useLayoutEffect(() => {
+    const grid = galleryRef.current;
+    const previous = previousCardRects.current;
+    previousCardRects.current = null;
+    if (!grid || !previous || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const cards = Array.from(grid.children);
+    const animations = [];
+    cards.forEach(card => {
+      const before = previous.get(card.dataset.episodeId);
+      if (!before) return;
+      const after = card.getBoundingClientRect();
+      if (before.left === after.left && before.top === after.top && before.width === after.width) return;
+      animations.push(card.animate([
+        { width: `${before.width}px`, transform: `translate(${before.left - after.left}px, ${before.top - after.top}px)` },
+        { width: `${after.width}px`, transform: 'translate(0, 0)' },
+      ], { duration: 520, easing: 'cubic-bezier(.22, 1.08, .36, 1)' }));
+    });
+    const expandedCard = cards.find(card => card.dataset.episodeId === expandedId);
+    if (expandedCard) {
+      const body = grid.parentElement;
+      const cardBottom = expandedCard.offsetTop + expandedCard.offsetHeight;
+      if (cardBottom > body.scrollTop + body.clientHeight) body.scrollTo({ top: cardBottom - body.clientHeight + 24, behavior: 'smooth' });
+    }
+    return () => animations.forEach(animation => animation.cancel());
+  }, [expandedId, query, layout]);
+  const episodeCard = material => <EpisodeCard key={material.episode_id} material={material} feeds={feeds} CoverComponent={CoverComponent} dateText={dateText} expanded={expandedId === material.episode_id} onExpand={() => expand(material.episode_id)} onRead={read} onOpenEpisode={openEpisode} />;
   const peek = (material, direction) => <button className={`bm-peek ${direction < 0 ? 'is-left' : 'is-right'}`} onClick={() => move(direction)} aria-label={`${label(direction < 0 ? 'previous' : 'next')}: ${material.title}`}><div className="bm-peek-art"><CoverComponent source={material} feeds={feeds} /></div><span>{material.feed}</span><strong>{material.title}</strong></button>;
 
   return createPortal(<div className="br-modal-backdrop bm-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className={`bm-modal bm-${layout}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="bm-title">
@@ -60,6 +91,6 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
         onPointerCancel={() => { dragStart.current = null; }} onClickCapture={event => { if (dragged.current) { event.preventDefault(); event.stopPropagation(); dragged.current = false; } }}>
         {index > 0 && peek(episodes[index - 1], -1)}{index + 1 < episodes.length && peek(episodes[index + 1], 1)}<div className="bm-current">{episodeCard(episodes[index])}</div>
       </div><div className="bm-deck-controls"><button onClick={() => move(-1)} disabled={index === 0} aria-label={label('previous')}><ChevronLeft size={18} /></button><span aria-live="polite">{index + 1} / {episodes.length}</span><button onClick={() => move(1)} disabled={index === episodes.length - 1} aria-label={label('next')}><ChevronRight size={18} /></button></div><p className="bm-deck-hint">{label('dragHint')}</p>
-    </div> : <div className="bm-gallery-grid">{episodes.map(episodeCard)}</div>}</div>
+    </div> : <div className="bm-gallery-grid" ref={galleryRef}>{episodes.map(episodeCard)}</div>}</div>
   </section></div>, document.body);
 }
