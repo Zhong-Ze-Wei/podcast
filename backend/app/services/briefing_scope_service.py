@@ -252,7 +252,7 @@ class BriefingScopeService:
             source = _source(episode, feed, transcript) if transcript else None
             cached = self.cached_screening(source, interests) if source else None
             materials.append({"episode_id": str(episode["_id"]), "source_id": source["id"] if source else None, "title": episode.get("title", ""),
-                              "feed": feed.get("title", ""), "published_at": _published(within[0]["published"]).isoformat(), "has_transcript": source is not None,
+                              "feed": feed.get("title", ""), "description": episode.get("description") or episode.get("summary") or "", "published_at": _published(within[0]["published"]).isoformat(), "has_transcript": source is not None,
                               "selected": cached["selected"] if cached else None, "topic_tags": cached["topic_tags"] if cached else [],
                               "relevance_reason": cached["relevance_reason"] if cached else "", "screening_evidence": cached["evidence"] if cached else []})
             if source:
@@ -260,6 +260,10 @@ class BriefingScopeService:
         materials.sort(key=lambda item: item["published_at"], reverse=True)
         order = {item["episode_id"]: index for index, item in enumerate(materials)}
         sources.sort(key=lambda item: order[item["episode_id"]])
+        from .briefing_material_preview import saved_analysis_previews
+        previews = saved_analysis_previews(self.report_service.root, sources, self.owner_id)
+        for item in materials:
+            item["analysis_preview"] = previews.get(item["source_id"], "")
         complete = all(item["selected"] is not None for item in materials if item["has_transcript"])
         period.update(total_count=len(materials), transcript_count=len(sources), selected_count=sum(item["selected"] is True for item in materials) if complete else None)
         identity = {"period": {key: period[key] for key in ("type", "start", "end")}, "interests": sorted(label.casefold() for label in interests),
