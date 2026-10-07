@@ -34,6 +34,7 @@ def list_tasks():
 
     # 构建查询条件
     query = owner_filter()
+    query["$or"] = [{"task_type": {"$ne": "subscribe"}}, {"owner_id": current_owner_id()}]
 
     status = request.args.get("status")
     if status:
@@ -87,7 +88,7 @@ def get_task(task_id):
     # 从数据库获取
     task = db.tasks.find_one(owner_filter({"task_id": task_id}))
 
-    if not task:
+    if not task or (task.get("task_type") == "subscribe" and task.get("owner_id") != current_owner_id()):
         return error_response("Task not found", "TASK_NOT_FOUND", 404)
 
     target_maps = _build_task_target_maps(db, [task])
@@ -130,7 +131,7 @@ def _build_task_target_maps(db, tasks: list[dict]) -> dict:
 
     for task in tasks:
         episode_oid = _to_object_id(task.get("episode_id"))
-        feed_oid = _to_object_id(task.get("feed_id"))
+        feed_oid = _to_object_id(_task_feed_id(task))
         if episode_oid:
             episode_oids.add(episode_oid)
         if feed_oid:
@@ -161,7 +162,7 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
     """格式化任务响应"""
     target_maps = target_maps or {"episodes": {}, "feeds": {}}
     episode_id = _string_id(task.get("episode_id"))
-    feed_id = _string_id(task.get("feed_id"))
+    feed_id = _string_id(_task_feed_id(task))
     episode = target_maps["episodes"].get(episode_id) if episode_id else None
     feed = None
 
@@ -192,7 +193,8 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "feed_id": feed_id,
         "episode_title": episode.get("title") if episode else None,
         "episode_status": episode.get("status") if episode else None,
-        "feed_title": feed.get("title") if feed else None,
+        "feed_title": feed.get("title") if feed else (task.get("report_context") or {}).get("feed_title"),
+        "report_context": task.get("report_context"),
         "target_type": target_type,
         "target_id": target_id,
         "target_exists": target_exists,
@@ -202,6 +204,12 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "started_at": _format_datetime(task.get("started_at")),
         "completed_at": _format_datetime(task.get("completed_at"))
     }
+
+
+def _task_feed_id(task):
+    if task.get("task_type") == "subscribe":
+        return task.get("feed_id") or (task.get("result") or {}).get("id")
+    return task.get("feed_id")
 
 
 def _to_object_id(value):

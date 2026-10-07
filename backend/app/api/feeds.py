@@ -6,6 +6,8 @@ Feeds API
 """
 
 import logging
+from urllib.parse import unquote, urlparse
+from ..services.feed_identity import normalize_feed_url as _normalize_feed_url
 
 from flask import Blueprint, request
 
@@ -102,18 +104,6 @@ def get_feed(feed_id):
     return success_response(Feed.to_response(feed))
 
 
-def _normalize_feed_url(url: str) -> str:
-    """去掉跟踪参数（utm_*、spm*）和尾部斜杠的小写规范形，用于订阅去重（共享库下全局唯一）"""
-    from urllib.parse import urlparse, parse_qsl, urlencode
-
-    parts = urlparse((url or "").strip())
-    query = urlencode([
-        (k, v) for k, v in parse_qsl(parts.query)
-        if not k.lower().startswith(("utm_", "spm"))
-    ])
-    return parts._replace(query=query, path=parts.path.rstrip("/")).geturl().lower()
-
-
 @feeds_bp.route("", methods=["POST"])
 @require_role("user", "admin")
 def create_feed():
@@ -126,6 +116,42 @@ def create_feed():
         return error_response("RSS URL is required", "MISSING_RSS_URL", 400)
 
     owner_id = current_owner_id()
+
+    if data.get("asynchronous") is True:
+        if not Feed.validate_rss_url(rss_url):
+            return error_response("Invalid RSS URL", "INVALID_RSS_URL", 400)
+        for existing in db.feeds.find({}):
+            if _normalize_feed_url(existing.get("rss_url") or "") == _normalize_feed_url(rss_url):
+                return success_response(Feed.to_response(existing), "Feed already subscribed", 200)
+        return _queue_feed_creation(db, rss_url, owner_id, data)
+
+    return _create_feed_sync(db, rss_url, owner_id, data)
+
+
+def _queue_feed_creation(db, url, owner_id, data):
+    """HTTP 只排队；频道识别、订阅保存和首轮更新在后台完成。"""
+    title = unquote(urlparse(url).path).strip("/") or urlparse(url).hostname
+
+    def create(progress_callback=None):
+        progress_callback((10, "正在识别订阅来源"))
+        response = _create_feed_sync(db, url, owner_id, data, progress_callback)
+        payload = response[0].get_json() if isinstance(response, tuple) else response.get_json()
+        if not payload.get("success"):
+            raise ValueError(payload["message"])
+        progress_callback((100, "订阅已添加，正在后台更新节目"))
+        return payload["data"]
+
+    task_id = task_queue.submit_unique(
+        "subscribe", create, owner_id=owner_id,
+        dedup_key=f"subscribe:{owner_id}:{_normalize_feed_url(url)}",
+        report_context={"kind": "subscription", "feed_title": title, "url": url},
+    )
+    return success_response({"task_id": task_id, "type": "subscribe", "status": "pending", "progress": 0,
+                             "feed_title": title, "report_context": {"kind": "subscription", "url": url}},
+                            "Subscription queued", 202)
+
+
+def _create_feed_sync(db, rss_url, owner_id, data, progress_callback=None):
 
     # 共享库：订阅全局唯一，按规范化 URL 去重（同一来源不允许重复添加）
     normalized = _normalize_feed_url(rss_url)
@@ -140,7 +166,7 @@ def create_feed():
         return _create_bilibili_feed(db, rss_url, space_id, owner_id, data)
 
     if YouTubeService.is_channel_url(rss_url):
-        return _create_youtube_channel_feed(db, rss_url, owner_id, data)
+        return _create_youtube_channel_feed(db, rss_url, owner_id, data, progress_callback)
 
     if not Feed.validate_rss_url(rss_url):
         return error_response("Invalid RSS URL", "INVALID_RSS_URL", 400)
@@ -193,7 +219,7 @@ def _queue_initial_refresh(feed_id, owner_id):
     task_queue.submit_unique(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id, dedup_key=f"refresh:{feed_id}")
 
 
-def _create_youtube_channel_feed(db, url, owner_id, data):
+def _create_youtube_channel_feed(db, url, owner_id, data, progress_callback=None):
     """订阅 YouTube 频道：解析频道 → 建 feed → 后台拉首批视频"""
     existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": url})
     if existing:
@@ -202,6 +228,12 @@ def _create_youtube_channel_feed(db, url, owner_id, data):
     channel, error = YouTubeService.resolve_channel(url)
     if error:
         return error_response(error, "YOUTUBE_CHANNEL_RESOLVE_FAILED", 400)
+
+    existing = db.feeds.find_one({"type": Feed.TYPE_YOUTUBE, "channel_ref": channel["channel_id"]})
+    if existing:
+        if data.get("asynchronous") is True:
+            return success_response(Feed.to_response(existing), "Feed already subscribed", 200)
+        return error_response("Feed already exists", "FEED_EXISTS", 409)
 
     feed_doc = Feed.create(
         rss_url=url,
@@ -217,6 +249,11 @@ def _create_youtube_channel_feed(db, url, owner_id, data):
     result = db.feeds.insert_one(feed_doc)
     feed_doc["_id"] = result.inserted_id
 
+    if progress_callback:
+        progress_callback((70, "订阅已保存，正在获取频道封面"))
+
+    _queue_initial_refresh(result.inserted_id, owner_id)
+
     if channel.get("avatar"):
         local_icon = _persist_feed_icon(
             result.inserted_id, channel["avatar"], proxy=YouTubeService._proxy()
@@ -225,7 +262,6 @@ def _create_youtube_channel_feed(db, url, owner_id, data):
             db.feeds.update_one({"_id": result.inserted_id}, {"$set": {"image": local_icon}})
             feed_doc["image"] = local_icon
 
-    _queue_initial_refresh(result.inserted_id, owner_id)
     return success_response(Feed.to_response(feed_doc), "YouTube channel subscribed", 201)
 
 

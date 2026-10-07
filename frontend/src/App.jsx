@@ -82,6 +82,7 @@ export default function App() {
   const [episodes, setEpisodes] = useState([]);
   const [workspaceEpisodes, setWorkspaceEpisodes] = useState([]); // 已转录/已摘要的episodes
   const [activeTasks, setActiveTasks] = useState([]);
+  const [queuedTask, setQueuedTask] = useState(null);
   const [actionNotice, setActionNotice] = useState('');
   const viewedRef = useRef({});
   const [feedEpisodes, setFeedEpisodes] = useState([]); // 当前选中feed的全部episodes
@@ -228,8 +229,18 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefreshMinutes]);
 
-  const handleAddFeed = () => {
+  const handleAddFeed = data => {
+    if (data.task_id) setQueuedTask({ ...data, id: data.task_id });
     loadData();
+  };
+
+  const retrySubscription = async url => {
+    try {
+      const response = await feedsApi.create({ rss_url: url, asynchronous: true });
+      handleAddFeed(response.data);
+    } catch {
+      setActionNotice('common.fetchUnavailable');
+    }
   };
 
   const handleRefreshFeed = useMemo(() => createFeedRefreshAction({
@@ -849,6 +860,8 @@ export default function App() {
       {actionNotice && <div role="status" className="fixed bottom-6 right-6 max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-200 shadow-xl" onClick={() => setActionNotice('')}>{t(actionNotice, { defaultValue: actionNotice })}</div>}
       {/* 任务进度面板 */}
       <TaskPanel
+        onRetrySubscription={retrySubscription}
+        queuedTask={queuedTask}
         onTaskComplete={handleTaskComplete}
         onTaskProgress={refreshViewedContent}
         onTasksChange={setActiveTasks}

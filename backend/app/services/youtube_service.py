@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+from urllib.parse import unquote, urlparse
 
 from ..config import Config
 
@@ -36,7 +37,10 @@ class YouTubeService:
 
     @classmethod
     def is_channel_url(cls, url: str) -> bool:
-        return bool(cls.CHANNEL_URL_PATTERN.search(url or ""))
+        parts = urlparse(url or "")
+        return parts.hostname in {"youtube.com", "www.youtube.com", "m.youtube.com"} and bool(
+            re.fullmatch(r"/(?:@[^/]+|channel/[\w-]+|c/[^/]+|user/[^/]+)(?:/(?:videos|shorts|streams|featured))?/?", unquote(parts.path))
+        )
 
     @classmethod
     def resolve_channel(cls, url: str) -> Tuple[Optional[dict], Optional[str]]:
@@ -61,7 +65,7 @@ class YouTubeService:
         }
         try:
             with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                info = ydl.extract_info(unquote(url), download=False, process=False)
         except Exception as e:
             return None, cls._classify_error(e)
 
