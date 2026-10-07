@@ -458,3 +458,25 @@ def test_auto_period_preference_can_change_independently_and_is_preserved_on_tag
     assert http.put("/api/briefing-reports/preferences", headers=headers, json={"auto_period": "daily"}).status_code == 400
     assert service.preferences()["auto_period"] == "week"
     assert http.put("/api/briefing-reports/preferences", headers=headers, json={"auto_period": None}).get_json()["data"]["auto_period"] is None
+
+
+def test_material_card_style_is_per_account_and_preserved_on_other_preference_edits(client):
+    app, http, headers, service = client
+    initial = http.get("/api/briefing-reports/preferences", headers=headers).get_json()["data"]
+    assert initial["materials_layout"] == "gallery"
+    saved = http.put("/api/briefing-reports/preferences", headers=headers, json={"materials_layout": "stack"}).get_json()["data"]
+    assert saved["materials_layout"] == "stack"
+    assert saved["interests"] == initial["interests"]
+    changed = http.put("/api/briefing-reports/preferences", headers=headers, json={"auto_period": "week"}).get_json()["data"]
+    assert changed["materials_layout"] == "stack"
+    other = add_user(app.db, "other-material-style@example.com")
+    assert http.get("/api/briefing-reports/preferences", headers=auth_headers(other)).get_json()["data"]["materials_layout"] == "gallery"
+
+
+@pytest.mark.parametrize("style", ["grid", None, [], {}])
+def test_invalid_material_card_style_keeps_saved_style(client, style):
+    app, http, headers, service = client
+    http.put("/api/briefing-reports/preferences", headers=headers, json={"materials_layout": "stack"})
+    response = http.put("/api/briefing-reports/preferences", headers=headers, json={"materials_layout": style})
+    assert response.status_code == 400
+    assert service.preferences()["materials_layout"] == "stack"

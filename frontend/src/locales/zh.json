@@ -1,4 +1,33 @@
 {
+  "briefingMaterials": {
+    "title": "这个周期的节目",
+    "count": "共 {{total}} 期 · {{transcripts}} 期有文稿",
+    "results": "{{count}} 期",
+    "close": "关闭节目卡片",
+    "search": "搜索节目或订阅",
+    "preview": "预览节目简介",
+    "noDescription": "暂无节目简介，可打开节目阅读文稿。",
+    "transcript": "有文稿",
+    "noTranscript": "暂无文稿",
+    "analyzed": "已有解读",
+    "included": "已纳入",
+    "readAnalysis": "查看解读",
+    "episodeAnalysis": "单篇解读",
+    "openEpisode": "打开节目",
+    "previous": "上一期",
+    "next": "下一期",
+    "dragHint": "左右拖动 · 点击侧卡 · 方向键翻阅",
+    "noResults": "没有匹配的节目，请换个关键词。",
+    "empty": "这个周期暂无节目。",
+    "styleTitle": "节目卡片",
+    "styleDescription": "选择周报和月报中节目清单的打开方式。",
+    "gallery": "封面画廊",
+    "stack": "叠放翻阅",
+    "galleryDescription": "整齐的封面卡片，点击后在固定区域阅读简介。",
+    "stackDescription": "倾斜叠放，拖动或点击侧卡逐期翻阅。",
+    "savedToAccount": "按账号保存，周报和月报共用。"
+  }
+,
   "app": {
     "title": "PodMaster"
   },
