@@ -25,7 +25,10 @@
     "stack": "Card deck",
     "galleryDescription": "Aligned cover cards with descriptions in a fixed reading area.",
     "stackDescription": "Tilted cards: drag or select a side card to browse episodes.",
-    "savedToAccount": "Saved to your account and shared by weekly and monthly reports."
+    "savedToAccount": "Saved to your account and shared by weekly and monthly reports.",
+    "aiOverview": "AI overview",
+    "episodeDescription": "Episode description",
+    "quickNavigation": "Quick episode navigation"
   },
   "app": {
     "title": "PodMaster"

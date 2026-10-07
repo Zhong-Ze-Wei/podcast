@@ -12,6 +12,7 @@ function EpisodeCard({ material, feeds, CoverComponent, expanded, onExpand, onRe
   const { t } = useTranslation();
   const label = key => t(`briefingMaterials.${key}`);
   const contentId = `material-${material.episode_id}`;
+  const overview = material.analysis_preview || plainDescription(material.description);
   return <article className={`bm-card${expanded ? ' is-open' : ''}`} data-episode-id={material.episode_id}>
     <button className="bm-art" onClick={onExpand} aria-expanded={expanded} aria-controls={contentId} aria-label={`${label('preview')}: ${material.title}`}>
       <span className="bm-art-ambient" aria-hidden="true"><CoverComponent source={material} feeds={feeds} /></span>
@@ -22,7 +23,8 @@ function EpisodeCard({ material, feeds, CoverComponent, expanded, onExpand, onRe
       <div className="bm-byline"><span>{material.feed}</span><time dateTime={material.published_at}>{dateText(material.published_at)}</time></div>
       <div id={contentId} className={`bm-scroll custom-scrollbar${expanded ? ' is-open' : ''}`} tabIndex={expanded ? 0 : undefined}>
         <h3><button onClick={onExpand} aria-expanded={expanded} aria-controls={contentId}>{material.title}</button></h3>
-        {expanded && <><p className="bm-description">{plainDescription(material.description) || label('noDescription')}</p>{material.selected === false && material.relevance_reason && <p className="bm-screening-reason">{material.relevance_reason}</p>}</>}
+        {(overview || expanded) && <p className="bm-description">{overview ? <><span className="bm-preview-label">{label(material.analysis_preview ? 'aiOverview' : 'episodeDescription')} · </span>{overview}</> : label('noDescription')}</p>}
+        {expanded && material.selected === false && material.relevance_reason && <p className="bm-screening-reason">{material.relevance_reason}</p>}
       </div>
       <div className="bm-status"><span><FileText size={12} />{label(material.has_transcript ? 'transcript' : 'noTranscript')}</span>{material.analysis_status === 'completed' ? <span className="is-complete"><Check size={12} />{label('analyzed')}</span> : material.selected === true && <span className="is-complete">{label('included')}</span>}</div>
       <div className="bm-card-actions">{material.has_transcript && material.source_id && <button className="bm-analysis" onClick={() => onRead(material.source_id)}><Sparkles size={13} />{label(material.analysis_status === 'completed' ? 'readAnalysis' : 'episodeAnalysis')}</button>}<button className="bm-open-episode" onClick={() => onOpenEpisode(material.episode_id)}>{label('openEpisode')}<ExternalLink size={12} /></button></div>
@@ -40,6 +42,7 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
   const dragged = useRef(false);
   const galleryRef = useRef(null);
   const previousCardRects = useRef(null);
+  const thumbnailsRef = useRef(null);
   const language = i18n.resolvedLanguage || i18n.language;
   const dateText = value => value ? new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', timeZone: 'Asia/Hong_Kong' }).format(new Date(value)) : '';
   const materials = snapshot.materials || [];
@@ -47,6 +50,16 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
   const episodes = materials.filter(material => !search || `${material.title} ${material.feed}`.toLocaleLowerCase().includes(search));
   const index = Math.min(activeIndex, Math.max(0, episodes.length - 1));
   const move = direction => { setActiveIndex(Math.max(0, Math.min(episodes.length - 1, index + direction))); setExpandedId(null); };
+  const jump = nextIndex => { setActiveIndex(nextIndex); setExpandedId(null); };
+  useLayoutEffect(() => {
+    const strip = thumbnailsRef.current;
+    const thumbnail = strip?.children[index];
+    if (!thumbnail) return;
+    const left = thumbnail.offsetLeft - strip.offsetLeft;
+    if (left < strip.scrollLeft || left + thumbnail.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollTo({ left: left - (strip.clientWidth - thumbnail.offsetWidth) / 2, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    }
+  }, [index, query, layout]);
   const openEpisode = id => { onClose(); onOpenEpisode(id); };
   const read = id => { onClose(); onRead(id); };
   const expand = id => {
@@ -92,5 +105,13 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
         {index > 0 && peek(episodes[index - 1], -1)}{index + 1 < episodes.length && peek(episodes[index + 1], 1)}<div className="bm-current">{episodeCard(episodes[index])}</div>
       </div><div className="bm-deck-controls"><button onClick={() => move(-1)} disabled={index === 0} aria-label={label('previous')}><ChevronLeft size={18} /></button><span aria-live="polite">{index + 1} / {episodes.length}</span><button onClick={() => move(1)} disabled={index === episodes.length - 1} aria-label={label('next')}><ChevronRight size={18} /></button></div><p className="bm-deck-hint">{label('dragHint')}</p>
     </div> : <div className="bm-gallery-grid" ref={galleryRef}>{episodes.map(episodeCard)}</div>}</div>
+    {layout === 'stack' && episodes.length > 0 && <nav className="bm-quicknav" aria-label={label('quickNavigation')}><div className="bm-thumbnails custom-scrollbar" ref={thumbnailsRef} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const focusedIndex = Array.from(event.currentTarget.children).indexOf(event.target);
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? episodes.length - 1 : Math.max(0, Math.min(episodes.length - 1, focusedIndex + (event.key === 'ArrowLeft' ? -1 : 1)));
+      jump(nextIndex);
+      event.currentTarget.children[nextIndex].focus({ preventScroll: true });
+    }}>{episodes.map((material, position) => <button key={material.episode_id} className={`bm-thumbnail${position === index ? ' is-active' : ''}`} aria-current={position === index ? 'true' : undefined} aria-label={`${position + 1}. ${material.title}`} title={`${material.feed} · ${material.title}`} onClick={() => jump(position)}><CoverComponent source={material} feeds={feeds} /><span aria-hidden="true">{position + 1}</span></button>)}</div></nav>}
   </section></div>, document.body);
 }

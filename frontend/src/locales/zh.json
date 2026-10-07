@@ -25,7 +25,10 @@
     "stack": "叠放翻阅",
     "galleryDescription": "整齐的封面卡片，点击后在固定区域阅读简介。",
     "stackDescription": "倾斜叠放，拖动或点击侧卡逐期翻阅。",
-    "savedToAccount": "按账号保存，周报和月报共用。"
+    "savedToAccount": "按账号保存，周报和月报共用。",
+    "aiOverview": "AI 导读",
+    "episodeDescription": "节目简介",
+    "quickNavigation": "快速切换节目"
   },
   "app": {
     "title": "PodMaster"
