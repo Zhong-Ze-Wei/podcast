@@ -7,7 +7,7 @@ YouTube 视频源服务
 """
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import unquote, urlparse
 
@@ -139,7 +139,6 @@ class YouTubeService:
             "quiet": True, "no_warnings": True, "skip_download": True,
             "extract_flat": True, "playlistend": 15, "socket_timeout": 15,
             "retries": 1, "extractor_retries": 1, "proxy": cls._proxy(),
-            "extractor_args": {"youtubetab": {"approximate_date": ["true"]}},
         }
         try:
             with YoutubeDL(opts) as ydl:
@@ -147,8 +146,7 @@ class YouTubeService:
                     f"https://www.youtube.com/playlist?list=UU{channel_id[2:]}", download=False,
                 )
                 videos = []
-                now = datetime.utcnow()
-                for index, entry in enumerate(playlist["entries"]):
+                for entry in playlist["entries"]:
                     if not entry:
                         continue
                     timestamp = entry.get("timestamp") or entry.get("release_timestamp")
@@ -157,7 +155,7 @@ class YouTubeService:
                         published = datetime.strptime(entry["upload_date"], "%Y%m%d")
                     videos.append({
                         "video_id": entry["id"], "title": entry.get("title", ""),
-                        "published": published or now - timedelta(seconds=index),
+                        "published": published,
                         "duration": entry.get("duration") or 0,
                         "thumbnail": (entry.get("thumbnails") or [{}])[-1].get("url", ""),
                         "author": entry.get("channel") or entry.get("uploader", ""),
@@ -251,10 +249,10 @@ class YouTubeService:
     @classmethod
     def fetch_metadata(cls, video_id: str) -> Tuple[Optional[dict], Optional[str]]:
         """
-        获取视频元数据（标题、时长、作者、封面）。
+        获取视频元数据（标题、时长、作者、封面、真实发布日期和简介）。
 
         Returns:
-            ({title, duration, uploader, thumbnail}, error)
+            ({title, duration, uploader, thumbnail, published, description}, error)
         """
         from yt_dlp import YoutubeDL
 
@@ -276,11 +274,18 @@ class YouTubeService:
         except Exception as e:
             return None, cls._classify_error(e)
 
+        timestamp = info.get("timestamp") or info.get("release_timestamp")
+        published = datetime.utcfromtimestamp(timestamp) if timestamp else None
+        if not published and info.get("upload_date"):
+            published = datetime.strptime(info["upload_date"], "%Y%m%d")
+
         return {
             "title": info.get("title") or video_id,
             "duration": int(info.get("duration") or 0),
             "uploader": info.get("uploader") or "",
             "thumbnail": info.get("thumbnail") or "",
+            "published": published,
+            "description": info.get("description") or "",
         }, None
 
     @classmethod
