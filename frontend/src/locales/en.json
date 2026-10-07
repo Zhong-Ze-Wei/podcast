@@ -1,4 +1,33 @@
 {
+  "briefingMaterials": {
+    "title": "Episodes in this period",
+    "count": "{{total}} episodes · {{transcripts}} with transcripts",
+    "results": "{{count}} episodes",
+    "close": "Close episode cards",
+    "search": "Search episodes or shows",
+    "preview": "Preview episode description",
+    "noDescription": "No description is available. Open the episode to read its transcript.",
+    "transcript": "Transcript",
+    "noTranscript": "No transcript",
+    "analyzed": "Analyzed",
+    "included": "Included",
+    "readAnalysis": "Read analysis",
+    "episodeAnalysis": "Episode analysis",
+    "openEpisode": "Open episode",
+    "previous": "Previous episode",
+    "next": "Next episode",
+    "dragHint": "Drag sideways · select a side card · use arrow keys",
+    "noResults": "No matching episodes. Try another keyword.",
+    "empty": "No episodes in this period.",
+    "styleTitle": "Episode cards",
+    "styleDescription": "Choose how episode collections open in weekly and monthly reports.",
+    "gallery": "Cover gallery",
+    "stack": "Card deck",
+    "galleryDescription": "Aligned cover cards with descriptions in a fixed reading area.",
+    "stackDescription": "Tilted cards: drag or select a side card to browse episodes.",
+    "savedToAccount": "Saved to your account and shared by weekly and monthly reports."
+  }
+,
   "app": {
     "title": "PodMaster"
   },
