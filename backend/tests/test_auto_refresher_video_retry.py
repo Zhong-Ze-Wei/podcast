@@ -9,6 +9,7 @@ from app.services.auto_refresher import FeedAutoRefresher
 from app.services.bilibili_service import BilibiliService
 from app.services.youtube_service import YouTubeService
 from tests.conftest import MockCollection, MockDB
+from tests.test_feed_refresh_queue import ImmediateQueue
 
 
 NOW = datetime(2026, 10, 1, 12)
@@ -32,6 +33,7 @@ class FeedCollection(MockCollection):
 
 def make_db(monkeypatch):
     monkeypatch.setattr("app.services.auto_refresher.datetime", FrozenDatetime)
+    monkeypatch.setattr("app.services.feed_sync_service.datetime", FrozenDatetime)
     db = MockDB()
     db.feeds = FeedCollection("feeds")
     return db
@@ -67,7 +69,7 @@ def test_refresh_selection_retries_errors_but_respects_interval_and_paused(monke
     add_feed(db, status=Feed.STATUS_ERROR, hours_ago=1)
     add_feed(db, status=Feed.STATUS_ERROR, hours_ago=6)
     selected = []
-    refresher = FeedAutoRefresher(db)
+    refresher = FeedAutoRefresher(db, queue=ImmediateQueue())
     monkeypatch.setattr(refresher, "_refresh_single_feed", lambda feed: selected.append(feed["_id"]))
 
     refresher._check_and_refresh_feeds()
@@ -89,7 +91,7 @@ def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(mon
     monkeypatch.setattr(YouTubeService, "fetch_transcript", classmethod(lambda cls, vid: (
         {"text": f"Full transcript for {vid}", "segments": [], "language": "en"}, None)))
 
-    FeedAutoRefresher(db)._check_and_refresh_feeds()
+    FeedAutoRefresher(db, queue=ImmediateQueue())._check_and_refresh_feeds()
 
     stored = db.feeds.find_one({"_id": feed["_id"]})
     assert stored["status"] == Feed.STATUS_ACTIVE
@@ -103,7 +105,7 @@ def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(mon
         assert db.transcripts.find_one({"episode_id": episode["_id"]})["source"] == "youtube"
 
 
-def test_auto_bilibili_refresh_backfills_without_refetching_existing_transcript(monkeypatch):
+def test_manual_bilibili_refresh_backfills_without_refetching_existing_transcript(monkeypatch):
     db = make_db(monkeypatch)
     reject_rss(monkeypatch)
     feed = add_feed(db, Feed.TYPE_BILIBILI)
@@ -120,7 +122,8 @@ def test_auto_bilibili_refresh_backfills_without_refetching_existing_transcript(
         return {"text": f"Full subtitle for {bvid}", "segments": [], "language": "zh"}, None
     monkeypatch.setattr(BilibiliService, "fetch_ai_subtitle", classmethod(fetch_subtitle))
 
-    FeedAutoRefresher(db)._check_and_refresh_feeds()
+    from app.services.feed_sync_service import FeedSyncService
+    FeedSyncService(db, queue=ImmediateQueue()).refresh(str(feed["_id"]))
 
     assert subtitle_calls == ["old", "new"]
     assert db.episodes.count_documents({"feed_id": feed["_id"]}) == 3
@@ -141,7 +144,7 @@ def test_failed_refresh_records_attempt_and_continues_with_other_feeds(monkeypat
         return None, "upstream unavailable"
     monkeypatch.setattr(YouTubeService, "fetch_channel_videos", classmethod(fetch_videos))
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", lambda url: ({"episodes": []}, None))
-    refresher = FeedAutoRefresher(db)
+    refresher = FeedAutoRefresher(db, queue=ImmediateQueue())
 
     refresher._check_and_refresh_feeds()
     refresher._check_and_refresh_feeds()

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Callable, Any, Optional
 import uuid
 import logging
+from threading import RLock
 from bson import ObjectId
 from bson.errors import InvalidId
 
@@ -22,6 +23,9 @@ class TaskQueue:
 
     def __init__(self, max_workers: int = 3):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.transcript_executor = ThreadPoolExecutor(max_workers=1)
+        self._lock = RLock()
+        self._futures = {}
         self.tasks = {}  # 内存存储，task_id -> task_info
         self._db = None
         self._app = None
@@ -110,6 +114,14 @@ class TaskQueue:
             updates["status"] = next_status
             self._db.episodes.update_one({"_id": episode_oid}, {"$set": updates})
 
+    def submit_unique(self, task_type: str, func: Callable, *args, dedup_key: str, **kwargs) -> str:
+        """同一订阅的列表、文稿各保留一个活动任务。"""
+        with self._lock:
+            for task in self.tasks.values():
+                if task.get("dedup_key") == dedup_key and task["status"] in {"pending", "processing"}:
+                    return task["task_id"]
+            return self.submit(task_type, func, *args, dedup_key=dedup_key, **kwargs)
+
     def submit(
         self,
         task_type: str,
@@ -120,6 +132,7 @@ class TaskQueue:
         on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
         report_period: dict = None,
+        dedup_key: str = None,
         **kwargs
     ) -> str:
         """
@@ -156,11 +169,12 @@ class TaskQueue:
         if report_period is not None:
             task_info["report_period"] = {"type": report_period["type"], "start": report_period["start"]}
 
-        self.tasks[task_id] = task_info
-
-        # 持久化到数据库
-        if self._db is not None:
-            self._db.tasks.insert_one(task_info.copy())
+        if dedup_key is not None:
+            task_info["dedup_key"] = dedup_key
+        with self._lock:
+            self.tasks[task_id] = task_info
+            if self._db is not None:
+                self._db.tasks.insert_one(task_info.copy())
 
         # 包装函数以更新状态
         def wrapper():
@@ -207,7 +221,10 @@ class TaskQueue:
                 raise
 
         # 提交到线程池
-        self.executor.submit(wrapper)
+        executor = self.transcript_executor if task_type == "fetch_transcripts" else self.executor
+        future = executor.submit(wrapper)
+        self._futures[task_id] = future
+        future.add_done_callback(lambda _: self._futures.pop(task_id, None))
 
         logger.info(f"Task submitted: {task_id} ({task_type})")
         return task_id
@@ -329,6 +346,7 @@ class TaskQueue:
     def shutdown(self, wait: bool = True):
         """关闭任务队列"""
         self.executor.shutdown(wait=wait)
+        self.transcript_executor.shutdown(wait=wait)
 
 
 # 全局任务队列实例

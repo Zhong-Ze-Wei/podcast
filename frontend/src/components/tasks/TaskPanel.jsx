@@ -1,6 +1,7 @@
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { localizeFeedProgress } from '../../utils/feedSyncProgress';
 import {
   X, Download, Mic2, Sparkles, RefreshCw, CheckCircle2,
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
@@ -31,6 +32,8 @@ function readPanelSize() {
 
 const TaskPanel = ({
   onTaskComplete,
+  onTaskProgress,
+  onTasksChange,
   onNavigate,
   pollIntervalMs = 3000,
   historyWindowMinutes = 60,
@@ -45,6 +48,7 @@ const TaskPanel = ({
   const [panelSize, setPanelSize] = useState(readPanelSize);
   const panelSizeRef = useRef(panelSize);
   const notifiedTaskIdsRef = useRef(new Set());
+  const previousProgress = useRef({});
   const userClosedDuringActiveRef = useRef(false);
   const previousActiveCountRef = useRef(0);
   const resizeStateRef = useRef(null);
@@ -65,6 +69,10 @@ const TaskPanel = ({
         return completedAt && completedAt > historyCutoff;
       });
 
+      const changed = nextActiveTasks.filter(task => task.type === 'fetch_transcripts' && task.progress > 0 && task.progress !== previousProgress.current[task.id]);
+      previousProgress.current = Object.fromEntries(nextActiveTasks.map(task => [task.id, task.progress]));
+      onTasksChange?.(nextActiveTasks);
+      if (changed.length) onTaskProgress?.(changed);
       setActiveTasks(nextActiveTasks);
       setHistoryTasks(nextHistoryTasks);
 
@@ -73,7 +81,7 @@ const TaskPanel = ({
       );
       if (terminalTasks.length > 0 && onTaskComplete) {
         terminalTasks.forEach(task => notifiedTaskIdsRef.current.add(task.id));
-        onTaskComplete();
+        onTaskComplete(terminalTasks);
       }
 
       if (nextActiveTasks.length === 0) {
@@ -91,7 +99,7 @@ const TaskPanel = ({
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     }
-  }, [historyWindowMinutes, onTaskComplete]);
+  }, [historyWindowMinutes, onTaskComplete, onTaskProgress, onTasksChange]);
 
   useEffect(() => {
     fetchTasks();
@@ -222,6 +230,7 @@ const TaskPanel = ({
       case 'summarize': return <Sparkles size={16} />;
       case 'briefing-report': return <Sparkles size={16} />;
       case 'refresh': return <RefreshCw size={16} />;
+      case 'fetch_transcripts': return <Mic2 size={16} />;
       default: return <Loader2 size={16} />;
     }
   };
@@ -304,7 +313,7 @@ const TaskPanel = ({
           {isActive ? (
             <div className="mt-2">
               {task.progress_message && (
-                <p className="mb-1 truncate text-[11px] text-sky-300">{task.progress_message}</p>
+                <p className="mb-1 truncate text-[11px] text-sky-300">{localizeFeedProgress(task.progress_message, t)}</p>
               )}
               <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                 <div

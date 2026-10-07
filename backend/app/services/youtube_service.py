@@ -7,6 +7,7 @@ YouTube 视频源服务
 """
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 from ..config import Config
@@ -52,6 +53,10 @@ class YouTubeService:
             "no_warnings": True,
             "skip_download": True,
             "playlist_items": "1",
+            "extract_flat": True,
+            "socket_timeout": 15,
+            "retries": 1,
+            "extractor_retries": 1,
             "proxy": cls._proxy(),
         }
         try:
@@ -82,7 +87,7 @@ class YouTubeService:
         频道最新视频列表（官方 RSS，最近 15 条）。
 
         Returns:
-            ([{video_id, title, published}], error)
+            ([{video_id, title, published, thumbnail, author}], error)
         """
         import requests as _requests
         import feedparser
@@ -93,10 +98,14 @@ class YouTubeService:
                 proxies={"http": cls._proxy(), "https": cls._proxy()} if cls._proxy() else None,
                 timeout=15,
             )
+            resp.raise_for_status()
         except _requests.RequestException as e:
-            return None, f"YouTube channel RSS failed: {e}"
+            logger.warning("YouTube channel RSS failed for %s: %s; using uploads playlist", channel_id, e)
+            return cls._fetch_channel_uploads(channel_id)
 
         feed = feedparser.parse(resp.content)
+        if not feed.version:
+            return cls._fetch_channel_uploads(channel_id)
         from datetime import datetime as _dt
 
         videos = []
@@ -111,10 +120,49 @@ class YouTubeService:
                 "video_id": e.yt_videoid,
                 "title": getattr(e, "title", ""),
                 "published": published,
+                "thumbnail": (e.get("media_thumbnail") or [{}])[0].get("url", ""),
+                "author": e.get("author", ""),
             })
         return videos, None
 
     # 音频直链缓存 {video_id: (url, expires_at)}——直链带签名有时效
+    @classmethod
+    def _fetch_channel_uploads(cls, channel_id: str) -> Tuple[Optional[list], Optional[str]]:
+        """RSS 失效时只取上传列表，不逐条解析视频或字幕。"""
+        from yt_dlp import YoutubeDL
+
+        opts = {
+            "quiet": True, "no_warnings": True, "skip_download": True,
+            "extract_flat": True, "playlistend": 15, "socket_timeout": 15,
+            "retries": 1, "extractor_retries": 1, "proxy": cls._proxy(),
+            "extractor_args": {"youtubetab": {"approximate_date": ["true"]}},
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                playlist = ydl.extract_info(
+                    f"https://www.youtube.com/playlist?list=UU{channel_id[2:]}", download=False,
+                )
+                videos = []
+                now = datetime.utcnow()
+                for index, entry in enumerate(playlist["entries"]):
+                    if not entry:
+                        continue
+                    timestamp = entry.get("timestamp") or entry.get("release_timestamp")
+                    published = datetime.utcfromtimestamp(timestamp) if timestamp else None
+                    if not published and entry.get("upload_date"):
+                        published = datetime.strptime(entry["upload_date"], "%Y%m%d")
+                    videos.append({
+                        "video_id": entry["id"], "title": entry.get("title", ""),
+                        "published": published or now - timedelta(seconds=index),
+                        "duration": entry.get("duration") or 0,
+                        "thumbnail": (entry.get("thumbnails") or [{}])[-1].get("url", ""),
+                        "author": entry.get("channel") or entry.get("uploader", ""),
+                    })
+                return videos, None
+        except Exception as error:
+            return None, f"YouTube channel videos failed: {cls._classify_error(error)}"
+
+
     _stream_url_cache = {}
 
     @classmethod
@@ -211,6 +259,9 @@ class YouTubeService:
             "no_warnings": True,
             "skip_download": True,
             "proxy": cls._proxy(),
+            "socket_timeout": 15,
+            "retries": 1,
+            "extractor_retries": 1,
         }
 
         try:

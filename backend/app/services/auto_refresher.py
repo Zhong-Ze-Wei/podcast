@@ -3,13 +3,14 @@
 Feed Auto-Refresher
 
 自动刷新订阅源服务
-每小时检查并更新有需要的订阅源
+每五分钟检查：YouTube 每十五分钟更新，RSS 保持六小时，B站暂停自动更新。
 """
 
 import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from .task_queue import task_queue
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,13 @@ class FeedAutoRefresher:
     自动刷新订阅源服务
 
     功能：
-    - 每小时自动检查所有订阅源
-    - 对于超过6小时未检查的正常或失败订阅源自动刷新
+    - 每五分钟检查可自动更新的订阅源
+    - YouTube 每十五分钟、RSS 每六小时检查一次（失败源按同一间隔重试）
+    - B站仅保留手动刷新
     - 使用后台线程，不阻塞主服务
     """
 
-    def __init__(self, db, interval_hours=1, stale_threshold_hours=6):
+    def __init__(self, db, interval_hours=5 / 60, stale_threshold_hours=6, queue=task_queue):
         """
         Args:
             db: MongoDB数据库实例
@@ -32,6 +34,7 @@ class FeedAutoRefresher:
             stale_threshold_hours: 超过多久视为需要更新（小时）
         """
         self.db = db
+        self.queue = queue
         self.interval_hours = interval_hours
         self.stale_threshold = timedelta(hours=stale_threshold_hours)
         self._running = False
@@ -78,14 +81,17 @@ class FeedAutoRefresher:
 
         now = datetime.utcnow()
         stale_time = now - self.stale_threshold
+        youtube_stale_time = now - timedelta(minutes=15)
 
         # 失败源也按同一间隔重试；None 同时匹配尚未检查和旧文档缺失字段。
         feeds_to_refresh = list(
             self.db.feeds.find(
                 {
                     "status": {"$in": [Feed.STATUS_ACTIVE, Feed.STATUS_ERROR]},
+                    "type": {"$ne": Feed.TYPE_BILIBILI},
                     "$or": [
-                        {"last_checked": {"$lt": stale_time}},
+                        {"type": Feed.TYPE_YOUTUBE, "last_checked": {"$lt": youtube_stale_time}},
+                        {"type": {"$ne": Feed.TYPE_YOUTUBE}, "last_checked": {"$lt": stale_time}},
                         {"last_checked": None},
                     ],
                 }
@@ -102,126 +108,48 @@ class FeedAutoRefresher:
             try:
                 self._refresh_single_feed(feed)
             except Exception as e:
-                self.db.feeds.update_one(
-                    {"_id": feed["_id"]},
-                    {"$set": {
-                        "status": Feed.STATUS_ERROR,
-                        "check_error": str(e),
-                        "last_checked": datetime.utcnow(),
-                    }},
-                )
                 logger.error(
                     f"Failed to refresh feed {feed.get('title', 'Unknown')}: {e}"
                 )
 
     def _refresh_single_feed(self, feed):
-        """刷新单个订阅源"""
+        """Queue the same synchronization operation as a manual refresh."""
+        from .feed_sync_service import FeedSyncService
+
         from app.models.feed import Feed
 
-        # 与手动刷新复用视频列表、字幕重试和去重流程，频道 URL 不是 RSS。
-        feed_type = feed.get("type") or Feed.TYPE_RSS
-        if feed_type == Feed.TYPE_YOUTUBE:
-            from app.api.feeds import _refresh_youtube_channel_feed
-            return _refresh_youtube_channel_feed(self.db, feed)
-        if feed_type == Feed.TYPE_BILIBILI:
-            from app.api.feeds import _refresh_bilibili_feed
-            return _refresh_bilibili_feed(self.db, feed)
+        feed_id = str(feed["_id"])
 
-        from app.services.rss_service import RSSService
-        from app.models.episode import Episode
+        def refresh(progress_callback=None):
+            return FeedSyncService(self.db, queue=self.queue).refresh(feed_id, progress_callback)
 
-        feed_id = feed["_id"]
-        rss_url = feed["rss_url"]
-
-        logger.info(f"Refreshing feed: {feed.get('title', 'Unknown')}")
-
-        # 解析RSS
-        feed_info, error = RSSService.parse_feed(rss_url)
-
-        if error:
+        def record_failure(error):
             self.db.feeds.update_one(
-                {"_id": feed_id},
-                {
-                    "$set": {
-                        "status": "error",
-                        "check_error": error,
-                        "last_checked": datetime.utcnow(),
-                    }
-                },
-            )
-            logger.warning(f"Feed refresh failed: {error}")
-            return
-
-        # 获取已有episodes
-        existing_guids = set(
-            ep["guid"]
-            for ep in self.db.episodes.find({"feed_id": feed_id}, {"guid": 1})
-        )
-
-        # 插入新episodes
-        new_episodes = []
-        episodes = feed_info.get("episodes", [])
-
-        for ep_info in episodes:
-            if ep_info["guid"] not in existing_guids:
-                ep_doc = Episode.create(
-                    feed_id=feed_id,
-                    owner_id=feed.get("owner_id"),
-                    guid=ep_info["guid"],
-                    title=ep_info["title"],
-                    summary=ep_info.get("summary"),
-                    content=ep_info.get("content"),
-                    link=ep_info.get("link"),
-                    published=ep_info.get("published"),
-                    audio_url=ep_info.get("audio_url"),
-                    audio_type=ep_info.get("audio_type"),
-                    audio_size=ep_info.get("audio_size"),
-                    duration=ep_info.get("duration", 0),
-                    image=ep_info.get("image"),
-                    chapters_url=ep_info.get("chapters_url"),
-                    transcript_url=ep_info.get("transcript_url"),
-                )
-                new_episodes.append(ep_doc)
-
-        if new_episodes:
-            self.db.episodes.insert_many(new_episodes)
-            logger.info(
-                f"Added {len(new_episodes)} new episodes to {feed.get('title', 'Unknown')}"
-            )
-
-        # 更新feed信息
-        self.db.feeds.update_one(
-            {"_id": feed_id},
-            {
-                "$set": {
-                    "title": feed_info.get("title", feed.get("title")),
-                    "description": feed_info.get(
-                        "description", feed.get("description")
-                    ),
-                    "image": feed_info.get("image", feed.get("image")),
-                    "website": feed_info.get("link", feed.get("website")),
-                    "status": "active",
+                {"_id": feed["_id"]},
+                {"$set": {
+                    "status": Feed.STATUS_ERROR,
+                    "check_error": str(error),
                     "last_checked": datetime.utcnow(),
-                    "episode_count": len(episodes),
-                },
-                "$unset": {"check_error": ""},
-            },
-        )
+                }},
+            )
 
-        logger.info(f"Feed refreshed successfully: {feed.get('title', 'Unknown')}")
+        return self.queue.submit_unique(
+            "refresh", refresh, dedup_key=f"refresh:{feed_id}",
+            feed_id=feed_id, owner_id=feed.get("owner_id"), on_failure=record_failure,
+        )
 
 
 # 全局实例
 _refresher_instance = None
 
 
-def start_auto_refresher(db, interval_hours=1, stale_threshold_hours=6):
+def start_auto_refresher(db, interval_hours=5 / 60, stale_threshold_hours=6):
     """
     启动自动刷新服务
 
     Args:
         db: MongoDB数据库实例
-        interval_hours: 检查间隔（小时），默认1小时
+        interval_hours: 检查间隔（小时），默认五分钟
         stale_threshold_hours: 超过多久视为需要更新（小时），默认6小时
     """
     global _refresher_instance
