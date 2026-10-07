@@ -59,7 +59,6 @@
     "bilibiliAutoPaused": "Bilibili automatic updates are paused. Manual refresh is available.",
     "fetchingTranscripts": "Videos are ready to browse. Transcripts are being fetched in the background.",
     "checkingVideos": "Fetching recent videos. The list will update automatically…",
-    "syncFailed": "Could not fetch episodes. Check the error above and retry.",
     "noMatches": "No episodes match these filters.",
     "noEpisodes": "No episodes have been fetched yet. Refresh to check."
   },
@@ -116,7 +115,6 @@
     "estimateTime": "Estimated time",
     "summarizingStatus": "Generating summary",
     "selectTemplate": "Select a template to generate summary",
-    "videoNoSubtitleReason": "No subtitle available remotely (not provided / disabled / not generated yet). Download audio and transcribe locally with Whisper.",
     "transcribeVideoNow": "Transcribe now (audio + local Whisper)",
     "keyConcepts": "Key Concepts",
     "coreContent": "Core Content",
@@ -147,7 +145,8 @@
     "error": "Error"
   },
   "common": {
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "fetchUnavailable": "Temporarily unavailable"
   },
   "favorites": {
     "title": "Favorites",

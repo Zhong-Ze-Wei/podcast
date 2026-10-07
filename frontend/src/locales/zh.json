@@ -59,7 +59,6 @@
     "bilibiliAutoPaused": "B 站自动更新已暂停，可手动刷新。",
     "fetchingTranscripts": "视频列表已可阅读，文稿正在后台逐期补齐。",
     "checkingVideos": "正在获取最新视频，列表会自动更新…",
-    "syncFailed": "暂时无法获取节目，请查看上方原因后重试。",
     "noMatches": "没有符合筛选条件的节目。",
     "noEpisodes": "尚未获取到节目，可点击刷新检查。"
   },
@@ -116,7 +115,6 @@
     "estimateTime": "预计时间",
     "summarizingStatus": "正在生成摘要",
     "selectTemplate": "选择一个模板来生成摘要",
-    "videoNoSubtitleReason": "远程没有可用字幕（UP 未提供 / 被禁用 / 尚未生成）。可下载音频并用本地 Whisper 转写获得文稿。",
     "transcribeVideoNow": "立即转写（下载音频 + 本地 Whisper）",
     "keyConcepts": "核心概念",
     "coreContent": "核心内容",
@@ -147,7 +145,8 @@
     "error": "错误"
   },
   "common": {
-    "loading": "加载中..."
+    "loading": "加载中...",
+    "fetchUnavailable": "暂时无法获取"
   },
   "favorites": {
     "title": "我的喜欢",
