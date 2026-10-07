@@ -97,7 +97,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, ca
 
             {feed.type === 'bilibili' && <p className="mb-3 text-xs text-zinc-500">{t('feedDetail.bilibiliAutoPaused')}</p>}
             {fetchingTranscripts && <p role="status" className="mb-3 text-xs text-indigo-300">{t('feedDetail.fetchingTranscripts')}</p>}
-            {feed.check_error && <p role="alert" className="mb-3 text-sm text-red-300">{feed.check_error}</p>}
+            {feed.check_error && episodes.length > 0 && !syncing && <p role="status" className="mb-3 text-sm text-zinc-500">{t('common.fetchUnavailable')}</p>}
             {/* 简介 */}
             {description && (
               <div className="text-sm text-zinc-400 leading-relaxed">
@@ -165,7 +165,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, ca
             ))}
           </div>
         )}
-        {!loading && !episodes.length && <p role="status" className="px-8 py-12 text-center text-sm text-zinc-500">{syncing ? t('feedDetail.checkingVideos') : feed.check_error ? t('feedDetail.syncFailed') : t('feedDetail.noEpisodes')}</p>}
+        {!loading && !episodes.length && <p role="status" className="px-8 py-12 text-center text-sm text-zinc-500">{syncing ? t('feedDetail.checkingVideos') : feed.check_error ? t('common.fetchUnavailable') : t('feedDetail.noEpisodes')}</p>}
       </div>
     </div>
   );

@@ -235,7 +235,7 @@ export default function App() {
   const handleRefreshFeed = useMemo(() => createFeedRefreshAction({
     refresh: feedId => feedsApi.refresh(feedId),
     onQueued: () => setActionNotice('feedDetail.syncStarted'),
-    onError: error => setActionNotice(error.message),
+    onError: () => setActionNotice('common.fetchUnavailable'),
   }), [currentUser?.id]);
 
   const refreshViewedContent = useCallback(async tasks => {
