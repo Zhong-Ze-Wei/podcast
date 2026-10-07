@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d0e12">
+  <title>PodMaster · 节目卡片的五种打开方式</title>
+  <link rel="icon" href="/product/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./preview.js" defer></script>
+</head>
+<body>
+  <header class="page-header">
+    <a class="brand" href="/briefing" target="_blank" rel="noopener"><img src="/product/assets/mark.svg" alt="" width="25" height="25">PodMaster <span>/ Design room</span></a>
+    <div class="header-actions"><span class="preview-label" data-text="preview">交互预览</span><button id="language" class="quiet-button" type="button" aria-label="Switch to English">EN</button></div>
+  </header>
+  <main class="design-room">
+    <section class="intro">
+      <div><p class="eyebrow">THE EPISODE COLLECTION <span>01 — 05</span></p><h1 data-text="headline">每一期，都值得被看见。</h1></div>
+      <p class="intro-copy" data-text="intro">用你已有的节目，比较五种卡片弹窗。试试搜索、点开卡片，再选一个喜欢的。</p>
+    </section>
+    <nav id="variants" class="variant-nav" aria-label="弹窗方案"></nav>
+    <section class="preview-shell" aria-label="交互效果预览">
+      <div class="preview-toolbar">
+        <span class="preview-dot"></span><span id="preview-title">01 / 双列图文</span>
+        <div class="period-switch" aria-label="预览周期"><button type="button" data-period="week" data-text="week">周报</button><button type="button" data-period="month" class="active" data-text="month">月报</button></div>
+        <button id="fullscreen" class="quiet-button" type="button"><span aria-hidden="true">⛶</span><span data-text="fullscreen">全屏体验</span></button>
+      </div>
+      <div id="preview-stage" class="preview-stage">
+        <div class="context-screen" aria-hidden="true"></div>
+        <div class="stage-shade" aria-hidden="true"></div>
+        <div id="panel" class="collection-panel v-grid" role="region" aria-label="节目弹窗预览"></div>
+        <button id="reopen" type="button" class="button-primary" hidden data-text="reopen">重新打开弹窗</button>
+      </div>
+    </section>
+    <section class="decision-bar">
+      <div class="design-rationale"><span id="rationale-index" class="rationale-index">01</span><div><h2 id="rationale-title">双列图文</h2><p id="rationale-copy"></p></div></div>
+      <div class="decision-actions"><span id="choice-label" aria-live="polite"></span><button id="copy-choice" class="quiet-button" type="button" hidden data-text="copy">复制选择</button><button id="choose" class="button-primary" type="button"><span data-text="choose">选这个方案</span><span aria-hidden="true">↗</span></button></div>
+    </section>
+    <footer class="page-footer"><p data-text="footnote">读取已保存的节目，不生成新分析。你选定后，再应用到周报和月报。</p><a id="reference" href="https://docs.21st.dev/blog/react-card-components" target="_blank" rel="noopener noreferrer">参考 21st <span aria-hidden="true">↗</span></a></footer>
+  </main>
+  <dialog id="fullscreen-dialog" aria-label="全屏弹窗预览"><div class="fullscreen-toolbar"><span data-text="fullscreenHint">按 Esc 返回方案选择</span><button id="leave-fullscreen" class="quiet-button" type="button" data-text="return">返回选择</button></div><div id="fullscreen-stage" class="preview-stage fullscreen-stage"></div></dialog>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>
