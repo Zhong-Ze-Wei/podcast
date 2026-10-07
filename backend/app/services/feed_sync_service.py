@@ -193,8 +193,17 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
 
     返回 'created'（新建）/ 'backfilled'（已存在但补上了 transcript）/ None。
     """
-    existing = db.episodes.find_one({"owner_id": feed.get("owner_id"), "guid": guid})
+    existing = db.episodes.find_one({"feed_id": feed["_id"], "owner_id": feed.get("owner_id"), "guid": guid})
     if existing:
+        updates = {key: value for key, value in {
+            "title": title, "link": link, "author": author,
+            "published": published, "duration": duration if duration and duration > 0 else None,
+        }.items() if value and value != existing.get(key)}
+        if image and not existing.get("image"):
+            updates["image"] = image
+        if updates:
+            updates["updated_at"] = datetime.utcnow()
+            db.episodes.update_one({"_id": existing["_id"]}, {"$set": updates})
         # 已入库但缺字幕的剧集：补上 transcript（AI 字幕是异步生成的，首轮常拿不到）
         if transcript and not db.transcripts.find_one({"episode_id": existing["_id"]}):
             db.transcripts.insert_one(Transcript.create(
@@ -219,7 +228,7 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
         guid=guid,
         title=title,
         link=link,
-        published=published or datetime.utcnow(),
+        published=published,
         duration=duration,
         image=image,
         audio_type=audio_type,
@@ -245,12 +254,25 @@ def _upsert_video_episode(db, feed, guid, title, *, duration=0, link="", image="
     return "created"
 
 
+def _needs_youtube_metadata(episode):
+    """旧版本没有保存真实发布日期和简介，升级后补全一次。"""
+    return (episode.get("youtube_metadata_version", 0) < 1
+            or not episode.get("duration") or not episode.get("published"))
+
+
 def _pending_youtube_episodes(db, feed, attempted=()):
-    """只补最近 15 期的缺失文稿；本次已尝试的失败视频留待下次刷新。"""
-    episodes = db.episodes.find({"feed_id": feed["_id"]}).sort("published", -1).limit(15)
+    """补最近一批视频的元数据和文稿；已尝试的失败项留待下次刷新。"""
+    current_feed = db.feeds.find_one({"_id": feed["_id"]})
+    if not current_feed:
+        return []
+    query = {"feed_id": feed["_id"]}
+    if "youtube_recent_video_ids" in current_feed:
+        query["guid"] = {"$in": current_feed["youtube_recent_video_ids"]}
+    episodes = db.episodes.find(query).sort("published", -1).limit(15)
     return [episode for episode in episodes
             if episode["_id"] not in attempted
-            and not db.transcripts.find_one({"episode_id": episode["_id"]})]
+            and (_needs_youtube_metadata(episode)
+                 or not db.transcripts.find_one({"episode_id": episode["_id"]}))]
 
 
 def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=task_queue):
@@ -284,6 +306,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=tas
         "last_checked": datetime.utcnow(),
         "last_updated": datetime.utcnow() if new_count else feed.get("last_updated"),
         "episode_count": total,
+        "youtube_recent_video_ids": [f"youtube:{video['video_id']}" for video in videos],
     }})
     transcript_task_id = None
     if _pending_youtube_episodes(db, feed):
@@ -310,13 +333,10 @@ def _enrich_youtube_episodes(db, feed, progress_callback=None):
         if not pending:
             break
         for episode in pending:
-            # 队列等待期间，单篇导入也可能已经保存了文稿。
-            if db.transcripts.find_one({"episode_id": episode["_id"]}):
-                continue
             attempted.add(episode["_id"])
             video_id = episode["guid"].removeprefix("youtube:")
             time.sleep(2.5)
-            if not episode.get("youtube_metadata_fetched_at"):
+            if _needs_youtube_metadata(episode):
                 metadata, _ = YouTubeService.fetch_metadata(video_id)
                 if metadata:
                     thumbnail = metadata.get("thumbnail") or episode.get("image", "")
@@ -330,30 +350,43 @@ def _enrich_youtube_episodes(db, feed, progress_callback=None):
                         "author": metadata.get("uploader") or episode.get("author", ""),
                         "image": local_thumb or thumbnail,
                         "youtube_metadata_fetched_at": datetime.utcnow(),
+                        "youtube_metadata_version": 1,
+                        "updated_at": datetime.utcnow(),
                     }
+                    if metadata.get("published"):
+                        updates["published"] = metadata["published"]
+                    if metadata.get("description") and not (episode.get("summary") or episode.get("description")):
+                        updates["summary"] = metadata["description"]
                     db.episodes.update_one({"_id": episode["_id"]}, {"$set": updates})
-            transcript, error = YouTubeService.fetch_transcript(video_id)
+                    episode.update(updates)
             # 删除订阅时不再补入文稿，避免产生孤立记录。
             if not db.episodes.find_one({"_id": episode["_id"]}):
                 continue
-            if transcript:
-                transcript["model"] = "youtube-transcript-api"
-                saved = _upsert_video_episode(
-                    db, feed, episode["guid"], episode["title"],
-                    transcript=transcript, transcript_source=Transcript.SOURCE_YOUTUBE,
-                )
-                transcript_count += int(saved == "backfilled")
+            # 文稿已存在也需要补元数据；已有原文不再次请求。
+            if db.transcripts.find_one({"episode_id": episode["_id"]}):
                 _clear_episode_subtitle_error(db, episode["_id"])
             else:
-                failed += 1
-                _mark_episode_subtitle_error(db, episode["_id"], error)
+                transcript, error = YouTubeService.fetch_transcript(video_id)
+                if not db.episodes.find_one({"_id": episode["_id"]}):
+                    continue
+                if transcript:
+                    transcript["model"] = "youtube-transcript-api"
+                    saved = _upsert_video_episode(
+                        db, feed, episode["guid"], episode["title"],
+                        transcript=transcript, transcript_source=Transcript.SOURCE_YOUTUBE,
+                    )
+                    transcript_count += int(saved == "backfilled")
+                    _clear_episode_subtitle_error(db, episode["_id"])
+                else:
+                    failed += 1
+                    _mark_episode_subtitle_error(db, episode["_id"], error)
             if progress_callback:
                 remaining = len(_pending_youtube_episodes(db, feed, attempted))
                 progress_callback((int(95 * len(attempted) / (len(attempted) + remaining)),
-                                   f"后台获取文稿 {len(attempted)}/{len(attempted) + remaining}"))
+                                   f"后台补齐节目资料 {len(attempted)}/{len(attempted) + remaining}"))
         # 列表刷新可以在本任务运行期间发现新视频，下一轮继续补齐。
     if progress_callback:
-        progress_callback((100, f"文稿已更新：{transcript_count} 期，暂不可用 {failed} 期"))
+        progress_callback((100, f"节目资料更新完成；新增文稿 {transcript_count} 期，暂不可用 {failed} 期"))
     return {"new_transcripts": transcript_count, "transcript_failures": failed}
 
 

@@ -98,7 +98,7 @@ class Episode:
             "audio_size": doc.get("audio_size", 0),
             "local_audio_url": Episode._local_audio_url(local_path),
             "duration": duration,
-            "duration_formatted": Episode.format_duration(duration),
+            "duration_formatted": Episode.format_duration(duration) if duration and duration > 0 else None,
             "image": doc.get("image", ""),
             "chapters_url": doc.get("chapters_url"),
             "transcript_url": doc.get("transcript_url"),
