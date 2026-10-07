@@ -269,6 +269,9 @@ const TaskPanel = ({
 
   const renderTask = (task) => {
     const isActive = task.status === 'pending' || task.status === 'processing';
+    const errorMessage = ['refresh', 'fetch_transcripts'].includes(task.type)
+      ? t('common.fetchUnavailable')
+      : task.error_message;
     const targetLabel = getTaskTargetLabel(task);
     const metaLabel = getTaskMetaLabel(task);
     const isOpenable = canOpenTask(task);
@@ -330,8 +333,8 @@ const TaskPanel = ({
           )}
 
           {task.status === 'failed' && task.error_message && (
-            <p className="text-xs text-red-400 mt-1 truncate" title={task.error_message}>
-              {task.error_message}
+            <p className="text-xs text-red-400 mt-1 truncate" title={errorMessage}>
+              {errorMessage}
             </p>
           )}
         </div>

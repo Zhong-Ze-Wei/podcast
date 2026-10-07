@@ -70,6 +70,8 @@ class MockCollection:
             if self._match(orig_doc, query):
                 if "$set" in update:
                     self._data[i].update(update["$set"])
+                for field in update.get("$unset", {}):
+                    self._data[i].pop(field, None)
                 return UpdateResult({"n": 1, "nModified": 1}, True)
         if kwargs.get("upsert"):
             new_doc = dict(query)
