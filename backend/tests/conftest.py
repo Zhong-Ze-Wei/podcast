@@ -103,6 +103,10 @@ class MockCollection:
 
     def _match(self, doc, query):
         for key, value in query.items():
+            if key == "$or":
+                if not any(self._match(doc, clause) for clause in value):
+                    return False
+                continue
             if key == "_id":
                 from bson import ObjectId
                 doc_val = doc.get("_id")
@@ -175,7 +179,7 @@ class MockCursor:
     def sort(self, key, direction=None):
         if isinstance(key, str):
             reverse = direction == -1 if direction else False
-            self._data.sort(key=lambda x: x.get(key, ""), reverse=reverse)
+            self._data.sort(key=lambda x: (x.get(key) is not None, x.get(key)), reverse=reverse)
         return self
 
     def skip(self, n):

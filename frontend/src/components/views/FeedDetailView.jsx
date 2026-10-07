@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, Globe, RefreshCw, Rss, Clock, Plus, Loader2 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
@@ -11,9 +11,28 @@ import ViewToolbar from '../common/ViewToolbar';
  * FeedDetailView - 订阅源详情页
  * 显示订阅源信息和其所有节目列表
  */
-const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
+const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, canAutoRefresh = false, activeTasks = [], onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
   const { t } = useTranslation();
   const [showFullDesc, setShowFullDesc] = useState(false);
+
+  const syncing = activeTasks.some(task => task.type === 'refresh' && task.feed_id === feed?.id);
+  const fetchingTranscripts = activeTasks.some(task => task.type === 'fetch_transcripts' && task.feed_id === feed?.id);
+  const lastRequested = useRef({ feedId: null, at: 0 });
+  useEffect(() => {
+    if (feed?.type !== 'youtube' || !canAutoRefresh) return;
+    if (lastRequested.current.feedId !== feed.id) lastRequested.current = { feedId: feed.id, at: 0 };
+    const check = () => {
+      if (document.hidden) return;
+      const checkedAt = Math.max(Date.parse(feed.last_checked) || 0, lastRequested.current.at);
+      if (Date.now() - checkedAt < 15 * 60 * 1000) return;
+      lastRequested.current.at = Date.now();
+      onRefresh(feed.id);
+    };
+    check();
+    const timer = setInterval(check, 60 * 1000);
+    document.addEventListener('visibilitychange', check);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', check); };
+  }, [feed?.id, feed?.type, feed?.last_checked, canAutoRefresh, onRefresh]);
 
   if (!feed) return null;
 
@@ -69,12 +88,16 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
 
               <button
                 onClick={() => onRefresh(feed.id)}
+                disabled={syncing}
                 className="flex items-center gap-2 px-4 py-2 border border-zinc-700 rounded-full text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
               >
-                <RefreshCw size={14} /> {t('episode.refresh')}
+                <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} /> {t('episode.refresh')}
               </button>
             </div>
 
+            {feed.type === 'bilibili' && <p className="mb-3 text-xs text-zinc-500">{t('feedDetail.bilibiliAutoPaused')}</p>}
+            {fetchingTranscripts && <p role="status" className="mb-3 text-xs text-indigo-300">{t('feedDetail.fetchingTranscripts')}</p>}
+            {feed.check_error && <p role="alert" className="mb-3 text-sm text-red-300">{feed.check_error}</p>}
             {/* 简介 */}
             {description && (
               <div className="text-sm text-zinc-400 leading-relaxed">
@@ -123,7 +146,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
         />
-        {loading ? (
+        {loading && !episodes.length ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="animate-spin text-indigo-500" size={32} />
           </div>
@@ -142,6 +165,7 @@ const FeedDetailView = ({ feed, episodes, loading = false, onBack, onRefresh, on
             ))}
           </div>
         )}
+        {!loading && !episodes.length && <p role="status" className="px-8 py-12 text-center text-sm text-zinc-500">{syncing ? t('feedDetail.checkingVideos') : feed.check_error ? t('feedDetail.syncFailed') : t('feedDetail.noEpisodes')}</p>}
       </div>
     </div>
   );
