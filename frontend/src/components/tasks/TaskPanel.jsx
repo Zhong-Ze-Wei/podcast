@@ -7,6 +7,7 @@ import {
   AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
 } from 'lucide-react';
 import { tasksApi } from '../../services/api';
+import { subscriptionProgress } from '../../utils/subscriptionTask';
 import { briefingTaskLabel, briefingTaskNavigation } from '../../utils/briefingTask';
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
@@ -31,6 +32,8 @@ function readPanelSize() {
 }
 
 const TaskPanel = ({
+  onRetrySubscription,
+  queuedTask,
   onTaskComplete,
   onTaskProgress,
   onTasksChange,
@@ -52,6 +55,13 @@ const TaskPanel = ({
   const userClosedDuringActiveRef = useRef(false);
   const previousActiveCountRef = useRef(0);
   const resizeStateRef = useRef(null);
+
+  useEffect(() => {
+    if (!queuedTask) return;
+    setActiveTasks(tasks => [...tasks.filter(task => task.id !== queuedTask.id), queuedTask]);
+    setIsOpen(true);
+    setActiveTab('active');
+  }, [queuedTask]);
 
   const visibleHistoryTasks = historyTasks.filter(task => !dismissedTaskIds.has(task.id));
 
@@ -230,6 +240,7 @@ const TaskPanel = ({
       case 'summarize': return <Sparkles size={16} />;
       case 'briefing-report': return <Sparkles size={16} />;
       case 'refresh': return <RefreshCw size={16} />;
+      case 'subscribe': return <RefreshCw size={16} />;
       case 'fetch_transcripts': return <Mic2 size={16} />;
       default: return <Loader2 size={16} />;
     }
@@ -269,7 +280,7 @@ const TaskPanel = ({
 
   const renderTask = (task) => {
     const isActive = task.status === 'pending' || task.status === 'processing';
-    const errorMessage = ['refresh', 'fetch_transcripts'].includes(task.type)
+    const errorMessage = ['refresh', 'fetch_transcripts', 'subscribe'].includes(task.type)
       ? t('common.fetchUnavailable')
       : task.error_message;
     const targetLabel = getTaskTargetLabel(task);
@@ -316,7 +327,7 @@ const TaskPanel = ({
           {isActive ? (
             <div className="mt-2">
               {task.progress_message && (
-                <p className="mb-1 truncate text-[11px] text-sky-300">{localizeFeedProgress(task.progress_message, t)}</p>
+                <p className="mb-1 truncate text-[11px] text-sky-300">{localizeFeedProgress(subscriptionProgress(task.progress_message, t), t)}</p>
               )}
               <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                 <div
@@ -337,6 +348,7 @@ const TaskPanel = ({
               {errorMessage}
             </p>
           )}
+          {task.type === 'subscribe' && task.status === 'failed' && task.report_context?.url && <button type="button" onClick={event => { event.stopPropagation(); onRetrySubscription(task.report_context.url); setActiveTab('active'); }} className="mt-2 rounded-md bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300 hover:bg-sky-500/20">{t('tasks.retrySubscription')}</button>}
         </div>
 
         <div className="flex-shrink-0">

@@ -132,6 +132,7 @@ class TaskQueue:
         on_failure: Optional[Callable[[Exception], Any]] = None,
         *args,
         report_period: dict = None,
+        report_context: dict = None,
         dedup_key: str = None,
         **kwargs
     ) -> str:
@@ -169,6 +170,8 @@ class TaskQueue:
         if report_period is not None:
             task_info["report_period"] = {"type": report_period["type"], "start": report_period["start"]}
 
+        if report_context is not None:
+            task_info["report_context"] = _to_mongo_safe(report_context)
         if dedup_key is not None:
             task_info["dedup_key"] = dedup_key
         with self._lock:
