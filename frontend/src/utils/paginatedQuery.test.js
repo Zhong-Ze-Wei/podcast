@@ -65,3 +65,30 @@ test('加载失败保留已显示列表并允许重试，离开页面不再通�
   await query.reload();
   assert.equal(updates.length, count);
 });
+
+test('只对当前成功加载的列表记录查看，旧响应和离开页面后的响应不记为看过', async () => {
+  const pending = new Map();
+  const viewed = [];
+  const query = createPaginatedQuery(params => new Promise(resolve => pending.set(params.feed_id, resolve)),
+    () => {}, 24, response => viewed.push(response.meta.latest_episode_id));
+  const old = query.setParams({ feed_id: 'old' });
+  const current = query.setParams({ feed_id: 'current' });
+  pending.get('current')({ ...page([{ id: 'current-episode' }], 1, 1, false), meta: { latest_episode_id: 'current-snapshot' } });
+  await current;
+  pending.get('old')({ ...page([{ id: 'old-episode' }], 1, 1, false), meta: { latest_episode_id: 'old-snapshot' } });
+  await old;
+  const leaving = query.setParams({ feed_id: 'leaving' });
+  query.dispose();
+  pending.get('leaving')({ ...page([], 1, 0, false), meta: { latest_episode_id: 'leaving-snapshot' } });
+  await leaving;
+  assert.deepEqual(viewed, ['current-snapshot']);
+});
+
+test('列表加载失败不会清除未查看的更新', async () => {
+  let viewed = false;
+  const query = createPaginatedQuery(async () => { throw new Error('加载失败'); },
+    () => {}, 24, () => { viewed = true; });
+  await query.setParams({});
+  assert.equal(viewed, false);
+  assert.equal(query.getState().error, '加载失败');
+});

@@ -5,11 +5,13 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 
 import zh from './locales/zh.json';
 import en from './locales/en.json';
+import uiZh from './locales/ui.zh.json';
+import uiEn from './locales/ui.en.json';
 
 // Language resources - add new languages here
 const resources = {
-  zh: { translation: zh },
-  en: { translation: en }
+  zh: { translation: { ...zh, ui: uiZh } },
+  en: { translation: { ...en, ui: uiEn } }
 };
 
 // Supported languages list - extend when adding new languages
@@ -25,6 +27,7 @@ i18n
     resources,
     fallbackLng: 'zh',
     supportedLngs: supportedLanguages.map(l => l.code),
+    load: 'languageOnly',
     interpolation: {
       escapeValue: false
     },
@@ -33,5 +36,9 @@ i18n
       caches: ['localStorage']
     }
   });
+
+const updateDocumentLanguage = language => { document.documentElement.lang = language?.startsWith('en') ? 'en' : 'zh-CN'; };
+i18n.on('languageChanged', updateDocumentLanguage);
+updateDocumentLanguage(i18n.resolvedLanguage || i18n.language);
 
 export default i18n;

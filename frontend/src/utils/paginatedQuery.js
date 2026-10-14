@@ -1,7 +1,7 @@
 export const EMPTY_PAGE = { page: 0, per_page: 24, total: 0, has_next: false };
 
 // 页面列表共用这一请求边界，旧页面响应不能覆盖当前查询。
-export function createPaginatedQuery(request, onChange = () => {}, perPage = 24) {
+export function createPaginatedQuery(request, onChange = () => {}, perPage = 24, onLoaded) {
   let state = { data: [], pagination: { ...EMPTY_PAGE, per_page: perPage }, loading: false, error: '' };
   let params = {};
   let version = 0;
@@ -18,6 +18,7 @@ export function createPaginatedQuery(request, onChange = () => {}, perPage = 24)
       if (disposed || current !== version) return state;
       const data = append ? [...new Map([...state.data, ...response.data].map(item => [item.id ?? item.item_id, item])).values()] : response.data;
       publish({ data, pagination: response.pagination, loading: false, error: '' });
+      onLoaded?.(response);
     } catch (error) {
       if (!disposed && current === version) publish({ ...state, loading: false, error: error.message });
     }

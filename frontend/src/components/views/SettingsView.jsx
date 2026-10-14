@@ -15,7 +15,6 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
 
   useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
   const tabs = [
-    { id: 'briefing', label: 'AI 简报', description: '个人关注话题、自动生成与阅读风格', icon: Sparkles },
     {
       id: 'account',
       label: t('settings.accountTab'),
@@ -25,8 +24,8 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
     ...(currentUser?.role === 'admin' ? [
       {
         id: 'users',
-        label: '用户管理',
-        description: '注册审批与角色分配',
+        label: t("ui.userManagement"),
+        description: t("ui.accountApprovalAndRoleAssignment"),
         icon: UserCircle
       },
       {
@@ -47,7 +46,8 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
       label: t('settings.templatesTab'),
       description: t('settings.templatesDesc'),
       icon: FileText
-    }
+    },
+    { id: 'briefing', label: t("ui.interestsBriefing"), description: t("ui.personalInterestsAutomaticGenerationAndReadingStyles"), icon: Sparkles }
   ];
   const activeTabMeta = tabs.find(tab => tab.id === activeTab);
 
@@ -58,7 +58,7 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={onBack}
-            aria-label="返回原页面"
+            aria-label={t("ui.backToPreviousPage")}
             className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
           >
             <ChevronLeft size={24} />
@@ -73,7 +73,7 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
+        <div className="settings-tabs flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
           {tabs.map(tab => (
             <button
               key={tab.id}

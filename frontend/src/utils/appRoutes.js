@@ -8,6 +8,7 @@ export function parseAppPath(pathname) {
   }
   if (parts[0] === 'episodes') return { type: 'view', view: 'list' };
   if (parts[0] === 'favorites') return { type: 'view', view: 'favorites' };
+  if (parts[0] === 'recent') return { type: 'view', view: 'recent' };
   if (parts[0] === 'settings') return { type: 'view', view: 'settings' };
   if ((parts[0] === 'briefing' || parts[0] === 'briefing-lab') && parts[1] === 'settings') return { type: 'view', view: 'settings', section: 'briefing', mode: 'ai-briefing' };
   if (parts[0] === 'briefing' || parts[0] === 'briefing-lab') return { type: 'view', view: parts[1] === 'settings' ? 'briefingSettings' : parts[1] === 'saved' ? 'briefingSaved' : 'briefing' };

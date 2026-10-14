@@ -1,4 +1,39 @@
 {
+  "briefingMaterials": {
+    "title": "Episodes in this period",
+    "count": "{{total}} episodes · {{transcripts}} with transcripts",
+    "results": "{{count}} episodes",
+    "close": "Close episode cards",
+    "search": "Search episodes or shows",
+    "preview": "Preview episode description",
+    "noDescription": "No description is available. Open the episode to read its transcript.",
+    "transcript": "Transcript",
+    "noTranscript": "No transcript",
+    "analyzed": "Analyzed",
+    "included": "Included",
+    "readAnalysis": "Read analysis",
+    "episodeAnalysis": "Episode analysis",
+    "openEpisode": "Open episode",
+    "previous": "Previous episode",
+    "next": "Next episode",
+    "dragHint": "Drag sideways · select a side card · use arrow keys",
+    "noResults": "No matching episodes. Try another keyword.",
+    "empty": "No episodes in this period.",
+    "styleTitle": "Episode cards",
+    "styleDescription": "Choose how episode collections open in weekly and monthly reports.",
+    "gallery": "Cover gallery",
+    "stack": "Card deck",
+    "galleryDescription": "Aligned cover cards with descriptions in a fixed reading area.",
+    "stackDescription": "Tilted cards: drag or select a side card to browse episodes.",
+    "savedToAccount": "Saved to your account and shared by weekly and monthly reports.",
+    "aiOverview": "AI overview",
+    "episodeDescription": "Episode description",
+    "quickNavigation": "Quick episode navigation"
+  },
+  "briefing": {
+    "reportInfo": "About this report",
+    "savedVersion": "You are reading the report saved on {{date}}. Your interests, source material or analysis settings have changed. The saved content and sources remain available; you can generate a new version when needed."
+  },
   "app": {
     "title": "PodMaster"
   },
@@ -22,6 +57,7 @@
     "addPodcast": "Add Podcast",
     "favorites": "Favorites",
     "workspace": "Workspace",
+    "recent": "Recent updates",
     "settings": "Settings"
   },
   "feed": {
@@ -47,6 +83,12 @@
     }
   },
   "feedDetail": {
+    "syncStarted": "Updating the episode list. New episodes will appear automatically.",
+    "bilibiliAutoPaused": "Bilibili automatic updates are paused. Manual refresh is available.",
+    "fetchingTranscripts": "Videos are ready to browse. Transcripts are being fetched in the background.",
+    "checkingVideos": "Fetching recent videos. The list will update automatically…",
+    "noMatches": "No episodes match these filters.",
+    "noEpisodes": "No episodes have been fetched yet. Refresh to check.",
     "playLatest": "Play Latest",
     "visitWebsite": "Visit Website",
     "showMore": "Show more",
@@ -109,7 +151,6 @@
     "estimateTime": "Estimated time",
     "summarizingStatus": "Generating summary",
     "selectTemplate": "Select a template to generate summary",
-    "videoNoSubtitleReason": "No subtitle available remotely (not provided / disabled / not generated yet). Download audio and transcribe locally with Whisper.",
     "transcribeVideoNow": "Transcribe now (audio + local Whisper)",
     "keyConcepts": "Key Concepts",
     "coreContent": "Core Content",
@@ -128,13 +169,20 @@
     "downloaded": "Downloaded",
     "downloading": "Downloading",
     "transcribing": "Transcribing",
-    "transcribed": "Transcribed",
+    "transcribed": "Transcript ready",
+    "officialTranscript": "Official transcript",
+    "platformTranscript": "Platform captions",
+    "audioTranscribed": "Transcribed",
+    "fetchOfficialTranscript": "Fetch official transcript",
+    "officialTranscriptHint": "Free. Fetch the publisher's transcript directly, without transcribing audio.",
+    "noOfficialTranscript": "No official transcript is available for this episode.",
     "summarizing": "Summarizing",
     "summarized": "Summarized",
     "error": "Error"
   },
   "common": {
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "fetchUnavailable": "Temporarily unavailable"
   },
   "favorites": {
     "title": "Favorites",
@@ -154,6 +202,22 @@
     "episodes": "transcribed",
     "empty": "No transcriptions yet",
     "emptyHint": "Download audio first, then click AI transcribe button to generate transcription"
+  },
+  "reading": {
+    "read": "Read",
+    "unread": "Unread",
+    "all": "All states",
+    "filter": "Reading status",
+    "saveFailed": "Could not save viewing history.",
+    "unseenUpdates": "Updates you have not viewed"
+  },
+  "recent": {
+    "title": "Recent updates",
+    "description": "Episodes published by your subscriptions in the last {{days}} days.",
+    "count": "{{count}} episodes",
+    "days": "Last N days",
+    "apply": "Apply",
+    "empty": "No matching episodes were published in the last {{days}} days."
   },
   "workspace": {
     "title": "Workspace",
@@ -189,6 +253,13 @@
     "closePanel": "Close tasks",
     "resizePanel": "Resize task panel",
     "openTarget": "Open related episode or feed",
+    "singleReading": "Episode analysis",
+    "weeklyBriefing": "Weekly briefing",
+    "monthlyBriefing": "Monthly briefing",
+    "openReading": "View episode analysis",
+    "openBriefing": "View briefing",
+    "openEpisode": "View episode",
+    "openFeed": "View feed",
     "targetDeleted": "Related content is no longer available",
     "unknownEpisode": "Episode",
     "unknownFeed": "Feed",
@@ -216,12 +287,24 @@
       "daysAgo": "{{count}}d ago"
     },
     "types": {
+      "fetch_transcripts": "Complete episode details",
       "briefing-report": "Generate AI Briefing",
       "briefing-lab": "Briefing Analysis",
       "download": "Download Audio",
       "transcribe": "AI Transcribe",
       "summarize": "Generate Summary",
-      "refresh": "Refresh Feed"
+      "refresh": "Refresh Feed",
+      "subscribe": "Add subscription"
+    },
+    "progress": {
+      "videos": "Video list updated: {{count}} new episodes",
+      "transcripts": "Fetching transcripts in the background {{done}}/{{total}}",
+      "transcriptsDone": "Transcripts updated: {{count}} episodes, {{failed}} unavailable",
+      "episodeDetails": "Completing episode details in the background {{done}}/{{total}}",
+      "episodeDetailsDone": "Episode details updated: {{count}} new transcripts, {{failed}} unavailable",
+      "subscriptionResolving": "Identifying the subscription source",
+      "subscriptionSaved": "Subscription saved · fetching the channel cover",
+      "subscriptionDone": "Subscription added · updating episodes in the background"
     },
     "status": {
       "pending": "Pending",
@@ -229,12 +312,19 @@
       "completed": "Completed",
       "failed": "Failed",
       "cancelled": "Cancelled"
-    }
+    },
+    "retrySubscription": "Retry subscription"
   },
   "settings": {
     "title": "Settings",
     "accountTab": "Account",
     "llmTab": "AI Configuration",
+    "biliSessdataPlaceholder": "Paste new SESSDATA (browser F12 → Application → Cookies → SESSDATA, copy the whole value)",
+    "biliSessdataSave": "Save & Verify",
+    "biliSessdataVerifying": "Verifying…",
+    "biliSessdataSaved": "SESSDATA updated and verified ({{value1}}); Bilibili feed refresh restored",
+    "biliSessdataInvalid": "Verification failed: make sure you copied the latest SESSDATA while logged in to bilibili.com",
+    "biliSessdataHowTo": "How to get it: log in to bilibili.com, press F12 → Application → Cookies → SESSDATA, copy the whole value into the box above",
     "templatesTab": "Summary Templates",
     "appTab": "App Settings",
     "templatesDesc": "Manage prompt templates used by summary generation.",

@@ -4,11 +4,24 @@ import { createTaskMonitor } from '../../utils/taskMonitor';
 
 const TasksContext = createContext(null);
 
-export function TasksProvider({ children, pollIntervalMs = 3000, onTaskComplete, queuedTask }) {
+export function TasksProvider({ children, pollIntervalMs = 3000, onTaskComplete, onTaskProgress, queuedTask }) {
   const [state, setState] = useState({ activeTasks: [], historyTasks: [], byId: {}, error: '' });
   const callbackRef = useRef(onTaskComplete);
   callbackRef.current = onTaskComplete;
-  const monitor = useMemo(() => createTaskMonitor({ list: tasksApi.list, get: tasksApi.get, cancel: tasksApi.cancel, onChange: setState, onTerminal: tasks => callbackRef.current?.(tasks) }), []);
+  const progressRef = useRef(onTaskProgress);
+  progressRef.current = onTaskProgress;
+  const previousTasks = useRef({});
+  const monitor = useMemo(() => createTaskMonitor({
+    list: tasksApi.list, get: tasksApi.get, cancel: tasksApi.cancel,
+    onChange: next => {
+      const changed = next.activeTasks.filter(task => ['fetch_transcripts', 'subscribe'].includes(task.type)
+        && task.progress > 0 && task.progress !== previousTasks.current[task.id]?.progress);
+      previousTasks.current = next.byId;
+      setState(next);
+      if (changed.length) progressRef.current?.(changed);
+    },
+    onTerminal: tasks => callbackRef.current?.(tasks),
+  }), []);
   useEffect(() => {
     if (!queuedTask) return;
     monitor.add(queuedTask);

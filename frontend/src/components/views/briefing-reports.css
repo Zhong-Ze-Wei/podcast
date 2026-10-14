@@ -133,8 +133,16 @@
 .br-layout-columns .br-source-identity, .br-thread-evidence .br-source-identity { flex: none; width: 100%; min-height: 44px; align-items: flex-start; }
 .br-thread-evidence .br-excerpt-actions { width: 100%; }
 .br-thread-evidence .br-more { margin-left: auto; }
-.br-edition-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 26px 0; margin-top: 28px; color: #92929f; font-size: 13px; }
+.br-edition-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding: 26px 0; margin-top: 28px; color: #92929f; font-size: 13px; }
 .br-edition-footer .br-text-button { color: #aaaab8 !important; }
+.br-edition-meta { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.br-report-note { display: inline-flex; padding: 4px; border: 0; border-radius: 4px; background: none; color: #71717e; cursor: help; }
+.br-report-note:hover, .br-report-note:focus-visible { color: #aaaab8; }
+.br-report-note:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.br-report-tooltip { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 5; width: min(320px, calc(100vw - 56px)); padding: 10px 12px; border: 1px solid #34343d; border-radius: 8px; background: #1c1c22; color: #d4d4de; font-size: 12px; font-weight: 400; line-height: 1.7; text-align: left; white-space: normal; box-shadow: 0 6px 20px #0004; visibility: hidden; }
+.br-report-tooltip > span { display: block; }
+.br-report-tooltip > span + span { margin-top: 8px; }
+.br-report-note:hover .br-report-tooltip, .br-report-note:focus .br-report-tooltip { visibility: visible; }
 .br-reading { max-width: 880px; margin: 8px auto 0; }
 .br-reading-heading { display: flex; align-items: flex-start; gap: 18px; padding-bottom: 34px; }
 .br-reading-heading > div { min-width: 0; }

@@ -19,9 +19,10 @@ const WorkspaceView = ({ refreshVersion, feeds, onEpisodeClick, onPlay, onStar, 
   const [activeTab, setActiveTab] = useState('all');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('published_desc');
+  const [readFilter, setReadFilter] = useState('all');
   const q = useDebouncedValue(query);
-  const resultField = { downloaded: 'has_local_audio', transcript: 'has_transcript', summary: 'has_summary' }[activeTab];
-  const list = usePaginatedList(episodesApi.list, { params: { processed: true, ...(resultField ? { [resultField]: true } : {}), q, sort }, revision: refreshVersion });
+  const resultField = { downloaded: 'has_local_audio', transcript: 'has_transcript_or_summary', summary: 'has_summary' }[activeTab];
+  const list = usePaginatedList(episodesApi.list, { params: { processed: true, ...(resultField ? { [resultField]: true } : {}), ...(readFilter !== 'all' ? { is_read: readFilter === 'read' } : {}), q, sort }, revision: refreshVersion });
   const filteredEpisodes = list.data;
 
   // 创建feed图片映射
@@ -39,14 +40,14 @@ const WorkspaceView = ({ refreshVersion, feeds, onEpisodeClick, onPlay, onStar, 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* 头部 */}
-      <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-4 md:py-6 border-b border-zinc-800 bg-zinc-900/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl">
+            <div className="hidden md:flex w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl">
               <Briefcase size={32} className="text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-white">{t('workspace.title')}</h1>
+              <h1 className="text-xl md:text-3xl font-bold text-white">{t('workspace.title')}</h1>
               <p className="text-zinc-400 text-sm mt-1">
                 {list.pagination.total} {t('workspace.episodes')}
               </p>
@@ -55,7 +56,7 @@ const WorkspaceView = ({ refreshVersion, feeds, onEpisodeClick, onPlay, onStar, 
         </div>
 
         {/* Tab筛选 */}
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-4 overflow-x-auto">
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -79,9 +80,9 @@ const WorkspaceView = ({ refreshVersion, feeds, onEpisodeClick, onPlay, onStar, 
           description={t('viewToolbar.workspaceDescription')}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
-        ><ListFilters query={query} onQuery={setQuery} sort={sort} onSort={setSort} /></ViewToolbar>
+        ><ListFilters query={query} onQuery={setQuery} sort={sort} onSort={setSort} readFilter={readFilter} onReadFilter={setReadFilter} /></ViewToolbar>
         {filteredEpisodes.length > 0 ? (
-          <div className={`p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-4 md:p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {filteredEpisodes.map(ep => (
               <EpisodeCard
                 key={ep.id}

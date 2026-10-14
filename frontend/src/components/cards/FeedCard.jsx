@@ -2,7 +2,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Rss, RefreshCw, Heart } from 'lucide-react';
-import { decodeHtmlEntities } from '../../utils/helpers';
+import { getFeedDescription } from '../../utils/helpers';
 import FeedImage from '../common/FeedImage';
 
 /**
@@ -16,6 +16,7 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
   if (viewMode === 'grid') {
     return (
       <div
+        role="button" tabIndex={0} aria-label={t("ui.openValue", { value1: feed.title })} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(feed); } }}
         onClick={() => onClick(feed)}
         className="group bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-2xl overflow-hidden transition-all duration-300 cursor-pointer flex flex-col hover:shadow-xl hover:shadow-black/50"
       >
@@ -43,13 +44,13 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
             {feed.title}
           </h3>
           <p className="text-xs text-indigo-400 font-medium mb-2">{feed.author || t('feed.unknownAuthor')}</p>
-          <p className="text-xs text-zinc-500 line-clamp-2 flex-1">{decodeHtmlEntities(feed.description) || t('episode.noDescription')}</p>
+          <p className="text-xs text-zinc-500 line-clamp-2 flex-1">{getFeedDescription(feed) || t('episode.noDescription')}</p>
           <div className="flex items-center justify-between text-xs text-zinc-500 mt-3 pt-2 border-t border-zinc-800/50">
             <span className="flex items-center gap-1.5">
               <Rss size={12} /> {feed.language || 'Unknown'}
             </span>
             <button
-              onClick={(e) => { e.stopPropagation(); onRefresh(feed.id); }}
+              aria-label={t("ui.refreshValue", { value1: feed.title })} onClick={(e) => { e.stopPropagation(); onRefresh(feed.id); }}
               className="flex items-center gap-1.5 text-zinc-400 hover:text-indigo-400 transition-colors"
             >
               <RefreshCw size={12} />
@@ -63,7 +64,8 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
   // 列表视图
   return (
     <div
-      onClick={() => onClick(feed)}
+      role="button" tabIndex={0} aria-label={t("ui.openValue", { value1: feed.title })} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(feed); } }}
+        onClick={() => onClick(feed)}
       className="group flex items-center gap-4 p-3 bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-xl cursor-pointer transition-all"
     >
       {/* 封面缩略图 */}
@@ -90,7 +92,7 @@ const FeedCard = ({ feed, onClick, onRefresh, viewMode = 'grid' }) => {
       {/* 右侧操作区 */}
       <div className="flex items-center gap-3 flex-shrink-0">
         <button
-          onClick={(e) => { e.stopPropagation(); onRefresh(feed.id); }}
+          aria-label={t("ui.refreshValue", { value1: feed.title })} onClick={(e) => { e.stopPropagation(); onRefresh(feed.id); }}
           className="p-1.5 rounded-lg text-zinc-600 hover:text-indigo-400 transition-colors"
         >
           <RefreshCw size={16} />

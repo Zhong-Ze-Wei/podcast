@@ -3,10 +3,12 @@ import { parseAppPath } from './appRoutes.js';
 import assert from 'node:assert/strict';
 import { briefingPath, readBriefingRoute, captureReadingPosition, restoreReadingPosition, settingsReturnContext, mergeBriefingNavigation } from './readingContext.js';
 
-test('简报链接完整保留周期、内容模式、标签和单篇阅读，可独立刷新', () => {
+test('简报链接保留周期、内容模式和单篇阅读，旧标签不再限制结果', () => {
   const context = { periodType: 'month', periodStart: '2026-09-01', mode: 'quotes', selectedTag: 'AI', showAll: true, readingSource: 'source-9' };
   const path = briefingPath('reports', context);
-  assert.deepEqual(readBriefingRoute(path.split('?')[1]), context);
+  assert.deepEqual(readBriefingRoute(path.split('?')[1]), { ...context, selectedTag: '' });
+  assert.equal(readBriefingRoute('?tag=AI').selectedTag, '');
+  assert.equal(new URLSearchParams(path.split('?')[1]).has('tag'), false);
   assert.equal(briefingPath('saved', context).split('?')[0], '/briefing/saved');
 });
 
@@ -45,4 +47,16 @@ test('任务导航切换月报时显式周期起点优先；侧栏只选择类�
   assert.equal(mergeBriefingNavigation(current,{periodType:'month',periodStart:'2026-09-01',mode:'quotes'}).periodStart,'2026-09-01');
   assert.equal(mergeBriefingNavigation(current,{periodType:'month'}).periodStart,null);
   assert.equal(mergeBriefingNavigation(current,{mode:'concepts'}).periodStart,'2026-09-21');
+});
+
+test('单篇直达链接不要求周期，侧栏切换周月则退出单篇', () => {
+  const route = readBriefingRoute('?source=source-3');
+  assert.equal(route.readingSource, 'source-3');
+  assert.equal(route.periodStart, null);
+  assert.equal(readBriefingRoute(briefingPath('reports', route).split('?')[1]).readingSource, 'source-3');
+  const selected = { ...route, periodStart: '2026-09-21', showAll: true };
+  const next = mergeBriefingNavigation(selected, { periodType: 'month' });
+  assert.equal(next.readingSource, null);
+  assert.equal(next.showAll, false);
+  assert.equal(mergeBriefingNavigation(selected, { readingSource: 'source-4' }).readingSource, 'source-4');
 });
