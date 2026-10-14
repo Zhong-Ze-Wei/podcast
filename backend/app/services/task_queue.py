@@ -23,6 +23,8 @@ class TaskQueue:
 
     def __init__(self, max_workers: int = 3):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        # 慢速字幕批次单独排队，避免占满工作线程后阻塞新视频列表同步。
+        self.transcript_executor = ThreadPoolExecutor(max_workers=1)
         self.tasks = {}  # 内存存储，task_id -> task_info
         self._futures = {}
         self._lock = RLock()
@@ -222,7 +224,8 @@ class TaskQueue:
                 self._db.tasks.insert_one(task_info.copy())
             self.tasks[task_id] = task_info
             try:
-                future = self.executor.submit(wrapper)
+                executor = self.transcript_executor if task_type == "fetch_transcripts" else self.executor
+                future = executor.submit(wrapper)
             except Exception as error:
                 try:
                     self._update_status(task_id, "failed", error_message=str(error),
@@ -359,6 +362,7 @@ class TaskQueue:
     def shutdown(self, wait: bool = True):
         """关闭任务队列"""
         self.executor.shutdown(wait=wait)
+        self.transcript_executor.shutdown(wait=wait)
 
 
 # 全局任务队列实例

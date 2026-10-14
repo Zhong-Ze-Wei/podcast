@@ -47,6 +47,11 @@ class Queue:
         self.tasks[identifier] = {**options, "status": "pending"}
         return identifier
 
+    def get_all_tasks(self, status=None, task_type=None, limit=0):
+        return [task for task in self.tasks.values()
+                if (status is None or task["status"] == status)
+                and (task_type is None or task["task_type"] == task_type)]
+
     def get_status(self, identifier):
         return self.tasks.get(identifier)
 

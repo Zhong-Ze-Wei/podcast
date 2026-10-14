@@ -18,6 +18,7 @@ def app(monkeypatch, tmp_path):
     monkeypatch.setattr("app.config.Config.MEDIA_ROOT", str(tmp_path))
     monkeypatch.setattr("app.services.whisper_service.is_available", lambda: False)
     monkeypatch.setattr("app.services.whisperx_service.is_available", lambda: False)
+    monkeypatch.setattr("app.services.episode_query_service.find_spec", lambda name: None)
     return app
 
 
@@ -41,6 +42,18 @@ def test_queries_filter_before_paginating_and_keep_old_favorites(app):
     assert favorites["data"][0]["is_starred"] is True
     assert "content" not in page["data"][0]
     assert client.get(f"/api/episodes/{old}").get_json()["data"]["content"]
+
+
+def test_episode_reads_do_not_load_local_transcription_runtimes(app, monkeypatch):
+    def runtime_check():
+        pytest.fail("reading episode lists must not import transcription runtimes")
+
+    monkeypatch.setattr("app.services.whisper_service.is_available", runtime_check)
+    monkeypatch.setattr("app.services.whisperx_service.is_available", runtime_check)
+    item = episode(app, "Readable", has_transcript=True)
+    client = app.test_client()
+    for path in ("/api/episodes?is_starred=true", "/api/episodes?processed=true", f"/api/episodes/{item}"):
+        assert client.get(path).status_code == 200
 
 
 def test_search_is_literal_and_identical_in_global_and_feed_lists(app):
@@ -103,7 +116,7 @@ def test_artifacts_tasks_and_actions_describe_independent_information(app):
 
 
 def test_transcription_capabilities_match_provider_runtime_and_download_need(app, monkeypatch):
-    monkeypatch.setattr("app.services.whisper_service.is_available", lambda: True)
+    monkeypatch.setattr("app.services.episode_query_service.find_spec", lambda name: object() if name == "faster_whisper" else None)
     item = episode(app, "Downloadable", audio_url="https://example.com/audio.mp3")
     body = app.test_client().get(f"/api/episodes/{item}").get_json()["data"]
     providers = {item["id"]: item for item in body["transcription_providers"]}
@@ -121,8 +134,7 @@ def test_viewer_capabilities_and_processing_posts_are_consistent(monkeypatch):
     app = make_auth_app((episodes_bp, "/api/episodes"), (transcripts_bp, "/api/transcripts"), (summaries_bp, "/api/summaries"))
     viewer = add_user(app.db, "viewer@example.com", role="viewer")
     item = episode(app, "Read only", audio_url="https://example.com/audio.mp3", transcript_url="https://example.com/sub.vtt")
-    monkeypatch.setattr("app.services.whisper_service.is_available", lambda: True)
-    monkeypatch.setattr("app.services.whisperx_service.is_available", lambda: True)
+    monkeypatch.setattr("app.services.episode_query_service.find_spec", lambda name: object())
     client = app.test_client()
     headers = auth_headers(viewer)
     data = client.get(f"/api/episodes/{item}", headers=headers).get_json()["data"]

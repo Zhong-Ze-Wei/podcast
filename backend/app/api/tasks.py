@@ -19,7 +19,7 @@ from .utils import (
 from .decorators import current_owner_id, current_user, owner_filter, require_auth, require_role
 
 tasks_bp = Blueprint("tasks", __name__)
-PERSONAL_TASK_TYPES = ("briefing-report", "briefing-lab")
+PERSONAL_TASK_TYPES = ("briefing-report", "briefing-lab", "subscribe")
 
 
 def _visible_task_query():
@@ -149,8 +149,8 @@ def _build_task_target_maps(db, tasks: list[dict]) -> dict:
     feed_oids = set()
 
     for task in tasks:
-        episode_oid = _to_object_id(task.get("episode_id"))
-        feed_oid = _to_object_id(task.get("feed_id"))
+        episode_oid = _to_object_id(_task_episode_id(task))
+        feed_oid = _to_object_id(_task_feed_id(task))
         if episode_oid:
             episode_oids.add(episode_oid)
         if feed_oid:
@@ -180,8 +180,9 @@ def _build_task_target_maps(db, tasks: list[dict]) -> dict:
 def _format_task(task: dict, target_maps: dict = None) -> dict:
     """格式化任务响应"""
     target_maps = target_maps or {"episodes": {}, "feeds": {}}
-    episode_id = _string_id(task.get("episode_id"))
-    feed_id = _string_id(task.get("feed_id"))
+    episode_id = _task_episode_id(task)
+    feed_id = _string_id(_task_feed_id(task))
+    context = task.get("report_context") or {}
     episode = target_maps["episodes"].get(episode_id) if episode_id else None
     feed = None
 
@@ -214,9 +215,9 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "progress_message": task.get("progress_message"),
         "episode_id": episode_id,
         "feed_id": feed_id,
-        "episode_title": episode.get("title") if episode else None,
+        "episode_title": episode.get("title") if episode else context.get("source_title"),
         "episode_status": episode.get("status") if episode else None,
-        "feed_title": feed.get("title") if feed else None,
+        "feed_title": feed.get("title") if feed else context.get("feed_title"),
         "target_type": target_type,
         "target_id": target_id,
         "target_exists": target_exists,
@@ -226,6 +227,23 @@ def _format_task(task: dict, target_maps: dict = None) -> dict:
         "started_at": _format_datetime(task.get("started_at")),
         "completed_at": _format_datetime(task.get("completed_at"))
     }
+
+
+def _task_feed_id(task):
+    if task.get("task_type") == "subscribe":
+        return task.get("feed_id") or (task.get("result") or {}).get("id")
+    return task.get("feed_id")
+
+
+def _task_episode_id(task):
+    if task.get("episode_id"):
+        return _string_id(task["episode_id"])
+    context = task.get("report_context") or {}
+    if task.get("task_type") == "briefing-report" and context.get("kind") == "reading":
+        source_id = context.get("source_id", "")
+        if source_id.startswith("ep") and ObjectId.is_valid(source_id[2:]):
+            return source_id[2:]
+    return None
 
 
 def _to_object_id(value):

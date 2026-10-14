@@ -49,6 +49,7 @@ def test_schema_and_field_correction_are_kept_on_validation_retry(tmp_path):
     responses = iter(['{"topics":[]}', '{"matches":[]}'])
 
     class Client:
+        model = "test"
         def chat(self, **kwargs):
             calls.append({**kwargs, "messages": list(kwargs["messages"])})
             return {"content": next(responses), "usage": {"prompt": 2, "completion": 1, "total": 3}, "model": "test", "elapsed_seconds": 1}
@@ -65,6 +66,7 @@ def test_schema_and_field_correction_are_kept_on_validation_retry(tmp_path):
 
 def test_validation_failure_retains_actual_model_outputs(tmp_path):
     class Client:
+        model = "test"
         def chat(self, **kwargs):
             return {"content": '{"wrong":true}', "usage": {}, "model": "test", "elapsed_seconds": 0}
 
@@ -76,6 +78,41 @@ def test_validation_failure_retains_actual_model_outputs(tmp_path):
         service._model_call("JSON", "文稿", reject)
     assert len(failed.value.attempts) == 2
     assert all(attempt["content"] == '{"wrong":true}' for attempt in failed.value.attempts)
+
+
+def test_single_pass_preserves_costs_and_places_task_after_stable_material(tmp_path):
+    calls = []
+    class Client:
+        model = "test"
+        def chat(self, **kwargs):
+            calls.append(kwargs)
+            return {"content": '{"items":[]}', "usage": {"prompt": 100, "completion": 20, "total": 120, "cached_tokens": 80, "reasoning_tokens": 12},
+                    "model": "test", "provider": "provider", "finish_reason": "stop", "elapsed_seconds": 1}
+    service = BriefingLabService(tmp_path, client_factory=lambda **kwargs: Client())
+    _, metadata = service._model_call("公共规则", "稳定材料", lambda value: value, task_prompt="本次任务", max_attempts=1)
+    assert [message["content"] for message in calls[0]["messages"]] == ["公共规则", "稳定材料", "本次任务"]
+    assert metadata["usage"]["cached_tokens"] == 80 and metadata["usage"]["reasoning_tokens"] == 12
+    def reject(value):
+        raise ValueError("格式错误")
+    with pytest.raises(ModelValidationError) as error:
+        service._model_call("公共规则", "稳定材料", reject, max_attempts=1)
+    assert len(error.value.attempts) == 1 and len(calls) == 2
+
+
+def test_flash_reading_uses_low_effort_and_records_the_request_option(tmp_path):
+    calls = []
+    class Client:
+        model = "DeepSeek-V4.1-Flash"
+        def chat(self, **kwargs):
+            calls.append(kwargs)
+            return {"content": '{"items":[]}', "usage": {"prompt": 10, "completion": 3, "total": 13},
+                    "model": self.model, "elapsed_seconds": 1}
+    service = BriefingLabService(tmp_path, client_factory=lambda **kwargs: Client())
+    audit = tmp_path / "audit.json"
+    _, metadata = service._model_call("规则", "材料", lambda value: value, max_attempts=1, audit_path=audit)
+    assert calls[0]["reasoning_effort"] == "low"
+    assert metadata["request_options"] == {"reasoning_effort": "low"}
+    assert json.loads(audit.read_text(encoding="utf-8"))["request_options"] == metadata["request_options"]
 
 
 def test_long_podcast_analysis_preserves_every_character_and_final_conclusion():

@@ -15,7 +15,7 @@ from ..services.briefing_modes_service import BriefingModesService, MODE_INDEX
 from ..services.briefing_scope_service import BriefingScopeService, validate_interests
 from ..services.briefing_lab_service import corpus_id, quote_offset
 from ..services.task_queue import task_queue
-from ..services.briefing_task_service import report_task_conflicts
+from ..services.briefing_task_service import submit_report_task
 from ..services.briefing_favorites import BriefingFavorites, valid_item_id
 
 
@@ -154,6 +154,8 @@ def preferences():
             values["auto_period"] = options["auto_period"]
         if "layout" in options:
             values["layout"] = options["layout"]
+        if "materials_layout" in options:
+            values["materials_layout"] = options["materials_layout"]
         result = service.save_preferences(**values)
     except ValueError as error:
         return error_response(str(error), "INVALID_INTERESTS", 400)
@@ -172,12 +174,6 @@ def source(source_id):
     return success_response({**source, "analysis": service.report_service.lab._source_notes(source, cached_only=True)})
 
 
-def _has_active_report_task(owner_id, period=None):
-    return any(report_task_conflicts(task, owner_id, period)
-               for status in ("pending", "processing")
-               for task in task_queue.get_all_tasks(task_type="briefing-report", status=status, limit=0))
-
-
 @briefing_reports_bp.route("/modes", methods=["GET"])
 @require_auth
 def modes():
@@ -194,7 +190,7 @@ def modes():
 
 
 @briefing_reports_bp.route("/modes/generate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def generate_modes():
     if not is_ai_analysis_enabled():
         return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
@@ -221,13 +217,13 @@ def generate_modes():
         service = BriefingModesService(owner_id=owner_id)
     if not (scope["corpus"] if scope else service.report_service.corpus())["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
-    if _has_active_report_task(owner_id, scope["period"] if scope is not None else None):
-        return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
     kwargs = {"mode": mode, "topic": topic.strip(), "report_context": {"kind": "modes", "mode": mode}}
     if scope is not None:
         kwargs["scope"] = scope
         kwargs["report_period"] = scope["period"]
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, **kwargs)
+    task_id = submit_report_task(task_queue, func=service.generate, owner_id=owner_id, **kwargs)
+    if task_id is None:
+        return error_response("该周期已有简报正在生成" if scope is not None else "已有简报正在生成", "REPORT_TASK_ACTIVE", 409)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -238,7 +234,7 @@ def edition():
 
 
 @briefing_reports_bp.route("/edition/generate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def generate_edition():
     if not is_ai_analysis_enabled():
         return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
@@ -252,9 +248,9 @@ def generate_edition():
     service = BriefingReadingService(owner_id=owner_id)
     if not service.report_service.corpus()["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
-    if _has_active_report_task(owner_id):
+    task_id = submit_report_task(task_queue, func=service.generate_edition, owner_id=owner_id, topic=topic.strip(), report_context={"kind": "edition"})
+    if task_id is None:
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_edition, owner_id=owner_id, topic=topic.strip(), report_context={"kind": "edition"})
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -289,7 +285,9 @@ def _reuse_existing_reading(service, result, source_id):
         point.update(source_id=source_id, episode_id=source["episode_id"], feed=source["feed"], source_title=source["title"], start=quote["start"], end=quote["end"])
     for quote in [*reused.get("resources", []), *reused.get("core_evidence", [])]:
         _rebind_reading_evidence(quote, source, old_id)
-    result["reading"] = reused
+    # 旧片段式解读仍可查看，但不能冒认为新全文分析缓存。
+    reused["legacy"] = True
+    result["legacy_reading"] = reused
 
 
 def _rebind_reading_evidence(quote, source, old_id):
@@ -307,7 +305,7 @@ def _rebind_reading_evidence(quote, source, old_id):
 
 
 @briefing_reports_bp.route("/reading/<source_id>/generate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def generate_reading(source_id):
     if not is_ai_analysis_enabled():
         return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
@@ -321,7 +319,9 @@ def generate_reading(source_id):
     source = next((item for item in service.report_service.corpus()["sources"] if item["id"] == source_id), None) if service is not None else None
     if source is None:
         return error_response("文稿不存在", "SOURCE_NOT_FOUND", 404)
-    kwargs = {"source_id": source_id, "report_context": {"kind": "reading", "source_id": source_id}}
+    kwargs = {"source_id": source_id, "episode_id": source.get("episode_id"), "feed_id": source.get("feed_id"),
+              "report_context": {"kind": "reading", "source_id": source_id,
+                                 "source_title": source["title"], "feed_title": source.get("feed", "")}}
     if "period_type" in options or "period_start" in options:
         scope_service = _scope_service(owner_id)
         try:
@@ -331,9 +331,9 @@ def generate_reading(source_id):
         if not scope_service.source_within_period(source, scope["period"]):
             return error_response("文稿不属于所选周期", "SOURCE_OUTSIDE_PERIOD", 400)
         kwargs["report_period"] = scope["period"]
-    if _has_active_report_task(owner_id):
+    task_id = submit_report_task(task_queue, func=service.generate_reading, owner_id=owner_id, **kwargs)
+    if task_id is None:
         return error_response("已有精选或单篇解读正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate_reading, owner_id=owner_id, **kwargs)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -344,7 +344,7 @@ def snapshot():
 
 
 @briefing_reports_bp.route("/generate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def generate():
     if not is_ai_analysis_enabled():
         return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
@@ -367,9 +367,9 @@ def generate():
     if not service.corpus()["sources"]:
         return error_response("尚未取得完整文稿", "CORPUS_UNAVAILABLE", 409)
     owner_id = current_owner_id()
-    if any(task.get("owner_id") == owner_id and task["status"] in ("pending", "processing") for task in task_queue.get_all_tasks(task_type="briefing-report")):
+    task_id = submit_report_task(task_queue, func=service.generate, owner_id=owner_id, report_context={"kind": "legacy"}, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
+    if task_id is None:
         return error_response("已有报告正在生成", "REPORT_TASK_ACTIVE", 409)
-    task_id = task_queue.submit(task_type="briefing-report", func=service.generate, owner_id=owner_id, report_context={"kind": "legacy"}, variant=variant, topic=topic.strip(), interests=list(dict.fromkeys(interests)), web_enabled=web_enabled)
     return success_response({"task_id": task_id, "status": "queued"}, status_code=202)
 
 
@@ -383,12 +383,20 @@ def task_status(task_id):
 
 
 def _export_options(report_id):
-    if request.args.get("pages", "1") not in ("1", "2"):
-        return None, None, error_response("请选择一页或两页", "INVALID_PAGE_COUNT", 400)
+    pages = request.args.get("pages", "all")
+    if pages not in ("all", "1", "2"):
+        return None, None, error_response("请选择完整导出、一页或两页", "INVALID_PAGE_COUNT", 400)
     report = BriefingReportService(owner_id=current_owner_id()).report(report_id)
     if report is None:
         return None, None, error_response("报告不存在", "REPORT_NOT_FOUND", 404)
-    return report, int(request.args.get("pages", "1")), None
+    return report, pages if pages == "all" else int(pages), None
+
+
+def _export_density():
+    density = request.args.get("density", "comfortable")
+    if density not in ("comfortable", "compact"):
+        return None, error_response("导出密度请选择舒适或紧凑", "INVALID_REPORT_DENSITY", 400)
+    return density, None
 
 
 def _export_style():
@@ -410,12 +418,15 @@ def report_html(report_id):
     style, error = _export_style()
     if error is not None:
         return error
+    density, error = _export_density()
+    if error is not None:
+        return error
     report, pages, error = _export_options(report_id)
     if error is not None:
         return error
     from ..services.briefing_report_pdf import render_report_html
     try:
-        html = render_report_html(report, pages=pages, base_url=_app_base_url(), style=style)
+        html = render_report_html(report, pages=pages, base_url=_app_base_url(), style=style, density=density)
     except RuntimeError as error:
         return error_response(str(error), "REPORT_EXPORT_FAILED", 503)
     return Response(html, mimetype="text/html", headers={"Cache-Control": "private, no-store"})
@@ -427,14 +438,91 @@ def report_pdf(report_id):
     style, error = _export_style()
     if error is not None:
         return error
+    density, error = _export_density()
+    if error is not None:
+        return error
     report, pages, error = _export_options(report_id)
     if error is not None:
         return error
     from ..services.briefing_report_pdf import create_report_pdf
     try:
-        pdf = create_report_pdf(report, pages=pages, base_url=_app_base_url(), style=style)
+        pdf = create_report_pdf(report, pages=pages, base_url=_app_base_url(), style=style, density=density)
     except RuntimeError as error:
         return error_response(str(error), "REPORT_EXPORT_FAILED", 503)
-    export_name = report.get("mode", report["variant"])
+    export_name = report.get("mode") or report.get("variant", "report")
     style_name = f"-{style}" if style != "legacy" else ""
-    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="PodMaster-{export_name}{style_name}-{pages}p.pdf"', "Cache-Control": "private, no-store"})
+    page_name = "full" if pages == "all" else f"{pages}p"
+    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="PodMaster-{export_name}{style_name}-{page_name}.pdf"', "Cache-Control": "private, no-store"})
+
+
+@briefing_reports_bp.route("/reading/<source_id>/translate-evidence", methods=["POST"])
+@require_auth
+def translate_reading_evidence(source_id):
+    """原文依据按需中译：evidence 是逐字原话（多为英文），这里批量翻译并按引文哈希缓存，不动版本化报告。"""
+    import hashlib
+    from datetime import datetime
+
+    from .. import get_db as _get_db
+    from ..services.llm_client import get_llm_client
+
+    if not is_ai_analysis_enabled():
+        return error_response(AI_DISABLED_MESSAGE, "AI_ANALYSIS_DISABLED", 423)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error_response("请求必须是 JSON 对象", "INVALID_JSON", 400)
+    raw = payload.get("quotes")
+    if not isinstance(raw, list) or not raw:
+        return error_response("quotes 不能为空", "INVALID_QUOTES", 400)
+
+    def quote_hash(text):
+        return hashlib.md5(text.encode("utf-8", "ignore")).hexdigest()
+
+    valid = [
+        {"id": str(item.get("id", "")), "quote": str(item.get("quote", "")).strip()}
+        for item in raw
+        if isinstance(item, dict) and str(item.get("quote", "")).strip()
+    ][:20]
+    if not valid:
+        return error_response("没有可翻译的引文", "INVALID_QUOTES", 400)
+
+    db = _get_db()
+    owner_id = current_owner_id()
+    hashes = [quote_hash(item["quote"]) for item in valid]
+    translations = {
+        doc["quote_hash"]: doc["zh"]
+        for doc in db.evidence_translations.find(
+            {"owner_id": owner_id, "quote_hash": {"$in": hashes}}, {"quote_hash": 1, "zh": 1}
+        )
+    }
+
+    missing = [item for item in valid if quote_hash(item["quote"]) not in translations]
+    if missing:
+        llm = get_llm_client(task="briefing")
+        result = llm.chat_json(
+            messages=[
+                {"role": "system", "content": "你是字幕翻译。把每条播客原话忠实翻译成简洁中文，保留人名与技术名词，不加解释。只返回JSON。"},
+                {"role": "user", "content": "逐条翻译下面引文，返回 {\"items\":[{\"i\":<序号>,\"zh\":\"译文\"}]}：\n"
+                 + "\n".join(f"{i}. {item['quote'][:600]}" for i, item in enumerate(missing))},
+            ],
+            temperature=0.2,
+            max_tokens=4000,
+        )
+        items = (result.get("data") or {}).get("items") or []
+        now = datetime.utcnow()
+        new_docs = []
+        for i, item in enumerate(missing):
+            zh = next((str(entry.get("zh", "")).strip() for entry in items if entry.get("i") == i), "")
+            if not zh:
+                continue
+            translations[quote_hash(item["quote"])] = zh
+            new_docs.append({"owner_id": owner_id, "quote_hash": quote_hash(item["quote"]), "zh": zh, "created_at": now})
+        if new_docs:
+            try:
+                db.evidence_translations.insert_many(new_docs)
+            except Exception:
+                pass  # 缓存写失败不影响本次返回
+
+    return success_response({
+        "translations": {item["id"]: translations[quote_hash(item["quote"])] for item in valid
+                         if quote_hash(item["quote"]) in translations}
+    })

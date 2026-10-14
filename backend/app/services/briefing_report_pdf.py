@@ -1,4 +1,4 @@
-"""固定 A4 版式：浏览器测量后精选，HTML 预览与 PDF 使用同一份分页内容。"""
+"""完整 A4 报告自动分页；保留旧版一页、两页精选导出的兼容入口。"""
 import base64
 import html
 import json
@@ -125,6 +125,49 @@ body[class*='report-style-'] .index-item { font-size: 11px; line-height: 1.5; al
 body[class*='report-style-'] .index-item strong { color: var(--briefing-title-color); }
 body[class*='report-style-'] .index-summary { font-size: 11px; margin-top: 8px; color: var(--briefing-muted-color); }
 .measure-index { position: absolute; left: -10000px; top: 0; }
+"""
+
+FULL_REPORT_CSS = """
+@page { size: A4; margin: 14mm 12mm 17mm;
+ @bottom-right { content: counter(page); font: 9pt sans-serif; color: #777; } }
+.full-report .report-document { width: 186mm; margin: 12mm auto; padding: 8mm;
+ background: var(--briefing-background, white); }
+.full-report .report-header { margin-bottom: 5mm; }
+.full-report .report-content { column-count: var(--briefing-column-count, 1); column-gap: 7mm; }
+.full-report:not(.report-style-newspaper) .report-content { column-count: auto; }
+.full-report .report-section { display: contents; }
+.full-report .section-title { font-size: 15pt; margin: 5mm 0 3mm; }
+body.full-report .card { break-inside: auto; padding: 4mm 0; border: 0;
+ border-bottom: 1px solid var(--briefing-border-color, #e1dce9); border-radius: 0; margin: 0; }
+body.full-report .card-kind { font-size: 9pt; margin-bottom: 1mm; }
+.full-report h2, .full-report h3, .full-report .label, .full-report .card-kind {
+ break-after: avoid; page-break-after: avoid; }
+.full-report p, .full-report blockquote { orphans: 3; widows: 3; white-space: pre-wrap; }
+body.full-report blockquote { font-size: 12pt; line-height: 1.65; margin: 1.5mm 0 3mm; }
+.full-report .original-quote-text { font-family: var(--briefing-body-font, sans-serif); font-size: 10pt; }
+.full-report .evidence { border-left: .5mm solid var(--briefing-border-color, #d7d2c9);
+ padding-left: 3mm; margin-top: 3mm; }
+.full-report .evidence blockquote { font-size: 10.5pt; line-height: 1.6; }
+body.full-report .source { break-inside: avoid; font-size: 9pt; margin: 2mm 0 3mm; }
+.full-report .source-index { margin-top: 6mm; }
+.full-report .index-grid { display: block; columns: 2; column-gap: 7mm; }
+body.full-report .index-item { break-inside: avoid; margin-bottom: 3mm; font-size: 9pt; }
+.full-report .report-footer { margin-top: 5mm; }
+.full-report.density-compact { font-size: 10pt; line-height: 1.6; }
+.full-report.density-compact .card { padding: 2.5mm 0; }
+.full-report.density-compact h2 { font-size: 13pt; margin-bottom: 2mm; }
+.full-report.density-compact blockquote { font-size: 10.5pt; line-height: 1.55; margin-bottom: 2mm; }
+.full-report.density-compact .evidence blockquote,
+.full-report.density-compact .original-quote-text { font-size: 9.5pt; }
+.full-report.density-compact .source { font-size: 8.5pt; margin: 1.5mm 0; }
+@media screen and (max-width: 750px) {
+ .full-report .report-document { width: 100%; margin: 0; padding: 5mm; }
+ .full-report .report-content { column-count: 1; }
+}
+@media print {
+ .full-report .report-document { width: auto; margin: 0; padding: 0; }
+ .full-report .report-header { break-inside: avoid; }
+}
 """
 
 
@@ -314,6 +357,85 @@ def _index_html(report, base_url, source_ids=None, limit=None):
         full = _anchor("完整材料清单见网页", _briefing_link(report, base_url)) if _safe_url(base_url) else "完整材料清单见网页"
         summary += f'<p class="index-summary">索引未列 {unlisted} 期收录来源 · {full}</p>'
     return '<section class="source-index"><h2>本次材料索引</h2><div class="index-grid">' + "".join(entries) + "</div>" + summary + "</section>"
+
+
+def _full_quote_html(item):
+    """完整报告同时印出译文和原句，不缩短保存的引文。"""
+    parts = []
+    if item.get("translation"):
+        parts.append(f'<div class="label">中文译文</div><blockquote>{_escape(item["translation"])}</blockquote>')
+    if item.get("quote"):
+        original_class = ' class="original-quote-text"' if item.get("translation") else ""
+        parts.append(f'<div class="label">原话</div><blockquote{original_class}>{_escape(item["quote"])}</blockquote>')
+    return "".join(parts)
+
+
+def _full_card_html(item, sources, base_url):
+    kind = item.get("kind", "concept")
+    body = []
+    if kind == "connection":
+        relation = {"commonality": "共同点", "difference": "分歧", "complementary": "互补"}.get(item.get("relation"), "联系")
+        body.append(f'<div class="card-kind">{relation}</div>')
+    if item.get("title"):
+        body.append(f'<h2>{_escape(item["title"])}</h2>')
+    if item.get("text"):
+        body.append(f'<p>{_escape(item["text"])}</p>')
+    # brief 和 context 可能分别记录简述与完整语境；完整导出保留两者。
+    for context in dict.fromkeys(value for value in (item.get("brief"), item.get("context")) if value):
+        body.append(f'<p class="card-context">{_escape(context)}</p>')
+    if kind == "quote":
+        body.append(_full_quote_html(item))
+    if kind == "background" and item.get("relation") == "external":
+        details = [item.get("publisher", "")]
+        if item.get("accessed_at"):
+            details.append("查阅于 " + _date_label(item["accessed_at"]))
+        body.append(f'<p class="label">{_escape(" · ".join(value for value in details if value))}</p>')
+    body.append(_source_html(item, sources, base_url))
+    evidence = item.get("evidence", [])
+    if kind != "quote" and not evidence and (item.get("quote") or item.get("translation")):
+        body.append('<div class="evidence"><div class="label">原话依据</div>' + _full_quote_html(item) + '</div>')
+    for quote in evidence:
+        body.append('<div class="evidence"><div class="label">原话依据</div>' + _full_quote_html(quote))
+        if quote.get("context"):
+            body.append(f'<p class="card-context">{_escape(quote["context"])}</p>')
+        body.append(_source_html(quote, sources, base_url) + '</div>')
+    for child in item.get("children", []):
+        body.append('<div class="child">' + _full_card_html(child, sources, base_url) + '</div>')
+    return f'<article class="card {_escape(kind)}-card" data-card-id="{_escape(item.get("id"))}">' + "".join(body) + '</article>'
+
+
+def _full_document(report, base_url, style, theme_css, density):
+    sources = {source.get("id"): source for source in report.get("sources", [])}
+    sections = report.get("sections", [])
+    cards = [item for section in sections for item in section.get("items", [])]
+    title = report.get("topic") or report.get("title") or VARIANT_NAMES[report["variant"]]
+    period = report.get("period", {})
+    meta = [period.get("label"), _date_label(report.get("generated_at")), f'完整收录 {len(cards)} 条']
+    if report.get("interests"):
+        meta.append("关注：" + "、".join(report["interests"]))
+    header = '<header class="report-header"><div class="brand">PodMaster · 播客简报</div>'
+    header += f'<h1>{_escape(title)}</h1><div class="report-meta">{_escape(" · ".join(value for value in meta if value))}</div></header>'
+    content = []
+    for section in sections:
+        if len(sections) > 1 and section.get("title"):
+            content.append(f'<h2 class="section-title">{_escape(section["title"])}</h2>')
+        content.extend(_full_card_html(item, sources, base_url) for item in section.get("items", []))
+    if not cards:
+        content.append('<p class="empty">这份报告暂无分析内容。</p>')
+    for thread in report.get("threads", []):
+        content.append('<section class="report-thread"><h2>共同谈到 · AI 归纳</h2><p>' + _escape(thread["text"]) + '</p></section>')
+    footer = '<footer class="report-footer">已收录本报告全部条目、保存的原话依据与来源。译文辅助阅读；原话以保存的文稿为准。'
+    if report.get("analysis", {}).get("partial"):
+        footer += '本报告的分析尚未全部完成；此导出包含当前已保存的全部内容。'
+    if _safe_url(base_url):
+        footer += " · " + _anchor("查看简报与原文", _briefing_link(report, base_url))
+    footer += '</footer>'
+    classes = f'full-report density-{density}' + (f' report-style-{style}' if style != "legacy" else "")
+    styles = CSS + (theme_css + PRINT_THEME_CSS if style != "legacy" else "") + FULL_REPORT_CSS
+    return (f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>{_escape(title)}</title>'
+            f'<style>{styles}</style></head><body class="{classes}" data-selected-count="{len(cards)}" data-omitted-count="0">'
+            '<main class="report-document">' + header + '<div class="report-content">' + "".join(content) + '</div>'
+            + _index_html(report, base_url) + footer + '</main></body></html>')
 
 
 def _document(report, columns, selected, omitted, base_url, measurement_cards=None, style="legacy", theme_css=""):
@@ -650,22 +772,40 @@ def _prepare(serialized, pages, base_url, style="legacy", theme_css=""):
         return content, pdf
 
 
-def _arguments(report, pages, base_url, style):
-    if pages not in (1, 2):
-        raise ValueError("报告只支持一页或两页。")
+@lru_cache(maxsize=24)
+def _prepare_full(serialized, base_url, style, theme_css, density):
+    content = _full_document(json.loads(serialized), base_url, style, theme_css, density)
+    with _PrintBrowser() as browser:
+        browser.set_html(content)
+        return content, browser.pdf()
+
+
+def _arguments(report, pages, base_url, style, density):
+    if pages not in ("all", 1, 2):
+        raise ValueError("报告页数请选择完整报告、一页或两页。")
     if report.get("variant") not in VARIANT_NAMES:
         raise ValueError("未知报告版式。")
     if style not in ("legacy", "paper", "newspaper"):
         raise ValueError("未知报告风格。")
+    if density not in ("comfortable", "compact"):
+        raise ValueError("未知报告密度。")
     theme_css = THEME_PATH.read_text(encoding="utf-8") if style != "legacy" else ""
     return json.dumps(report, ensure_ascii=False, sort_keys=True), pages, base_url, style, theme_css
 
 
-def render_report_html(report, pages=1, base_url="http://localhost:3002", style="legacy"):
-    """返回与 PDF 同一精选内容的 A4 HTML，不重新调用模型。"""
-    return _prepare(*_arguments(report, pages, base_url, style))[0]
+def _export(report, pages, base_url, style, density):
+    args = _arguments(report, pages, base_url, style, density)
+    if pages == "all":
+        serialized, _, base_url, style, theme_css = args
+        return _prepare_full(serialized, base_url, style, theme_css, density)
+    return _prepare(*args)
 
 
-def create_report_pdf(report, pages=1, base_url="http://localhost:3002", style="legacy"):
-    """用已测量分页的固定 HTML/CSS 创建一页或两页 PDF。"""
-    return _prepare(*_arguments(report, pages, base_url, style))[1]
+def render_report_html(report, pages="all", base_url="http://localhost:3002", style="legacy", density="comfortable"):
+    """返回与 PDF 使用相同内容、排版规则的 HTML，不重新调用模型。"""
+    return _export(report, pages, base_url, style, density)[0]
+
+
+def create_report_pdf(report, pages="all", base_url="http://localhost:3002", style="legacy", density="comfortable"):
+    """默认完整导出并自动跨页；显式 pages=1/2 仍使用旧版精选排版。"""
+    return _export(report, pages, base_url, style, density)[1]

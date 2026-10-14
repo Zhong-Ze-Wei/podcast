@@ -7,7 +7,8 @@
 """
 from datetime import datetime
 
-STATE_FIELDS = ("is_read", "is_starred", "play_position")
+STATE_DEFAULTS = {"is_read": False, "is_starred": False, "play_position": 0}
+STATE_FIELDS = tuple(STATE_DEFAULTS)
 
 
 def get_states(db, user_id, episode_ids):
@@ -22,7 +23,8 @@ def get_states(db, user_id, episode_ids):
 
 
 def apply_to_response(response, state):
-    """把个人状态合并进剧集响应；用户无状态时保持文档默认值"""
+    """个人状态只取当前用户的记录，不继承共享剧集的历史字段。"""
+    response.update(STATE_DEFAULTS)
     if state:
         for field in STATE_FIELDS:
             if field in state:
@@ -51,29 +53,18 @@ def upsert(db, user_id, episode_id, fields):
     )
 
 
+def unread_count(db, user_id, feed_id):
+    read_ids = episode_ids_with(db, user_id, "is_read")
+    return db.episodes.count_documents({"feed_id": feed_id, "_id": {"$nin": read_ids}})
+
+
 def user_filter_condition(db, user_id, is_read=None, is_starred=None):
-    """
-    把 is_read / is_starred 过滤解析为单个 _id 查询条件（个人状态过滤）。
-    取反条件（如 is_read=false）以全库剧集减去命中集实现，规模在千级内可接受。
-    """
-    if is_read is None and is_starred is None:
+    """个人状态过滤直接排除已读/已收藏 ID，不读取全库文稿。"""
+    conditions = []
+    for flag, value in (("is_read", is_read), ("is_starred", is_starred)):
+        if value is not None:
+            ids = episode_ids_with(db, user_id, flag)
+            conditions.append({"_id": {"$in" if value else "$nin": ids}})
+    if not conditions:
         return None
-
-    universe = None
-
-    def effective_ids(flag, positive):
-        nonlocal universe
-        matched = set(episode_ids_with(db, user_id, flag))
-        if positive:
-            return matched
-        if universe is None:
-            universe = {e["_id"] for e in db.episodes.find({}, {})}
-        return universe - matched
-
-    result = None
-    if is_read is not None:
-        result = effective_ids("is_read", is_read)
-    if is_starred is not None:
-        starred = effective_ids("is_starred", is_starred)
-        result = starred if result is None else result & starred
-    return {"_id": {"$in": list(result)}}
+    return conditions[0] if len(conditions) == 1 else {"$and": conditions}

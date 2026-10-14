@@ -1,11 +1,12 @@
 """Episode queries and read models shared by library, workspace and feed views."""
 import os
 import re
+from datetime import datetime, timedelta, timezone
+from importlib.util import find_spec
 from urllib.parse import quote
 from ..models.episode import Episode
 from .audio_storage import local_audio_path
 from .user_episode_state import user_filter_condition, get_states, apply_to_response
-from .transcription_service import _local_ai_available
 
 
 SORTS = {
@@ -48,9 +49,10 @@ class EpisodeQueryService:
         self.cloud_enabled = cloud_enabled
         self.ai_enabled = ai_enabled
         self.can_process = can_process
+        # 浏览页面只检查组件是否安装；提交转录时再验证实际运行环境。
         self.local_providers = {
-            provider: _local_ai_available(provider)
-            for provider in ("local_whisper", "local_whisperx")
+            "local_whisper": find_spec("faster_whisper") is not None,
+            "local_whisperx": find_spec("whisperx") is not None,
         }
 
     def list(self, user_id, params, page, per_page, feed_id=None):
@@ -60,6 +62,16 @@ class EpisodeQueryService:
         conditions = []
         if feed_id is not None:
             conditions.append({"feed_id": feed_id})
+        days = params.get("days")
+        if days is not None:
+            try:
+                days = int(days)
+            except (TypeError, ValueError):
+                raise ValueError("days must be an integer between 1 and 3650")
+            if not 1 <= days <= 3650:
+                raise ValueError("days must be an integer between 1 and 3650")
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            conditions.append({"published": {"$gte": now - timedelta(days=days), "$lte": now}})
         status = params.get("status")
         statuses = [value.strip() for value in status.split(",") if value.strip()] if status else []
         if statuses:
@@ -71,6 +83,11 @@ class EpisodeQueryService:
             value = _bool_filter(params, name)
             if value is not None:
                 conditions.append({name: True if value else {"$ne": True}})
+        has_text = _bool_filter(params, "has_transcript_or_summary")
+        if has_text is True:
+            conditions.append({"$or": [{"has_transcript": True}, {"has_summary": True}]})
+        elif has_text is False:
+            conditions.extend([{"has_transcript": {"$ne": True}}, {"has_summary": {"$ne": True}}])
         audio = _bool_filter(params, "has_local_audio")
         if audio is not None:
             conditions.append(_audio_filter(audio))
