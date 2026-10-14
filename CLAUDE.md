@@ -61,5 +61,5 @@ core/       → 可复用的领域逻辑（如 summarization engine）
 - LLM 调用用 mock；每个 API 端点至少一个集成测试
 
 ## Git 规范
-- **禁止在 master 直接 commit**：所有修改先建 `<type>/<name>` 分支；合并用 `git merge --no-ff`
+- **禁止在 main 直接 commit**：所有修改先建 `<type>/<name>` 分支，推送后开 PR 到 main，CI（`.github/workflows/ci.yml`：后端 pytest + 前端 build/test）通过后合并
 - 不提交 .env、.venv、node_modules、__pycache__、backups/
