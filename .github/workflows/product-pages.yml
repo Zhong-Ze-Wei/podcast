@@ -2,7 +2,7 @@ name: Publish product page
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - 'frontend/public/product/**'
       - '.github/workflows/product-pages.yml'
