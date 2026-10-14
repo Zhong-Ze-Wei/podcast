@@ -105,7 +105,7 @@ def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(mon
         assert db.transcripts.find_one({"episode_id": episode["_id"]})["source"] == "youtube"
 
 
-def test_auto_bilibili_refresh_backfills_without_refetching_existing_transcript(monkeypatch):
+def test_manual_bilibili_refresh_backfills_without_refetching_existing_transcript(monkeypatch):
     db = make_db(monkeypatch)
     reject_rss(monkeypatch)
     feed = add_feed(db, Feed.TYPE_BILIBILI)
@@ -122,7 +122,8 @@ def test_auto_bilibili_refresh_backfills_without_refetching_existing_transcript(
         return {"text": f"Full subtitle for {bvid}", "segments": [], "language": "zh"}, None
     monkeypatch.setattr(BilibiliService, "fetch_ai_subtitle", classmethod(fetch_subtitle))
 
-    FeedAutoRefresher(db, queue=ImmediateQueue())._check_and_refresh_feeds()
+    from app.services.feed_sync_service import FeedSyncService
+    FeedSyncService(db, queue=ImmediateQueue()).refresh(str(feed["_id"]))
 
     assert subtitle_calls == ["old", "new"]
     assert db.episodes.count_documents({"feed_id": feed["_id"]}) == 3

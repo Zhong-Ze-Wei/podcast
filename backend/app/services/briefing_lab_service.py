@@ -286,16 +286,20 @@ class BriefingLabService:
         return result, metadata
 
     def _model_call(self, system, prompt, validator, task="briefing", max_tokens=20000, response_schema=None,
-                    audit_path=None, audit_context=None):
+                    audit_path=None, audit_context=None, max_attempts=2, task_prompt=None):
         client = self.client_factory(task=task)
+        from .llm_client import reading_request_options
+        request_options = reading_request_options(client.model)
         if response_schema is not None:
             system += "\n必须完整返回符合以下 JSON Schema 的对象：" + json.dumps(response_schema, ensure_ascii=False)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+        if task_prompt is not None:
+            messages.append({"role": "user", "content": task_prompt})
         usage = {"prompt": 0, "completion": 0, "total": 0}
         elapsed = 0
         attempts = []
-        for attempt in range(2):
-            options = {"response_schema": response_schema} if response_schema is not None else {}
+        for attempt in range(max_attempts):
+            options = {**request_options, **({"response_schema": response_schema} if response_schema is not None else {})}
             try:
                 response = client.chat(messages=messages, json_mode=True, max_tokens=max_tokens, temperature=0.2, **options)
             except EmptyLLMResponse as error:
@@ -304,22 +308,32 @@ class BriefingLabService:
             for key in usage:
                 usage[key] += response["usage"].get(key, 0)
             record = {"content": response["content"], "model": response["model"], "usage": response["usage"],
+                      "provider": response.get("provider"), "visible_output_characters": len(response["content"]),
                       "finish_reason": response.get("finish_reason"), "elapsed_seconds": response["elapsed_seconds"]}
             try:
                 if not response["content"].strip():
                     raise ValueError("模型返回空内容")
+                if response.get("finish_reason") in ("length", "max_tokens"):
+                    raise ValueError("模型输出达到上限，结果不完整")
                 data = validator(parse_model_json(response["content"]))
                 if audit_path is not None:
-                    write_json(audit_path, {"created_at": now_iso(), "context": audit_context, "messages": messages,
+                    write_json(audit_path, {"created_at": now_iso(), "context": audit_context, "messages": messages, "request_options": request_options,
                                            "attempts": [*attempts, record], "status": "partial" if data.get("rejected_items") else "completed",
                                            "rejected_items": data.get("rejected_items", [])})
-                return data, {"model": response["model"], "usage": usage, "elapsed_seconds": round(elapsed, 2)}
+                completed = [*attempts, record]
+                # 缺失明细保持未知；不能把供应商未返回的缓存/思考用量当作0。
+                for key in ("cached_tokens", "cache_miss_tokens", "cache_creation_tokens", "reasoning_tokens"):
+                    if all(key in item["usage"] for item in completed):
+                        usage[key] = sum(item["usage"][key] for item in completed)
+                return data, {"model": response["model"], "usage": usage, "elapsed_seconds": round(elapsed, 2),
+                              "provider": response.get("provider"), "finish_reason": response.get("finish_reason"),
+                              "call_count": len(completed), "request_options": request_options, "visible_output_characters": sum(item["visible_output_characters"] for item in completed)}
             except (ValueError, KeyError, TypeError) as error:
                 attempts.append({**record, "error": str(error)})
                 if audit_path is not None:
-                    write_json(audit_path, {"created_at": now_iso(), "context": audit_context, "messages": messages,
-                                           "attempts": attempts, "status": "failed" if attempt else "retrying"})
-                if attempt:
+                    write_json(audit_path, {"created_at": now_iso(), "context": audit_context, "messages": messages, "request_options": request_options,
+                                           "attempts": attempts, "status": "failed" if attempt + 1 == max_attempts else "retrying"})
+                if attempt + 1 == max_attempts:
                     raise ModelValidationError(f"模型结果未通过依据校验：{error}", attempts) from error
                 instruction = "严格遵守给定JSON Schema的必填字段、类型、枚举和数量约束；引文必须连续逐字复制正文。" if response_schema is not None else "严格复制已有证据ID/引文。"
                 if response["content"].strip():

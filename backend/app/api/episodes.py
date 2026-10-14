@@ -25,6 +25,7 @@ from ..services.user_episode_state import (
     apply_to_response,
     get_states,
     upsert,
+    unread_count,
     user_filter_condition,
 )
 from ..services.youtube_service import YouTubeService
@@ -164,7 +165,7 @@ def star_episode(episode_id):
 
 
 @episodes_bp.route("/<episode_id>/read", methods=["POST"])
-@require_role("user", "admin")
+@require_auth
 def mark_read(episode_id):
     """标记已读/未读（按用户隔离）"""
     db = get_db()
@@ -182,10 +183,15 @@ def mark_read(episode_id):
     user_id = current_user()["id"]
     current_state = get_states(db, user_id, [oid]).get(oid) or {}
     is_read = data.get("is_read", not current_state.get("is_read", False))
+    if not isinstance(is_read, bool):
+        return error_response("is_read must be a boolean", "INVALID_READ_STATE", 400)
 
     upsert(db, user_id, oid, {"is_read": is_read})
 
-    return success_response({"id": episode_id, "is_read": is_read})
+    feed_id = episode.get("feed_id")
+    return success_response({"id": episode_id, "is_read": is_read,
+                             "feed_id": str(feed_id) if feed_id else None,
+                             "unread_count": unread_count(db, user_id, feed_id) if feed_id else None})
 
 
 def _proxy_stream(url, use_proxy=False):

@@ -1,0 +1,298 @@
+"""视频列表先可见，文稿在独立队列逐期补齐。"""
+from datetime import datetime, timedelta
+from threading import Event
+from unittest.mock import Mock
+
+import pytest
+import requests
+from bson import ObjectId
+
+from app.models.feed import Feed
+from app.models.episode import Episode
+from app.services.auto_refresher import FeedAutoRefresher
+from app.services.feed_sync_service import FeedSyncService
+from app.services.task_queue import TaskQueue
+from app.services.youtube_service import YouTubeService
+from tests.conftest import MockDB
+from tests.test_feed_refresh_queue import RecordingQueue
+
+
+@pytest.fixture
+def channel(monkeypatch):
+    db = MockDB()
+    feed = Feed.create("https://youtube.com/@test", title="Channel", type="youtube", channel_ref="UCtest")
+    feed["_id"] = ObjectId()
+    db.feeds.insert_one(feed)
+    videos = [{"video_id": str(i), "title": f"Video {i}", "published": datetime(2026, 10, i + 1),
+               "thumbnail": f"https://example.test/{i}.jpg"} for i in range(3)]
+    monkeypatch.setattr(YouTubeService, "fetch_channel_videos", lambda cid: (list(videos), None))
+    monkeypatch.setattr(YouTubeService, "fetch_metadata", lambda vid: ({"duration": 120}, None))
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", lambda vid: (
+        {"text": f"Transcript {vid}", "segments": [], "language": "en"}, None))
+    monkeypatch.setattr("app.services.feed_sync_service._persist_feed_icon", lambda *a, **k: None)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    return db, feed, videos
+
+
+def test_discovery_never_waits_for_metadata_or_transcripts(channel, monkeypatch):
+    db, feed, _ = channel
+    calls = Mock(side_effect=AssertionError("Discovery must not fetch individual videos"))
+    monkeypatch.setattr(YouTubeService, "fetch_metadata", calls)
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", calls)
+    queue = RecordingQueue()
+    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
+    assert result["new_episodes"] == 3
+    assert db.feeds.find_one({"_id": feed["_id"]})["episode_count"] == 3
+    assert db.transcripts.count_documents({}) == 0
+    assert db.episodes.find_one({"guid": "youtube:0"})["image"] == "https://example.test/0.jpg"
+    assert queue.tasks[result["transcript_task_id"]]["task_type"] == "fetch_transcripts"
+    assert not calls.called
+
+
+def test_repeated_discovery_reuses_caption_task_and_saved_transcripts(channel):
+    db, feed, _ = channel
+    queue = RecordingQueue()
+    service = FeedSyncService(db, queue)
+    first = service.refresh(str(feed["_id"]))
+    second = service.refresh(str(feed["_id"]))
+    assert second["new_episodes"] == 0
+    assert second["transcript_task_id"] == first["transcript_task_id"]
+    assert queue.run(first["transcript_task_id"])["new_transcripts"] == 3
+    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
+    assert len(queue.tasks) == 1
+
+
+def test_metadata_failure_does_not_prevent_captions_and_caption_failure_keeps_video(channel, monkeypatch):
+    db, feed, _ = channel
+    monkeypatch.setattr(YouTubeService, "fetch_metadata", lambda vid: (None, "metadata unavailable"))
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", lambda vid: (
+        (None, "Subtitles disabled") if vid == "1" else ({"text": vid, "segments": []}, None)))
+    queue = RecordingQueue()
+    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
+    assert queue.run(result["transcript_task_id"]) == {"new_transcripts": 2, "transcript_failures": 1}
+    assert db.episodes.count_documents({}) == 3
+    assert db.feeds.find_one({"_id": feed["_id"]})["status"] == "active"
+    assert "禁用" in db.episodes.find_one({"guid": "youtube:1"})["transcript_fetch_error"]
+
+
+def test_refresh_retries_failed_captions_and_clears_error_without_refetching_saved_text(channel, monkeypatch):
+    db, feed, _ = channel
+    unavailable = "YouTube 暂时限制了当前代理的访问，请稍后重试或切换代理节点。"
+    captions = Mock(side_effect=lambda vid: (None, unavailable) if vid == "1" else (
+        {"text": f"Transcript {vid}", "segments": []}, None))
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
+    queue = RecordingQueue()
+    service = FeedSyncService(db, queue)
+    first = service.refresh(str(feed["_id"]))
+    assert queue.run(first["transcript_task_id"])["transcript_failures"] == 1
+    episode = db.episodes.find_one({"guid": "youtube:1"})
+    assert episode["transcript_fetch_error"] == unavailable
+
+    captions.reset_mock()
+    captions.side_effect = lambda vid: ({"text": "Recovered transcript", "segments": []}, None)
+    retry = service.refresh(str(feed["_id"]))
+    assert retry["new_episodes"] == 0
+    assert retry["transcript_task_id"] != first["transcript_task_id"]
+    assert queue.run(retry["transcript_task_id"]) == {"new_transcripts": 1, "transcript_failures": 0}
+    captions.assert_called_once_with("1")
+    assert "transcript_fetch_error" not in db.episodes.find_one({"_id": episode["_id"]})
+    assert db.transcripts.find_one({"episode_id": episode["_id"]})["text"] == "Recovered transcript"
+    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
+
+
+def test_refresh_recovers_from_channel_fetch_failure(channel, monkeypatch):
+    db, feed, videos = channel
+    listing = Mock(side_effect=[(None, "upstream unavailable"), (videos, None)])
+    monkeypatch.setattr(YouTubeService, "fetch_channel_videos", listing)
+    service = FeedSyncService(db, RecordingQueue())
+    with pytest.raises(ValueError, match="upstream unavailable"):
+        service.refresh(str(feed["_id"]))
+    assert db.feeds.find_one({"_id": feed["_id"]})["check_error"]
+    assert service.refresh(str(feed["_id"]))["new_episodes"] == 3
+    assert db.feeds.find_one({"_id": feed["_id"]})["check_error"] is None
+
+
+def test_caption_worker_does_not_block_discovery_and_picks_up_new_video(channel, monkeypatch):
+    db, feed, videos = channel
+    started, release, finished = Event(), Event(), Event()
+    caption_calls = []
+    def captions(vid):
+        caption_calls.append(vid)
+        started.set()
+        assert release.wait(5)
+        if vid == "new":
+            finished.set()
+        return {"text": vid, "segments": []}, None
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
+    queue = TaskQueue(max_workers=1)
+    queue.set_db(db)
+    service = FeedSyncService(db, queue)
+    try:
+        first = service.refresh(str(feed["_id"]))
+        assert started.wait(5)
+        videos.append({"video_id": "new", "title": "Newest", "published": datetime(2026, 10, 7)})
+        discovered = Event()
+        def refresh(progress_callback=None):
+            result = service.refresh(str(feed["_id"]))
+            assert result["transcript_task_id"] == first["transcript_task_id"]
+            discovered.set()
+            return result
+        queue.submit("refresh", refresh, feed_id=str(feed["_id"]))
+        assert discovered.wait(5), "Slow captions must not occupy the discovery executor"
+        assert db.episodes.count_documents({}) == 4
+        assert db.transcripts.count_documents({}) == 0
+        release.set()
+        assert finished.wait(5)
+    finally:
+        release.set()
+        queue.shutdown()
+    assert set(caption_calls) == {"0", "1", "2", "new"}
+    assert db.transcripts.count_documents({}) == 4
+
+
+def test_auto_refresh_pauses_bilibili_and_checks_youtube_every_15_minutes(monkeypatch):
+    db = MockDB()
+    now = datetime.utcnow()
+    expected = []
+    for kind, age in [("bilibili", 1000), ("youtube", 16), ("youtube", 14), ("rss", 16), ("rss", 361)]:
+        feed = Feed.create("https://example.test/feed", type=kind)
+        feed.update(_id=ObjectId(), last_checked=now - timedelta(minutes=age))
+        db.feeds.insert_one(feed)
+        if (kind, age) in [("youtube", 16), ("rss", 361)]:
+            expected.append(feed["_id"])
+    never_checked = Feed.create("https://example.test/bili", type="bilibili")
+    db.feeds.insert_one(never_checked)
+    selected = []
+    refresher = FeedAutoRefresher(db, queue=RecordingQueue())
+    monkeypatch.setattr(refresher, "_refresh_single_feed", lambda feed: selected.append(feed["_id"]))
+    refresher._check_and_refresh_feeds()
+    assert set(selected) == set(expected)
+
+
+@pytest.mark.parametrize("failure", ["404", "html"])
+def test_invalid_rss_uses_flat_uploads_list(monkeypatch, failure):
+    response = Mock(content=b"<html>Not Found</html>")
+    if failure == "404":
+        response.raise_for_status.side_effect = requests.HTTPError("404")
+    monkeypatch.setattr("requests.get", lambda *a, **k: response)
+    fallback = Mock(return_value=([{"video_id": "existing", "title": "Video"}], None))
+    monkeypatch.setattr(YouTubeService, "_fetch_channel_uploads", fallback)
+    videos, error = YouTubeService.fetch_channel_videos("UCtest")
+    assert videos[0]["video_id"] == "existing"
+    assert error is None
+    fallback.assert_called_once_with("UCtest")
+
+
+def test_failed_fallback_is_not_reported_as_an_empty_success(monkeypatch):
+    response = Mock()
+    response.raise_for_status.side_effect = requests.HTTPError("404")
+    monkeypatch.setattr("requests.get", lambda *a, **k: response)
+    monkeypatch.setattr(YouTubeService, "_fetch_channel_uploads", lambda cid: (None, "channel unavailable"))
+    assert YouTubeService.fetch_channel_videos("UCtest") == (None, "channel unavailable")
+
+
+def test_flat_fallback_does_not_fetch_individual_videos(monkeypatch):
+    captured = {}
+    class FlatYoutubeDL:
+        def __init__(self, opts):
+            captured.update(opts)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, url, download=False):
+            captured["url"] = url
+            return {"entries": [{"id": "video", "title": "Newest", "timestamp": 1790000000,
+                                  "duration": 180, "thumbnails": [{"url": "https://image.test"}]},
+                                 {"id": "unknown", "title": "No publish date"}]}
+    monkeypatch.setattr("yt_dlp.YoutubeDL", FlatYoutubeDL)
+    videos, error = YouTubeService._fetch_channel_uploads("UCtest")
+    assert captured["extract_flat"] is True
+    assert captured["playlistend"] == 15
+    assert captured["url"].endswith("list=UUtest")
+    assert videos[0]["duration"] == 180
+    assert videos[1]["published"] is None
+    assert "extractor_args" not in captured
+    assert error is None
+
+
+def test_refresh_corrects_existing_metadata_without_losing_saved_work(channel):
+    db, feed, videos = channel
+    episode = Episode.create(feed["_id"], "youtube:0", "Old title", published=datetime(2026, 10, 7),
+                             duration=3473, image="/api/media/covers/yt_0.jpg")
+    episode.update(status=Episode.STATUS_SUMMARIZED, is_read=True, is_favorite=True, play_position=90)
+    db.episodes.insert_one(episode)
+    db.transcripts.insert_one({"episode_id": episode["_id"], "text": "Saved transcript"})
+    db.summaries.insert_one({"episode_id": episode["_id"], "content": "Saved AI analysis"})
+    FeedSyncService(db, RecordingQueue()).refresh(str(feed["_id"]))
+    stored = db.episodes.find_one({"_id": episode["_id"]})
+    assert stored["title"] == videos[0]["title"]
+    assert stored["published"] == videos[0]["published"]
+    assert stored["duration"] == 3473  # RSS 没有时长，不能把已有值清零。
+    assert stored["image"] == "/api/media/covers/yt_0.jpg"
+    assert stored["status"] == Episode.STATUS_SUMMARIZED
+    assert stored["is_read"] and stored["is_favorite"] and stored["play_position"] == 90
+    assert db.transcripts.find_one({"episode_id": episode["_id"]})["text"] == "Saved transcript"
+    assert db.summaries.find_one({"episode_id": episode["_id"]})["content"] == "Saved AI analysis"
+
+
+def test_saved_transcript_still_gets_duration_date_and_description_once(channel, monkeypatch):
+    db, feed, videos = channel
+    videos[:] = videos[:1]
+    episode = Episode.create(feed["_id"], "youtube:0", "Video", published=datetime(2026, 10, 7), duration=0)
+    episode["youtube_metadata_fetched_at"] = datetime(2026, 10, 7)  # 兼容旧版本已获取但不全的数据。
+    db.episodes.insert_one(episode)
+    db.transcripts.insert_one({"episode_id": episode["_id"], "text": "Existing captions"})
+    metadata = Mock(return_value=({"duration": 3473, "published": datetime(2026, 1, 22),
+                                  "description": "Official episode description", "title": "Current title"}, None))
+    captions = Mock(side_effect=AssertionError("Saved captions must be reused"))
+    monkeypatch.setattr(YouTubeService, "fetch_metadata", metadata)
+    monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
+    queue = RecordingQueue()
+    service = FeedSyncService(db, queue)
+    result = service.refresh(str(feed["_id"]))
+    assert queue.run(result["transcript_task_id"]) == {"new_transcripts": 0, "transcript_failures": 0}
+    stored = db.episodes.find_one({"_id": episode["_id"]})
+    assert stored["duration"] == 3473
+    assert stored["published"] == datetime(2026, 1, 22)
+    assert stored["summary"] == "Official episode description"
+    assert Episode.to_response(stored)["duration_formatted"] == "57:53"
+    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
+    metadata.assert_called_once_with("0")
+    assert not captions.called
+
+
+def test_undated_discovered_video_is_not_excluded_by_older_dated_videos(channel):
+    db, feed, videos = channel
+    videos[:] = [{"video_id": "new", "title": "New upload", "published": None}]
+    for i in range(15):
+        db.episodes.insert_one(Episode.create(feed["_id"], f"youtube:old-{i}", "Old video",
+                                             published=datetime(2025, 1, i + 1)))
+    queue = RecordingQueue()
+    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
+    discovered = db.episodes.find_one({"guid": "youtube:new"})
+    assert discovered["published"] is None
+    assert Episode.to_response(discovered)["duration_formatted"] is None
+    assert queue.run(result["transcript_task_id"])["new_transcripts"] == 1
+    assert db.transcripts.find_one({"episode_id": discovered["_id"]})
+
+
+@pytest.mark.parametrize("dates, expected", [
+    ({"timestamp": 1769082481, "upload_date": "20260101"}, datetime(2026, 1, 22, 11, 48, 1)),
+    ({"upload_date": "20260122"}, datetime(2026, 1, 22)),
+])
+def test_metadata_keeps_authoritative_publication_and_full_description(monkeypatch, dates, expected):
+    class MetadataYoutubeDL:
+        def __init__(self, opts):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, url, download=False):
+            return {"title": "Video", "duration": 3473, "description": "Full episode description", **dates}
+    monkeypatch.setattr("yt_dlp.YoutubeDL", MetadataYoutubeDL)
+    metadata, error = YouTubeService.fetch_metadata("video")
+    assert error is None
+    assert metadata["published"] == expected
+    assert metadata["description"] == "Full episode description"

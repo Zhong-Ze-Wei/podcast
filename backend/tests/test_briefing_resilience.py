@@ -16,6 +16,8 @@ from tests.test_briefing_reports import create_service, extraction, TEXT
 
 
 class RecordedClient:
+    model = "test-model"
+
     def __init__(self, responses):
         self.responses = iter(responses)
         self.calls = []
@@ -139,6 +141,8 @@ def test_connection_failure_is_not_silently_treated_as_empty_evidence(tmp_path):
     report = create_service(tmp_path)
 
     class OfflineClient:
+        model = "test-model"
+
         def chat(self, **kwargs):
             raise ConnectionError("provider unavailable")
 

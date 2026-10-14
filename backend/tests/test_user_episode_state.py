@@ -92,7 +92,7 @@ def test_read_state_and_filter_per_user():
     assert any(e["id"] == str(episode_id) for e in user2_list)
 
 
-def test_viewer_cannot_write_state():
+def test_viewer_can_record_read_but_cannot_edit_progress_or_star():
     app = make_auth_app((episodes_bp, "/api/episodes"))
     viewer = add_user(app.db, "viewer@example.com", role="viewer")
     episode_id = _add_episode(app.db)
@@ -103,9 +103,10 @@ def test_viewer_cannot_write_state():
     )
     assert resp.status_code == 403
 
-    read = client.post(f"/api/episodes/{episode_id}/read", headers=auth_headers(viewer))
+    read = client.post(f"/api/episodes/{episode_id}/read", json={"is_read": True}, headers=auth_headers(viewer))
     star = client.post(f"/api/episodes/{episode_id}/star", headers=auth_headers(viewer))
-    assert read.status_code == 403
+    # 查看是个人记录，viewer 浏览节目也应能自动记录；收藏/进度的旧权限保持。
+    assert read.status_code == 200
     assert star.status_code == 403
 
 

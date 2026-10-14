@@ -38,7 +38,8 @@ def test_reading_without_period_keeps_legacy_api_and_declares_source(queued, bod
     app, http, headers, service, sid, calls = queued
     response = http.post("/api/briefing-reports/reading/" + sid + "/generate", headers=headers, json=body)
     assert response.status_code == 202
-    assert calls[0]["report_context"] == {"kind": "reading", "source_id": sid}
+    assert calls[0]["report_context"] == {"kind": "reading", "source_id": sid,
+                                          "source_title": "context-source", "feed_title": "节目"}
     assert "report_period" not in calls[0]
     assert calls[0]["source_id"] == sid
 
@@ -48,7 +49,8 @@ def test_reading_records_only_a_period_containing_its_actual_source(queued):
     response = http.post("/api/briefing-reports/reading/" + sid + "/generate", headers=headers,
                          json={"period_type": "week", "period_start": "2026-09-29"})
     assert response.status_code == 202
-    assert calls[0]["report_context"] == {"kind": "reading", "source_id": sid}
+    assert calls[0]["report_context"] == {"kind": "reading", "source_id": sid,
+                                          "source_title": "context-source", "feed_title": "节目"}
     assert calls[0]["report_period"]["type"] == "week"
     assert calls[0]["report_period"]["start"] == "2026-09-28"
 

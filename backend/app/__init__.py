@@ -53,7 +53,7 @@ def create_app():
     # 启动自动刷新服务（每小时检查一次，超过6小时未更新的订阅源自动刷新）
     from .services.auto_refresher import start_auto_refresher
 
-    start_auto_refresher(app.db, interval_hours=1, stale_threshold_hours=6)
+    start_auto_refresher(app.db, interval_hours=5 / 60, stale_threshold_hours=6)
 
     from .services.briefing_auto_reporter import start_auto_reporter
 
@@ -91,6 +91,7 @@ def ensure_indexes(db):
 
     # episodes索引
     db.episodes.create_index("feed_id")
+    db.episodes.create_index([("feed_id", 1), ("_id", -1)])
     db.episodes.create_index("guid")
     try:
         db.episodes.drop_index("feed_id_1_guid_1")
@@ -113,6 +114,9 @@ def ensure_indexes(db):
     db.user_episode_states.create_index([("user_id", 1), ("episode_id", 1)], unique=True)
     db.user_episode_states.create_index("episode_id")
     db.user_episode_states.create_index([("user_id", 1), ("is_starred", 1), ("episode_id", 1)])
+
+    # 订阅更新是否看过，按用户保存，与单集已读状态独立。
+    db.user_feed_states.create_index([("user_id", 1), ("feed_id", 1)], unique=True)
 
     # transcripts索引
     try:

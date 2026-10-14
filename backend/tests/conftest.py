@@ -41,7 +41,7 @@ class MockCollection:
     def insert_one(self, doc):
         from bson import ObjectId
         self._id_counter += 1
-        doc["_id"] = ObjectId()
+        doc.setdefault("_id", ObjectId())  # 与 Mongo 一致：文档自带 _id 时保留
         self._data.append(dict(doc))
         from pymongo.results import InsertOneResult
         return InsertOneResult(doc["_id"], acknowledged=True)
@@ -77,11 +77,17 @@ class MockCollection:
             if self._match(orig_doc, query):
                 if "$set" in update:
                     self._data[i].update(update["$set"])
+                for field in update.get("$unset", {}):
+                    self._data[i].pop(field, None)
+                for field, value in update.get("$max", {}).items():
+                    if field not in orig_doc or value > orig_doc[field]:
+                        self._data[i][field] = value
                 return UpdateResult({"n": 1, "nModified": 1}, True)
         if kwargs.get("upsert"):
             new_doc = dict(query)
             if "$set" in update:
                 new_doc.update(update["$set"])
+            new_doc.update(update.get("$max", {}))
             self.insert_one(new_doc)
             return UpdateResult({"n": 1, "nModified": 0}, True)
         return UpdateResult({"n": 0, "nModified": 0}, True)
@@ -115,6 +121,9 @@ class MockCollection:
                     return False
             if key == "$or":
                 if not any(self._match(doc, clause) for clause in value):
+                    return False
+            elif key == "$nor":
+                if any(self._match(doc, clause) for clause in value):
                     return False
             elif key == "$and":
                 if not all(self._match(doc, clause) for clause in value):
@@ -173,10 +182,13 @@ class MockCollection:
             if val is None or val >= ops["$lt"]:
                 return False
         if "$in" in ops:
-            if val not in ops["$in"]:
+            # 与 Mongo 一致：字段是数组时任一元素命中即可
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            if not any(v in ops["$in"] for v in vals):
                 return False
         if "$nin" in ops:
-            if val in ops["$nin"]:
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            if any(v in ops["$nin"] for v in vals):
                 return False
         if "$ne" in ops:
             if val == ops["$ne"]:

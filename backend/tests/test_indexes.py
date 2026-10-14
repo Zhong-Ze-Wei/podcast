@@ -26,6 +26,7 @@ class RecordingDB:
         self.tasks = RecordingCollection()
         self.briefings = RecordingCollection()
         self.user_episode_states = RecordingCollection()
+        self.user_feed_states = RecordingCollection()
         self.briefing_reports = RecordingCollection()
         self.briefing_favorites = RecordingCollection()
 
