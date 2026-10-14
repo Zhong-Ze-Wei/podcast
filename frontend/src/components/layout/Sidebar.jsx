@@ -4,10 +4,14 @@ import { useTranslation } from 'react-i18next';
 import {
   LayoutGrid, Plus, Mic2, Briefcase,
   Star, RefreshCw, X, Trash2, MoreVertical, Edit3, Heart, Settings,
-  Sparkles, List, CalendarDays
+  Sparkles, List, CalendarDays, Clock, Youtube, Tv, Rss
 } from 'lucide-react';
 import FeedImage from '../common/FeedImage';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import useDialogFocus from '../../hooks/useDialogFocus';
+import LanguageSwitcher from '../common/LanguageSwitcher';
 import { feedsApi } from '../../services/api';
+import { readableSubscriptionUrl } from '../../utils/subscriptionTask';
 
 /**
  * Sidebar - 侧边栏组件
@@ -51,6 +55,9 @@ const Sidebar = ({
   const [noteFeed, setNoteFeed] = useState(null);
   const [noteText, setNoteText] = useState('');
   const menuRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const mobile = useMediaQuery('(max-width: 767px)');
+  useDialogFocus(sidebarRef, mobile && open, onClose);
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -70,10 +77,10 @@ const Sidebar = ({
     setLoading(true);
     setError('');
     try {
-      await feedsApi.create({ rss_url: newFeedUrl });
+      const response = await feedsApi.create({ rss_url: newFeedUrl.trim(), asynchronous: true });
       setShowAddModal(false);
       setNewFeedUrl('');
-      if (onAddFeed) onAddFeed();
+      if (onAddFeed) onAddFeed(response.data);
     } catch (err) {
       setError(err.message || t('feed.addFailed'));
     } finally {
@@ -133,14 +140,15 @@ const Sidebar = ({
   };
 
   return (
-    <div className={`w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full flex-shrink-0
+    <div ref={sidebarRef} role={mobile ? 'dialog' : undefined} aria-modal={mobile && open ? true : undefined} aria-label={mobile ? t("ui.mainMenu") : undefined} aria-hidden={mobile && !open ? true : undefined} inert={mobile && !open ? '' : undefined} className={`app-sidebar w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full flex-shrink-0
       fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200
       ${open ? "translate-x-0" : "-translate-x-full"} md:transform-none`}>
-      <div className="p-6">
+      <div className="p-6 flex items-center justify-between">
         <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 flex items-center gap-2">
           <Mic2 className="text-indigo-500" />
           {t('app.title')}
         </h1>
+        <button onClick={onClose} aria-label={t("ui.closeMainMenu")} className="md:hidden p-2 text-zinc-400"><X size={22} /></button>
       </div>
 
       {/* 视图模式切换 */}
@@ -153,11 +161,9 @@ const Sidebar = ({
                 ? 'bg-zinc-800 text-white shadow-sm'
                 : 'text-zinc-500 hover:text-zinc-300'
             }`}
-            title="传统视图 - 按播客浏览"
+            title={t("ui.libraryViewBrowsePodcasts")}
           >
-            <List size={14} />
-            传统
-          </button>
+            <List size={14} /> {t("ui.library")} </button>
           <button
             onClick={() => onViewModeChange && onViewModeChange('ai-briefing')}
             className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
@@ -165,41 +171,46 @@ const Sidebar = ({
                 ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
                 : 'text-zinc-500 hover:text-zinc-300'
             }`}
-            title="AI简报 - 智能聚合"
+            title={t("ui.aIBriefingCuratedReading")}
           >
-            <Sparkles size={14} />
-            AI简报
-          </button>
+            <Sparkles size={14} /> {t("ui.aIBriefing2")} </button>
         </div>
       </div>
 
       {viewMode === 'ai-briefing' ? <>
-        <nav className="px-4 mb-4 space-y-1" aria-label="AI简报导航">
+        <nav className="px-4 mb-4 space-y-1" aria-label={t("ui.aIBriefingNavigation")}>
           {[
-            { id: 'week', label: '周报', icon: CalendarDays, section: 'reports', options: { periodType: 'week' }, active: currentView === 'briefing' && briefingState.periodType === 'week' },
-            { id: 'month', label: '月报', icon: CalendarDays, section: 'reports', options: { periodType: 'month' }, active: currentView === 'briefing' && briefingState.periodType === 'month' },
-            { id: 'saved', label: '简报收藏', icon: Heart, section: 'saved', active: currentView === 'briefingSaved' },
+            { id: 'week', label: t("ui.weekly"), icon: CalendarDays, section: 'reports', options: { periodType: 'week' }, active: currentView === 'briefing' && briefingState.periodType === 'week' },
+            { id: 'month', label: t("ui.monthly"), icon: CalendarDays, section: 'reports', options: { periodType: 'month' }, active: currentView === 'briefing' && briefingState.periodType === 'month' },
+            { id: 'saved', label: t("ui.savedBriefingItems"), icon: Heart, section: 'saved', active: currentView === 'briefingSaved' },
                   ].map(item => <button key={item.id} aria-current={item.active ? 'page' : undefined} onClick={() => onBriefingNavigate(item.section, item.options)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${item.active ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/50' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}><item.icon size={18} />{item.label}</button>)}
         </nav>
         <div className="flex-1" />
       </> : <>
       <div className="px-4 mb-4 space-y-1">
         <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('list'); }}
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('list'); onClose(); }}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'list' && !activeFeed ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/50' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
         >
           <LayoutGrid size={18} />
           {t('sidebar.allEpisodes')}
         </button>
         <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('favorites'); }}
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('recent'); onClose(); }}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'recent' ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
+        >
+          <Clock size={18} />
+          {t('sidebar.recent')}
+        </button>
+        <button
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('favorites'); onClose(); }}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'favorites' ? 'bg-yellow-600/10 text-yellow-300 border border-yellow-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
         >
           <Star size={18} />
           {t('sidebar.favorites')}
         </button>
         <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('workspace'); }}
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('workspace'); onClose(); }}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${currentView === 'workspace' ? 'bg-emerald-600/10 text-emerald-300 border border-emerald-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
         >
           <Briefcase size={18} />
@@ -213,18 +224,24 @@ const Sidebar = ({
           <div
             key={feed.id}
             className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group cursor-pointer ${activeFeed === feed.id ? 'bg-indigo-600/10 text-indigo-300 border border-indigo-500/20' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'}`}
+            role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onFeedClick(feed); onClose(); } }}
             onClick={() => { onFeedClick ? onFeedClick(feed) : null; onClose && onClose(); }}
           >
-            <FeedImage feed={feed} className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100" />
+            <span className="relative w-6 h-6 shrink-0">
+              <FeedImage feed={feed} className="w-6 h-6 rounded-md object-cover opacity-80 group-hover:opacity-100" />
+              <span role="img" aria-label={feed.type === 'youtube' ? 'YouTube' : feed.type === 'bilibili' ? 'Bilibili' : 'RSS'} className="absolute -bottom-1 -right-1 rounded bg-zinc-950 p-0.5 ring-1 ring-zinc-800">
+                {feed.type === 'youtube' ? <Youtube size={10} className="text-red-400" /> : feed.type === 'bilibili' ? <Tv size={10} className="text-pink-400" /> : <Rss size={10} className="text-zinc-400" />}
+              </span>
+            </span>
             <span className="truncate flex-1 text-left">{feed.title}</span>
             {feed.is_favorite && <Heart size={12} className="text-pink-400" fill="currentColor" />}
-            {feed.unread_count > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+            {feed.has_unseen_updates && (
+              <span role="img" aria-label={t('reading.unseenUpdates')} className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
             )}
             {/* 三点菜单按钮 */}
             <button
               onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === feed.id ? null : feed.id); }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-all"
+              aria-label={t("ui.manageValue", { value1: feed.title })} className="touch-action p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-700 transition-all"
             >
               <MoreVertical size={14} />
             </button>
@@ -268,17 +285,18 @@ const Sidebar = ({
             )}
           </div>
         ))}
-        {feedList.error && <p role="alert" className="px-3 py-2 text-xs text-red-300">{feedList.error}<button onClick={feedList.reload} className="ml-2 underline">重试</button></p>}
-        {feedList.pagination.has_next && <button disabled={feedList.loading} onClick={feedList.loadMore} className="w-full rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-400">{feedList.loading ? '正在加载…' : '加载更多订阅'}</button>}
+        {feedList.error && <p role="alert" className="px-3 py-2 text-xs text-red-300">{feedList.error}<button onClick={feedList.reload} className="ml-2 underline">{t("ui.retry")}</button></p>}
+        {feedList.pagination.has_next && <button disabled={feedList.loading} onClick={feedList.loadMore} className="w-full rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-400">{feedList.loading ? t("ui.loading") : t("ui.loadMoreSubscriptions")}</button>}
       </div>
 
       </>}
-      <div className={`p-4 border-t border-zinc-800 space-y-2 ${hasPlayer ? 'pb-24' : ''}`}>
+      <div className="p-4 border-t border-zinc-800 space-y-2">
+        <div className="md:hidden"><LanguageSwitcher /></div>
         <button
-          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('settings'); }}
+          onClick={() => { setActiveFeed(null); setSelectedFeed(null); setView('settings'); onClose(); }}
           className={`flex items-center gap-2 text-zinc-400 hover:text-white text-xs font-medium transition-colors w-full justify-center py-2 border border-zinc-800 rounded-lg hover:border-zinc-600 hover:bg-zinc-900 ${currentView === 'settings' ? 'bg-zinc-900 text-white border-zinc-600' : ''}`}
         >
-          <Settings size={14} /> {viewMode === 'ai-briefing' ? '应用设置' : t('sidebar.settings')}
+          <Settings size={14} /> {t('sidebar.settings')}
         </button>
         {viewMode !== 'ai-briefing' && <button
           onClick={() => setShowAddModal(true)}
@@ -302,6 +320,7 @@ const Sidebar = ({
                 type="url"
                 value={newFeedUrl}
                 onChange={(e) => setNewFeedUrl(e.target.value)}
+                onPaste={event => { const value = event.clipboardData.getData('text').trim(); if (/^https?:\/\//i.test(value)) { event.preventDefault(); setNewFeedUrl(readableSubscriptionUrl(value)); } }}
                 placeholder={t('feed.urlPlaceholder')}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 mb-3"
                 required

@@ -5,6 +5,7 @@ import {
   Loader2, Plus, Route, Search, Server, Star, Trash2, Zap,
 } from 'lucide-react';
 import { settingsApi } from '../../../services/api';
+import { localizeUiMessage } from '../../../utils/localization';
 
 const PROVIDER_PRESETS = [
   { id: 'modelscope', label: 'ModelScope', api_format: 'openai_compatible', base_url: 'https://api-inference.modelscope.cn/v1' },
@@ -59,8 +60,32 @@ const LlmConfigPanel = () => {
   const [collapsedProviders, setCollapsedProviders] = useState(() => new Set());
   const [aiEnabled, setAiEnabled] = useState(true);
   const [biliStatus, setBiliStatus] = useState(null);
+  const [sessdataInput, setSessdataInput] = useState("");
+  const [savingSessdata, setSavingSessdata] = useState(false);
 
   useEffect(() => { loadConfigs(); }, []);
+
+  // 在线更新 B站 SESSDATA：后端立即生效并持久化 .env，这里接收实时验证结果
+  const saveBiliSessdata = async () => {
+    const value = sessdataInput.trim();
+    if (!value) return;
+    setSavingSessdata(true);
+    setNotice(null);
+    try {
+      const res = await settingsApi.updateBilibiliSessdata(value);
+      if (res.valid) {
+        setNotice({ success: true, message: t("settings.biliSessdataSaved", { value1: res.nickname || res.mid }) });
+        setSessdataInput("");
+      } else {
+        setNotice({ success: false, message: res.message || t("settings.biliSessdataInvalid") });
+      }
+      setBiliStatus({ configured: true, valid: !!res.valid, nickname: res.nickname, mid: res.mid });
+    } catch (err) {
+      setNotice({ success: false, message: err?.response?.data?.message || String(err) });
+    } finally {
+      setSavingSessdata(false);
+    }
+  };
 
   const providerById = useMemo(() => Object.fromEntries(providers.map(p => [p.id, p])), [providers]);
   const enabledModels = useMemo(
@@ -254,7 +279,7 @@ const LlmConfigPanel = () => {
       <div className="flex gap-2">
         {notice.success ? <Check size={16} className="mt-0.5 shrink-0" /> : <AlertCircle size={16} className="mt-0.5 shrink-0" />}
         <div className="min-w-0">
-          <p className="text-sm font-medium">{notice.message}</p>
+          <p className="text-sm font-medium">{localizeUiMessage(notice.message, t)}</p>
           {notice.detail && <p className="mt-1 truncate text-xs opacity-75">{notice.detail}</p>}
         </div>
       </div>
@@ -373,7 +398,7 @@ const LlmConfigPanel = () => {
                       onChange={(e) => updateProvider(provider.id, 'api_format', e.target.value)}
                       className="w-full appearance-none rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
                     >
-                      <option value="openai_compatible">OpenAI Compatible</option>
+                      <option value="openai_compatible">{t("ui.openaiCompatible")}</option>
                       <option value="anthropic_messages">Anthropic Messages</option>
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-3 top-2.5 text-zinc-500" size={15} />
@@ -388,7 +413,7 @@ const LlmConfigPanel = () => {
                   />
                 </div>
                 <div className="lg:col-span-2">
-                  <label className="mb-1 block text-xs text-zinc-500">Base URL</label>
+                  <label className="mb-1 block text-xs text-zinc-500">{t("ui.apiBaseUrl")}</label>
                   <input
                     value={provider.base_url || ''}
                     onChange={(e) => updateProvider(provider.id, 'base_url', e.target.value)}
@@ -397,7 +422,7 @@ const LlmConfigPanel = () => {
                   />
                 </div>
                 <div className="lg:col-span-2">
-                  <label className="mb-1 block text-xs text-zinc-500">API Key</label>
+                  <label className="mb-1 block text-xs text-zinc-500">{t("ui.apiKey")}</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input
@@ -574,7 +599,7 @@ const LlmConfigPanel = () => {
                 disabled={preset.id !== 'custom' && providers.some(p => p.id === preset.id)}
                 className="rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {preset.label}
+                {preset.id === 'custom' ? t('ui.customProvider') : preset.label}
               </button>
             ))}
           </div>
@@ -597,18 +622,38 @@ const LlmConfigPanel = () => {
 
         {/* Bilibili login status */}
         {biliStatus && (
-          <div className="mx-auto max-w-4xl flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
-            <div className="text-sm text-zinc-300">
-              B站登录态
-              <span className="ml-3 text-xs text-zinc-500">
-                {biliStatus.configured
-                  ? (biliStatus.valid
-                      ? `已连接 · ${biliStatus.nickname || biliStatus.mid}（SESSDATA 有效）`
-                      : '已配置但校验未通过（SESSDATA 可能已过期，请更新 backend/.env）')
-                  : '未配置 SESSDATA（B站订阅刷新与 AI 字幕需要，见 backend/.env 的 BILI_SESSDATA）'}
-              </span>
+          <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-zinc-300"> {t("ui.bilibiliSession")} <span className="ml-3 text-xs text-zinc-500">
+                  {biliStatus.configured
+                    ? (biliStatus.valid
+                        ? t("ui.connectedValueValidSESSDATA", { value1: biliStatus.nickname || biliStatus.mid })
+                        : t("ui.configuredButValidationFailedSESSDATAMayHave"))
+                    : t("ui.sESSDATAIsNotConfiguredBilibiliRefreshAnd")}
+                </span>
+              </div>
+              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${biliStatus.configured && biliStatus.valid ? 'bg-green-500' : biliStatus.configured ? 'bg-amber-500' : 'bg-zinc-600'}`} />
             </div>
-            <span className={`h-2.5 w-2.5 rounded-full ${biliStatus.configured && biliStatus.valid ? 'bg-green-500' : biliStatus.configured ? 'bg-amber-500' : 'bg-zinc-600'}`} />
+            {/* 在线更新 SESSDATA：粘贴即生效（运行时+持久化 .env），无需改文件重启 */}
+            <div className="mt-2.5 flex gap-2">
+              <input
+                type="text"
+                value={sessdataInput}
+                onChange={(e) => setSessdataInput(e.target.value)}
+                placeholder={t("settings.biliSessdataPlaceholder")}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={saveBiliSessdata}
+                disabled={!sessdataInput.trim() || savingSessdata}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white transition-colors shrink-0"
+              >
+                {savingSessdata ? t("settings.biliSessdataVerifying") : t("settings.biliSessdataSave")}
+              </button>
+            </div>
+            {biliStatus.valid === false && (
+              <p className="mt-1.5 text-xs text-amber-400/90">{t("settings.biliSessdataHowTo")}</p>
+            )}
           </div>
         )}
 

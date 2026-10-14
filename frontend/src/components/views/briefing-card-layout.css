@@ -1,0 +1,55 @@
+/* Both saved and period reports use the same reading regions. Short copy leaves
+   space; longer copy grows the shared row instead of being clipped. */
+.br-quote-layout .br-card-provenance { margin: 0 0 18px; line-height: 1.7; }
+.br-quote-layout .br-card-provenance:empty { margin: 0; }
+.br-quote-layout .br-mode-card .br-excerpt-words { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; align-content: start; }
+.br-quote-layout .br-mode-card-title { min-block-size: 2lh; align-self: start; }
+.br-quote-layout .br-mode-card-text { min-block-size: 3lh; align-self: start; }
+.br-quote-layout .br-excerpt-words > .br-translation-label { min-block-size: 1lh; align-self: start; }
+.br-quote-layout .br-excerpt-words > blockquote { min-block-size: 3lh; align-self: start; }
+.br-quote-layout .br-card-resource-slot, .br-quote-layout .br-card-evidence-slot { display: flex; align-items: flex-start; }
+.br-quote-layout .br-mode-card .br-excerpt-actions { flex-wrap: wrap; }
+.br-layout-list .br-card-provenance { grid-column: 1 / -1; }
+.br-layout-list .br-card-provenance:empty { display: none; }
+.br-layout-list .br-mode-card .br-excerpt-heading { grid-row: auto; }
+.br-layout-list .br-excerpt-words, .br-layout-list .br-card-resource-slot, .br-layout-list .br-card-evidence-slot { grid-column: 2; }
+
+@supports (grid-template-rows: subgrid) {
+  .br-layout-space, .br-layout-columns, .br-layout-notes, .br-newspaper-items, .br-paper-items {
+    grid-auto-rows: auto;
+    row-gap: 0;
+  }
+  .br-paper-items { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .br-quote-layout:not(.br-layout-list):not(.br-layout-large) .br-mode-card {
+    display: grid;
+    grid-row: span 7;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: subgrid;
+    min-height: 0;
+  }
+  .br-quote-layout:not(.br-layout-list):not(.br-layout-large) .br-mode-card .br-excerpt-words {
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+  }
+  .br-quote-layout:not(.br-layout-list):not(.br-layout-large) .br-mode-card .br-excerpt-heading {
+    min-height: 0;
+  }
+  .br-layout-columns .br-mode-card, .br-layout-notes .br-mode-card { margin-bottom: 22px; }
+  @container (min-width: 1250px) {
+    .br-paper-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+}
+
+/* The sidebar reduces reading width even when the browser is not phone-sized. */
+@container (max-width: 700px) {
+  .br-layout-columns, .br-layout-notes, .br-newspaper-items { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Single-column phone reading should not reserve empty desktop-sized zones. */
+@media (max-width: 600px) {
+  .br-quote-layout .br-mode-card .br-excerpt-words { display: block; }
+  .br-quote-layout .br-mode-card-title, .br-quote-layout .br-mode-card-text,
+  .br-quote-layout .br-excerpt-words > .br-translation-label, .br-quote-layout .br-excerpt-words > blockquote { min-block-size: 0; }
+  .br-quote-layout .br-translation-label:empty { display: none; }
+  .br-quote-layout:not(.br-layout-list):not(.br-layout-large) .br-mode-card { display: block; grid-row: auto; }
+}

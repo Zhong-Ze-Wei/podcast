@@ -1,3 +1,4 @@
+import { localizeUiMessage } from './utils/localization';
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,11 +12,13 @@ import {
 } from './components/views/settings/AppSettingsPanel';
 // Layout components
 import Sidebar from './components/layout/Sidebar';
+import MobileHeader from './components/layout/MobileHeader';
 // View components
 import EpisodeDetailView from './components/views/EpisodeDetailView';
 import FeedDetailView from './components/views/FeedDetailView';
 import FavoritesView from './components/views/FavoritesView';
 import WorkspaceView from './components/views/WorkspaceView';
+import RecentUpdatesView from './components/views/RecentUpdatesView';
 import SettingsView from './components/views/SettingsView';
 import BriefingReportsView from './components/views/BriefingReportsView';
 import { getExternalPlaybackUrl, getPlaybackPosition } from './utils/briefingPlayback';
@@ -40,6 +43,7 @@ const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
   workspace: '/workspace',
   favorites: '/favorites',
+  recent: '/recent',
   settings: '/settings',
   briefing: '/briefing',
   briefingSaved: '/briefing/saved',
@@ -69,6 +73,8 @@ export default function App() {
   const [activeFeed, setActiveFeed] = useState(null);
   const [selectedFeed, setSelectedFeed] = useState(null); // 用于FeedDetailView
   const [selectedEpisode, setSelectedEpisode] = useState(null);
+  const [episodeTab, setEpisodeTab] = useState('transcript');
+  const [episodeOpenVersion, setEpisodeOpenVersion] = useState(0);
   const [currentPlaying, setCurrentPlaying] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -81,6 +87,7 @@ export default function App() {
   const [playbackNotice, setPlaybackNotice] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
   const [queuedTask, setQueuedTask] = useState(null);
+  const [taskOpenRequest, setTaskOpenRequest] = useState(0);
   const currentUserIdRef = useRef(currentUser?.id);
   currentUserIdRef.current = currentUser?.id;
   // YouTube 视频剧集没有直链音频，走后端在线流代理；其余优先本地文件、其次原始地址
@@ -132,15 +139,30 @@ export default function App() {
   }, [feedList.reload]);
 
   const handleTaskComplete = useCallback((tasks) => {
-    if (tasks.some(task => task.type === 'refresh')) feedList.reload();
+    if (tasks.some(task => ['refresh', 'fetch_transcripts', 'subscribe'].includes(task.type))) feedList.reload();
     setRefreshVersion(version => version + 1);
     if (selectedFeed && tasks.some(task => task.feed_id === selectedFeed.id)) {
       feedsApi.get(selectedFeed.id).then(response => setSelectedFeed(response.data)).catch(error => setActionNotice({ message: error.message, error: true }));
     }
-    if (selectedEpisode && tasks.some(task => task.episode_id === selectedEpisode.id)) {
+    if (selectedEpisode && tasks.some(task => task.episode_id === selectedEpisode.id || (task.type === 'fetch_transcripts' && task.feed_id === selectedEpisode.feed_id))) {
       episodesApi.get(selectedEpisode.id).then(response => setSelectedEpisode(response.data)).catch(error => setActionNotice({ message: error.message, error: true }));
     }
   }, [feedList.reload, selectedFeed, selectedEpisode]);
+
+  const handleTaskProgress = useCallback(tasks => {
+    if (tasks.some(task => task.type === 'subscribe' && task.progress >= 70)) feedList.reload();
+    if (selectedFeed && tasks.some(task => task.feed_id === selectedFeed.id)) setRefreshVersion(version => version + 1);
+    if (selectedEpisode && tasks.some(task => task.feed_id === selectedEpisode.feed_id)) {
+      episodesApi.get(selectedEpisode.id).then(response => setSelectedEpisode(response.data)).catch(error => setActionNotice({ message: error.message, error: true }));
+    }
+  }, [feedList.reload, selectedFeed, selectedEpisode]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const visible = () => { if (!document.hidden) loadData(); };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [currentUser?.id, loadData]);
 
   useEffect(() => {
     let mounted = true;
@@ -208,8 +230,18 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefreshMinutes]);
 
-  const handleAddFeed = () => {
+  const handleAddFeed = data => {
+    if (data.task_id) setQueuedTask({ ...data, id: data.task_id });
     loadData();
+  };
+
+  const retrySubscription = async url => {
+    try {
+      const response = await feedsApi.create({ rss_url: url, asynchronous: true });
+      handleAddFeed(response.data);
+    } catch {
+      setActionNotice({ message: t('common.fetchUnavailable'), error: true });
+    }
   };
 
   const handleRefreshFeed = useMemo(() => {
@@ -219,9 +251,9 @@ export default function App() {
       onQueued: (task, feedId) => {
         if (currentUserIdRef.current !== owner) return;
         setQueuedTask({ id: task.task_id, type: 'refresh', feed_id: feedId, status: 'pending', progress: 0 });
-        setActionNotice({ message: '已提交订阅同步，完成后会更新节目。' });
+        setActionNotice({ message: t('feedDetail.syncStarted') });
       },
-      onError: error => { if (currentUserIdRef.current === owner) setActionNotice({ message: error.message || '订阅同步未能启动，请重试。', error: true }); },
+      onError: () => { if (currentUserIdRef.current === owner) setActionNotice({ message: t('common.fetchUnavailable'), error: true }); },
     });
   }, [currentUser?.id]);
 
@@ -259,7 +291,7 @@ export default function App() {
       setReturnContext(origin);
       sessionStorage.setItem(`podmaster_settings_return:${currentUser.id}`, JSON.stringify(origin));
     }
-    const tab = section || (originMode === 'ai-briefing' ? 'briefing' : 'account');
+    const tab = section || 'account';
     setSettingsTab(tab); setView('settings'); setViewMode(originMode); setMobileSidebarOpen(false);
     updateBrowserPath(`/settings?section=${tab}&app_mode=${originMode}`, { replace, state: { view: 'settings', returnContext: origin } });
   }, [viewMode, returnContext, currentUser?.id, updateBrowserPath]);
@@ -298,12 +330,25 @@ export default function App() {
     setMobileSidebarOpen(false);
   };
 
-  const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true } = {}) => {
+  const recordEpisodeView = useCallback(async episode => {
+    if (episode.is_read) return;
+    const owner = currentUserIdRef.current;
+    try {
+      await episodesApi.read(episode.id, true);
+      if (currentUserIdRef.current !== owner) return;
+      setSelectedEpisode(previous => previous?.id === episode.id ? { ...previous, is_read: true } : previous);
+      setRefreshVersion(version => version + 1);
+    } catch (error) {
+      if (currentUserIdRef.current === owner) setActionNotice({ message: error.message || t('reading.saveFailed'), error: true });
+    }
+  }, [t]);
+
+  const openEpisode = useCallback(async (episodeOrId, { replace = false, push = true, tab = 'transcript' } = {}) => {
     const episodeId = typeof episodeOrId === 'string' ? episodeOrId : episodeOrId?.id;
     if (!episodeId) return;
 
     if (push) {
-      updateBrowserPath(episodePath(episodeId), {
+      updateBrowserPath(`${episodePath(episodeId)}${tab === 'analysis' ? '?tab=analysis' : ''}`, {
         replace,
         state: { view: 'detail', episodeId }
       });
@@ -315,18 +360,23 @@ export default function App() {
     }
     setView('detail');
     setViewMode('traditional');
+    setEpisodeTab(tab);
 
+    const owner = currentUserIdRef.current;
     try {
       const response = await episodesApi.get(episodeId);
       const episode = response.data || response;
+      if (currentUserIdRef.current !== owner || window.location.pathname !== episodePath(episodeId)) return;
       setSelectedEpisode(episode);
+      setEpisodeOpenVersion(version => version + 1);
       if (episode?.feed_id) setActiveFeed(episode.feed_id);
+      recordEpisodeView(episode);
       return episode;
     } catch (err) {
       console.error('Failed to open episode route:', err);
       navigateToView('workspace', { replace: true });
     }
-  }, [navigateToView, previousView, updateBrowserPath]);
+  }, [navigateToView, previousView, updateBrowserPath, recordEpisodeView]);
 
   const openFeed = useCallback(async (feedOrId, { replace = false, push = true } = {}) => {
     const feedId = typeof feedOrId === 'string' ? feedOrId : feedOrId?.id;
@@ -352,7 +402,7 @@ export default function App() {
       setSelectedFeed(feed);
 
     } catch (err) {
-      setActionNotice({ message: err.message || '订阅暂时无法加载。', error: true });
+      setActionNotice({ message: err.message || t("ui.couldNotLoadThisSubscription"), error: true });
       navigateToView('workspace', { replace: true });
     }
   }, [feeds, navigateToView, updateBrowserPath]);
@@ -360,9 +410,10 @@ export default function App() {
   const applyCurrentPath = useCallback((replace = true) => {
     const route = parseAppPath(window.location.pathname);
     if (route.type === 'episode') {
-      const rawTime = new URLSearchParams(window.location.search).get('t');
+      const query = new URLSearchParams(window.location.search);
+      const rawTime = query.get('t');
       const startSeconds = rawTime === null ? null : Number(rawTime);
-      openEpisode(route.id, { replace, push: false }).then(episode => {
+      openEpisode(route.id, { replace, push: false, tab: query.get('tab') === 'analysis' ? 'analysis' : 'transcript' }).then(episode => {
         if (episode && Number.isFinite(startSeconds) && startSeconds >= 0) {
           reportPlaybackRef.current(episode, startSeconds);
         }
@@ -379,6 +430,7 @@ export default function App() {
   }, [navigateToView, openEpisode, openFeed, openSettings, currentUser?.id]);
 
   useEffect(() => {
+    if (authLoading || !currentUser) return;
     window.history.replaceState(
       { ...(window.history.state || {}), appRoute: true },
       '',
@@ -393,7 +445,7 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading, currentUser?.id]);
 
   // 点击订阅源卡片，进入详情页
   const handleFeedClick = async (feed) => {
@@ -409,9 +461,21 @@ export default function App() {
       await episodesApi.star(episode.id, !episode.is_starred);
       setRefreshVersion(version => version + 1);
     } catch (error) {
-      setActionNotice({ message: error.message || '收藏未能保存。', error: true });
+      setActionNotice({ message: error.message || t("ui.couldNotSaveYourFavorite"), error: true });
     }
   };
+
+  const handleFeedViewed = useCallback(async (feedId, latestEpisodeId) => {
+    const owner = currentUserIdRef.current;
+    try {
+      const { data } = await feedsApi.recordView(feedId, latestEpisodeId);
+      if (currentUserIdRef.current !== owner) return;
+      feedList.update(feedId, { has_unseen_updates: data.has_unseen_updates });
+      setSelectedFeed(previous => previous?.id === feedId ? { ...previous, has_unseen_updates: data.has_unseen_updates } : previous);
+    } catch (error) {
+      if (currentUserIdRef.current === owner) setActionNotice({ message: error.message || t('reading.saveFailed'), error: true });
+    }
+  }, [feedList.update, t]);
 
   // 订阅源收藏处理（乐观更新）
   const handleStarFeed = async (feed) => {
@@ -474,7 +538,7 @@ export default function App() {
   const handlePlaybackRejected = (error) => {
     if (error.name === 'AbortError') return;
     setIsPlaying(false);
-    setPlaybackNotice({ message: '浏览器未开始播放，请点击下方播放器继续。' });
+    setPlaybackNotice({ message: t("ui.playbackDidNotStartUseThePlayer") });
   };
 
   const handleAudioReady = () => {
@@ -493,7 +557,7 @@ export default function App() {
     }
     const url = getExternalPlaybackUrl(episode, startSeconds);
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
-    setPlaybackNotice({ message: url ? '这期节目请在原平台收听，链接已带上文稿时间。' : '这期节目目前没有可播放的音频。', url });
+    setPlaybackNotice({ message: url ? t("ui.listenOnTheOriginalPlatformTheLink") : t("ui.thisEpisodeHasNoPlayableAudioYet"), url });
   };
   reportPlaybackRef.current = startReportPlayback;
 
@@ -535,7 +599,7 @@ export default function App() {
       console.error('Audio playback failed:', currentPlaying.title || currentPlaying.id);
       setIsPlaying(false);
       const position = pendingPlaybackRef.current?.position ?? audioRef.current?.currentTime;
-      setPlaybackNotice({ message: '应用内音频暂时无法播放，可以到原平台收听。', url: getExternalPlaybackUrl(currentPlaying, position) });
+      setPlaybackNotice({ message: t("ui.audioIsUnavailableHereListenOnThe"), url: getExternalPlaybackUrl(currentPlaying, position) });
       return;
     }
 
@@ -578,8 +642,8 @@ export default function App() {
   }
 
   return (
-    <TasksProvider key={currentUser.id} pollIntervalMs={taskPollSeconds * 1000} onTaskComplete={handleTaskComplete} queuedTask={queuedTask}>
-    <div className="flex h-screen bg-black text-zinc-100 font-sans selection:bg-indigo-500/30 overflow-hidden">
+    <TasksProvider key={currentUser.id} pollIntervalMs={taskPollSeconds * 1000} onTaskComplete={handleTaskComplete} onTaskProgress={handleTaskProgress} queuedTask={queuedTask}>
+    <div className="app-shell flex bg-black text-zinc-100 font-sans selection:bg-indigo-500/30 overflow-hidden" style={{ '--player-height': currentPlaying ? 'var(--player-size)' : '0px' }}>
       <Sidebar
         open={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
@@ -607,13 +671,15 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={() => setMobileSidebarOpen(false)} />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 bg-black relative">
+      <div className="app-main flex-1 flex flex-col min-w-0 bg-black relative">
+        <MobileHeader mode={viewMode} onOpenMenu={() => setMobileSidebarOpen(true)} onOpenTasks={() => setTaskOpenRequest(value => value + 1)} />
         <div className="absolute top-0 left-0 w-full h-96 bg-indigo-900/10 pointer-events-none blur-3xl rounded-full translate-y-[-50%]"></div>
 
-        <div className="absolute top-4 right-8 z-20">
+        <div className="absolute top-4 right-8 z-20 hidden md:block">
           <LanguageSwitcher />
         </div>
 
+        <div className="app-page-content">
         {/* AI简报模式 */}
         {view.startsWith('briefing') ? (
           <BriefingReportsView
@@ -627,7 +693,6 @@ export default function App() {
             section={view === 'briefingSettings' ? 'settings' : view === 'briefingSaved' ? 'saved' : 'reports'}
             navigation={briefingNavigation}
             onNavigationStateChange={handleBriefingStateChange}
-            onOpenSettings={context => openSettings({ context, section: 'briefing' })}
             onSectionChange={handleBriefingNavigate}
           />
         ) : view === 'list' ? (
@@ -638,7 +703,7 @@ export default function App() {
                   <button
                     onClick={() => setMobileSidebarOpen(true)}
                     className="md:hidden shrink-0 rounded-lg border border-zinc-800 bg-zinc-900/60 p-2 text-zinc-300 hover:text-white"
-                    aria-label="Open menu"
+                    aria-label={t('ui.openMenu')}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
                   </button>
@@ -654,7 +719,7 @@ export default function App() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => loadData()}
-                    aria-label="更新页面数据"
+                    aria-label={t("ui.refreshPageData")}
                     className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-sm font-medium transition-colors"
                   >
                     <RefreshCw size={16} />
@@ -683,9 +748,11 @@ export default function App() {
             refreshVersion={refreshVersion}
             onBack={() => navigateToView('list')}
             onRefresh={handleRefreshFeed}
+            canAutoRefresh={['user', 'admin'].includes(currentUser.role)}
             onEpisodeClick={handleEpisodeClick}
             onPlay={handlePlay}
             onStar={handleStar}
+            onViewed={handleFeedViewed}
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
@@ -709,6 +776,17 @@ export default function App() {
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
+        ) : view === 'recent' ? (
+          <RecentUpdatesView
+            key={currentUser.id}
+            refreshVersion={refreshVersion}
+            feeds={feeds}
+            onEpisodeClick={handleEpisodeClick}
+            onPlay={handlePlay}
+            onStar={handleStar}
+            viewMode={episodeViewMode}
+            onViewModeChange={setEpisodeViewMode}
+          />
         ) : view === 'settings' ? (
           <SettingsView
             onBack={returnFromSettings}
@@ -718,8 +796,10 @@ export default function App() {
           />
         ) : (
           <EpisodeDetailView
-            key={selectedEpisode?.id}
+            key={`${selectedEpisode?.id}:${episodeOpenVersion}`}
             episode={selectedEpisode}
+            activeTab={episodeTab}
+            onTabChange={setEpisodeTab}
             onBack={() => {
               if (hasInAppNavigationRef.current) {
                 window.history.back();
@@ -731,6 +811,7 @@ export default function App() {
             onPlay={handlePlay}
           />
         )}
+        </div>
       </div>
 
       {/* 隐藏的audio元素 */}
@@ -743,17 +824,17 @@ export default function App() {
       />
 
       {actionNotice && (
-        <div role={actionNotice.error ? 'alert' : 'status'} className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border ${actionNotice.error ? 'border-red-800 text-red-300' : 'border-zinc-700'} bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
-          <span className="flex-1">{actionNotice.message}</span>
-          <button onClick={() => setActionNotice(null)} aria-label="关闭操作提示" className="text-zinc-400">关闭</button>
+        <div role={actionNotice.error ? 'alert' : 'status'} className={`app-notice fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border ${actionNotice.error ? 'border-red-800 text-red-300' : 'border-zinc-700'} bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+          <span className="flex-1">{localizeUiMessage(actionNotice.message, t)}</span>
+          <button onClick={() => setActionNotice(null)} aria-label={t("ui.dismissActionNotice")} className="text-zinc-400">{t("ui.close")}</button>
         </div>
       )}
 
       {playbackNotice && (
-        <div role="status" className={`fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
+        <div role="status" className={`app-notice fixed ${currentPlaying ? 'bottom-24' : 'bottom-4'} left-4 md:left-72 right-4 z-50 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm flex items-center gap-3 shadow-xl`}>
           <span className="flex-1">{playbackNotice.message}</span>
-          {playbackNotice.url && <a href={playbackNotice.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 shrink-0">去原平台</a>}
-          <button onClick={() => setPlaybackNotice(null)} aria-label="关闭播放提示" className="text-zinc-400">关闭</button>
+          {playbackNotice.url && <a href={playbackNotice.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 shrink-0">{t("ui.openOriginalPlatform")}</a>}
+          <button onClick={() => setPlaybackNotice(null)} aria-label={t("ui.dismissPlaybackNotice")} className="text-zinc-400">{t("ui.close")}</button>
         </div>
       )}
 
@@ -767,10 +848,12 @@ export default function App() {
 
       {/* 任务进度面板 */}
       <TaskPanel
-        onNavigate={({ type, id, periodType, periodStart, mode }) => {
-          if (type === 'episode') openEpisode(id);
+        onRetrySubscription={retrySubscription}
+        openRequest={taskOpenRequest}
+        onNavigate={({ type, id, tab, ...context }) => {
+          if (type === 'episode') openEpisode(id, { tab });
           if (type === 'feed') openFeed(id);
-          if (type === 'briefing') handleBriefingNavigate('reports', { periodType, periodStart, mode });
+          if (type === 'briefing') handleBriefingNavigate('reports', context);
         }}
         historyWindowMinutes={taskHistoryWindowMinutes}
         defaultOpen={taskPanelDefaultOpen}

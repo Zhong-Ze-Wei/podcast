@@ -1,3 +1,4 @@
+import { localizeUiMessage } from '../../utils/localization';
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -41,6 +42,11 @@ const TaskProgress = ({
     summarize: {
       icon: Sparkles,
       label: t('detail.summarizingStatus') || 'Generating summary',
+      color: 'indigo'
+    },
+    analysis: {
+      icon: Sparkles,
+      label: t("ui.analyzingFullTranscript"),
       color: 'indigo'
     },
     download: {
@@ -144,6 +150,7 @@ const TaskProgress = ({
       </div>
 
       {/* 信息行 */}
+      {task?.progress_message && <p className="mb-2 text-sm text-zinc-400" aria-live="polite">{localizeUiMessage(task.progress_message, t)}</p>}
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <span>{progress}%</span>
         <div className="flex items-center gap-3">
@@ -163,11 +170,11 @@ const TaskProgress = ({
       )}
 
       {/* 错误信息 */}
-      {requestError && <p role="alert" className="mt-2 text-xs text-red-400">{requestError}</p>}
+      {requestError && <p role="alert" className="mt-2 text-xs text-red-400">{localizeUiMessage(requestError, t)}</p>}
       {task?.status === 'failed' && task?.error_message && (
         <div className="flex items-center gap-2 mt-2 text-red-400 text-xs bg-red-900/20 rounded-lg px-3 py-2">
           <AlertCircle size={14} />
-          <span>{task.error_message}</span>
+          <span>{localizeUiMessage(task.error_message, t)}</span>
         </div>
       )}
     </div>

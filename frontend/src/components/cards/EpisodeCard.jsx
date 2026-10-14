@@ -1,3 +1,5 @@
+import { formatUiDate } from '../../utils/localization';
+import { useTranslation } from 'react-i18next';
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { Play, Star, Youtube, Tv } from 'lucide-react';
@@ -40,6 +42,7 @@ const CoverImage = ({ src, alt, className = '' }) => {
 };
 
 const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feedImage }) => {
+  const { t, i18n } = useTranslation();
   // 获取封面图片：优先单集图片，fallback 到 feed 图片
   const coverImage = episode.image || feedImage || '/placeholder.png';
 
@@ -47,6 +50,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
   if (viewMode === 'grid') {
     return (
       <div
+        role="button" tabIndex={0} aria-label={t("ui.openValue", { value1: episode.title })} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(episode); } }}
         onClick={() => onClick(episode)}
         className="group bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-2xl overflow-hidden transition-all duration-300 cursor-pointer flex flex-col hover:shadow-xl hover:shadow-black/50"
       >
@@ -54,9 +58,9 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
         <div className="relative aspect-[3/2] overflow-hidden">
           <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
           {/* 悬停播放按钮 */}
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="touch-play absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <button
-              onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
+              aria-label={t("ui.playValue", { value1: episode.title })} onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
               className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-black hover:scale-110 transition-transform shadow-xl"
             >
               <Play size={24} fill="currentColor" stroke="none" className="ml-1" />
@@ -77,17 +81,19 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
               {episode.title}
             </h3>
             <button
-              onClick={(e) => { e.stopPropagation(); onStar(episode); }}
+              aria-label={episode.is_starred ? t("ui.unfavoriteEpisode") : t("ui.favoriteEpisode")} onClick={(e) => { e.stopPropagation(); onStar(episode); }}
               className={`p-1 rounded transition-colors flex-shrink-0 ${episode.is_starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-yellow-400'}`}
             >
               <Star size={14} fill={episode.is_starred ? 'currentColor' : 'none'} />
             </button>
           </div>
 
-          <p className="text-xs text-indigo-400 font-medium mb-2">{episode.feed_title}</p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate text-xs text-indigo-400 font-medium">{episode.feed_title}</p>
+          </div>
 
           <div className="flex items-center justify-between text-xs text-zinc-500 mt-auto">
-            <span>{episode.published_at && new Date(episode.published_at).toLocaleDateString()}</span>
+            <span>{episode.published_at && formatUiDate(episode.published_at, i18n.resolvedLanguage)}</span>
             <StatusBadge status={episode.status} hasTranscript={episode.has_transcript} hasSummary={episode.has_summary} hasLocalAudio={episode.artifacts?.local_audio || Boolean(episode.local_audio_url)} />
           </div>
         </div>
@@ -98,16 +104,17 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
   // 列表视图 - 紧凑横向
   return (
     <div
-      onClick={() => onClick(episode)}
+      role="button" tabIndex={0} aria-label={t("ui.openValue", { value1: episode.title })} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(episode); } }}
+        onClick={() => onClick(episode)}
       className="group flex items-center gap-4 p-3 bg-zinc-900/40 border border-zinc-800/50 hover:bg-zinc-800/60 hover:border-zinc-700/80 rounded-xl cursor-pointer transition-all"
     >
       {/* 封面缩略图 */}
       <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
         <CoverImage src={coverImage} alt={episode.title} className="w-full h-full object-cover" />
         {/* 悬停播放 */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="touch-play absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
-            onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
+            aria-label={t("ui.playValue", { value1: episode.title })} onClick={(e) => { e.stopPropagation(); onPlay && onPlay(episode); }}
             className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-black"
           >
             <Play size={14} fill="currentColor" stroke="none" className="ml-0.5" />
@@ -122,7 +129,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
         </h3>
         <p className="text-xs text-indigo-400 mt-0.5">{episode.feed_title}</p>
         <p className="text-xs text-zinc-500 mt-1">
-          {episode.published_at && new Date(episode.published_at).toLocaleDateString()}
+          {episode.published_at && formatUiDate(episode.published_at, i18n.resolvedLanguage)}
           {episode.duration_formatted && ` - ${episode.duration_formatted}`}
         </p>
       </div>
@@ -130,7 +137,7 @@ const EpisodeCard = ({ episode, onClick, onStar, onPlay, viewMode = 'grid', feed
       {/* 右侧操作区 */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={(e) => { e.stopPropagation(); onStar(episode); }}
+          aria-label={episode.is_starred ? t("ui.unfavoriteEpisode") : t("ui.favoriteEpisode")} onClick={(e) => { e.stopPropagation(); onStar(episode); }}
           className={`p-1.5 rounded-lg transition-colors ${episode.is_starred ? 'text-yellow-400' : 'text-zinc-600 hover:text-yellow-400'}`}
         >
           <Star size={16} fill={episode.is_starred ? 'currentColor' : 'none'} />

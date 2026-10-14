@@ -5,7 +5,7 @@ export function readBriefingRoute(search) {
   const type = query.get('period_type');
   const start = query.get('period_start');
   const validStart = /^\d{4}-\d{2}-\d{2}$/.test(start || '') && Number.isFinite(Date.parse(start)) && new Date(start).toISOString().slice(0, 10) === start;
-  return { periodType: type === 'month' ? 'month' : 'week', periodStart: validStart ? start : null, mode: MODES.includes(query.get('mode')) ? query.get('mode') : 'core', selectedTag: query.get('tag') || '', showAll: query.get('all') === '1', readingSource: query.get('source') || null };
+  return { periodType: type === 'month' ? 'month' : 'week', periodStart: validStart ? start : null, mode: MODES.includes(query.get('mode')) ? query.get('mode') : 'core', selectedTag: '', showAll: query.get('all') === '1', readingSource: query.get('source') || null };
 }
 
 export function briefingPath(section, context) {
@@ -13,7 +13,6 @@ export function briefingPath(section, context) {
   query.set('period_type', context.periodType || 'week');
   if (context.periodStart) query.set('period_start', context.periodStart);
   query.set('mode', context.mode || 'core');
-  if (context.selectedTag) query.set('tag', context.selectedTag);
   if (context.showAll) query.set('all', '1');
   if (context.readingSource) query.set('source', context.readingSource);
   return `${section === 'saved' ? '/briefing/saved' : '/briefing'}?${query}`;
@@ -39,5 +38,5 @@ export function restoreReadingPosition(container, position) {
 }
 
 export function mergeBriefingNavigation(current, options) {
-  return { ...current, ...options, ...(options.periodType && options.periodType !== current.periodType && !Object.hasOwn(options, 'periodStart') ? { periodStart: null } : {}) };
+  return { ...current, readingSource: null, showAll: false, ...options, ...(options.periodType && options.periodType !== current.periodType && !Object.hasOwn(options, 'periodStart') ? { periodStart: null } : {}) };
 }
