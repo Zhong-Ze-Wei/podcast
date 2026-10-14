@@ -29,6 +29,8 @@ class Config:
 
     # Auth配置
     AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "0").lower() in ("1", "true", "yes", "on")
+    # 本地开发免登录：回环请求(127.0.0.1/::1)以该管理员账号身份进入，其他来源照常验证
+    AUTH_DEV_AUTO_LOGIN = os.getenv("AUTH_DEV_AUTO_LOGIN", "")
     JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SECRET_KEY", "dev-insecure-change-me"))
     JWT_EXPIRES_HOURS = int(os.getenv("JWT_EXPIRES_HOURS", "168"))
     DEFAULT_OWNER_ID = os.getenv("DEFAULT_OWNER_ID", "local-default-user")
