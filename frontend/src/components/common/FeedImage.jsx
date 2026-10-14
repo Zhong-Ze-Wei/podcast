@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { Youtube, Tv } from 'lucide-react';
@@ -13,6 +14,7 @@ const FALLBACKS = {
 };
 
 const FeedImage = ({ feed, fallbackImage, className = '' }) => {
+  const { t } = useTranslation();
   const [failedImages, setFailedImages] = useState([]);
   const image = [feed?.image, feed?.image_url, fallbackImage].find(url => url && !failedImages.includes(url));
   const fallback = FALLBACKS[feed?.type];
@@ -26,7 +28,7 @@ const FeedImage = ({ feed, fallbackImage, className = '' }) => {
         </div>
       );
     }
-    const name = feed?.title || '播客';
+    const name = feed?.title || t("ui.podcast");
     const initials = /[\u3400-\u9fff]/.test(name) ? name.slice(0, 2) : name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase();
     return <span className={`${className} bg-zinc-800 text-zinc-400 inline-flex items-center justify-center`} role="img" aria-label={name}>{initials}</span>;
   }

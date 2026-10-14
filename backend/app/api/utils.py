@@ -27,7 +27,7 @@ def error_response(message, error_code=None, status_code=400):
     return jsonify(response), status_code
 
 
-def paginated_response(data, page, per_page, total):
+def paginated_response(data, page, per_page, total, meta=None):
     """分页响应"""
     pages = (total + per_page - 1) // per_page if per_page > 0 else 0
     response = {
@@ -42,6 +42,8 @@ def paginated_response(data, page, per_page, total):
             "has_prev": page > 1
         }
     }
+    if meta is not None:
+        response["meta"] = meta
     return jsonify(response), 200
 
 

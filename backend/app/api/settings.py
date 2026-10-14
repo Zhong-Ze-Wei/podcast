@@ -485,3 +485,62 @@ def get_bilibili_status():
         "nickname": (data or {}).get("uname", ""),
         "mid": (data or {}).get("mid"),
     })
+
+
+def _persist_env_value(key: str, value: str, env_path: str = None) -> None:
+    """把配置写回 backend/.env（存在则替换该行，不存在则追加），重启后仍生效"""
+    import os
+    import re
+
+    if env_path is None:
+        # 测试可通过 app.config["ENV_FILE"] 注入；默认 backend/.env
+        env_path = current_app.config.get(
+            "ENV_FILE",
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env"
+            ),
+        )
+    lines = []
+    if os.path.isfile(env_path):
+        with open(env_path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=", re.IGNORECASE)
+    for i, line in enumerate(lines):
+        if pattern.match(line):
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+    with open(env_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+@settings_bp.route("/bilibili-sessdata", methods=["PUT"])
+@require_admin
+def update_bilibili_sessdata():
+    """在线更新 B站 SESSDATA：立即生效（运行时）+ 持久化 .env，并回传实时验证结果"""
+    from ..config import Config
+    from ..services.bilibili_service import BilibiliService
+
+    data = request.get_json(silent=True) or {}
+    sessdata = (data.get("sessdata") or "").strip()
+    if not sessdata:
+        return jsonify({"success": False, "message": "缺少 sessdata", "error_code": "MISSING_SESSDATA"}), 400
+
+    try:
+        Config.BILI_SESSDATA = sessdata
+        _persist_env_value("BILI_SESSDATA", sessdata)
+
+        nav, error = BilibiliService._get("/x/web-interface/nav")
+        valid = bool(not error and nav and nav.get("isLogin"))
+        return jsonify({
+            "success": True,
+            "configured": True,
+            "valid": valid,
+            "nickname": (nav or {}).get("uname", ""),
+            "mid": (nav or {}).get("mid"),
+            "message": None if valid else (error or "SESSDATA 验证未通过（未登录态），请确认复制的是登录后的最新值"),
+        })
+    except Exception as e:
+        current_app.logger.error(f"Failed to update bilibili sessdata: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500

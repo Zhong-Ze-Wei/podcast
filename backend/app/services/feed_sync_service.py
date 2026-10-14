@@ -122,6 +122,7 @@ def refresh_feed_sync(db, feed_id: str, progress_callback=None, *, queue=task_qu
     for ep_info in episodes:
         if ep_info["guid"] not in existing_guids:
             new_episodes.append(_build_episode_doc(oid, ep_info, owner_id=feed.get("owner_id")))
+            existing_guids.add(ep_info["guid"])
 
     if new_episodes:
         db.episodes.insert_many(new_episodes)
@@ -143,6 +144,10 @@ def refresh_feed_sync(db, feed_id: str, progress_callback=None, *, queue=task_qu
                 if new_episodes
                 else feed.get("last_updated"),
                 "episode_count": total_count,
+                "title": feed_info.get("title", feed.get("title")),
+                "description": feed_info.get("description", feed.get("description")),
+                "image": feed_info.get("image", feed.get("image")),
+                "website": feed_info.get("link", feed.get("website")),
             }
         },
     )
@@ -483,3 +488,4 @@ def _refresh_bilibili_feed(db, feed, progress_callback=None):
 
     return {"new_episodes": new_count, "new_transcripts": transcript_count,
             "transcript_failures": failed, "total_episodes": total}
+

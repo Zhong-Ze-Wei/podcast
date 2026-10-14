@@ -38,6 +38,12 @@ class Config:
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
     # 视频源配置 (YouTube 字幕/元数据获取的代理，空=直连)
     YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "")
+    # YouTube 登录态 Cookie 请求头（整段），绕过数据中心 IP 的 "confirm you're not a bot" 墙
+    YOUTUBE_COOKIES = os.getenv("YOUTUBE_COOKIES", "")
+    # Clash 外部控制器（被限流时轮换 7891 专用端口组的出口节点）
+    CLASH_API_URL = os.getenv("CLASH_API_URL", "http://127.0.0.1:9090")
+    CLASH_API_SECRET = os.getenv("CLASH_API_SECRET", "")
+    CLASH_YOUTUBE_GROUP = os.getenv("CLASH_YOUTUBE_GROUP", "")
     # B站登录态 Cookie（SESSDATA），用于 UP 主投稿列表与 AI 字幕；从浏览器 Cookie 手动复制
     BILI_SESSDATA = os.getenv("BILI_SESSDATA", "")
     WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", "")

@@ -1,17 +1,19 @@
 // -*- coding: utf-8 -*-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, ChevronLeft, Server, FileText, Sliders, UserCircle } from 'lucide-react';
+import { Settings, ChevronLeft, Server, FileText, Sliders, UserCircle, Sparkles } from 'lucide-react';
 import LlmConfigPanel from './settings/LlmConfigPanel';
 import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
 import AccountPanel from './settings/AccountPanel';
+import BriefingPreferencesPanel from './settings/BriefingPreferencesPanel';
 import AdminUsersPanel from './settings/AdminUsersPanel';
 
-const SettingsView = ({ onBack, currentUser, onLogout }) => {
+const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', onOpenMenu }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('account');
+  const [activeTab, setActiveTab] = useState(initialTab);
 
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
   const tabs = [
     {
       id: 'account',
@@ -22,8 +24,8 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
     ...(currentUser?.role === 'admin' ? [
       {
         id: 'users',
-        label: '用户管理',
-        description: '注册审批与角色分配',
+        label: t("ui.userManagement"),
+        description: t("ui.accountApprovalAndRoleAssignment"),
         icon: UserCircle
       },
       {
@@ -44,7 +46,8 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
       label: t('settings.templatesTab'),
       description: t('settings.templatesDesc'),
       icon: FileText
-    }
+    },
+    { id: 'briefing', label: t("ui.interestsBriefing"), description: t("ui.personalInterestsAutomaticGenerationAndReadingStyles"), icon: Sparkles }
   ];
   const activeTabMeta = tabs.find(tab => tab.id === activeTab);
 
@@ -55,6 +58,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={onBack}
+            aria-label={t("ui.backToPreviousPage")}
             className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
           >
             <ChevronLeft size={24} />
@@ -69,7 +73,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
+        <div className="settings-tabs flex gap-1 bg-zinc-800/50 p-1 rounded-xl w-fit">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -89,6 +93,7 @@ const SettingsView = ({ onBack, currentUser, onLogout }) => {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
+        {activeTab === 'briefing' && <BriefingPreferencesPanel key={currentUser.id} />}
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
         {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}

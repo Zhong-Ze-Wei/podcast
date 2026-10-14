@@ -191,51 +191,54 @@ def test_failed_screening_records_both_responses_without_caching_a_result(tmp_pa
     attempts = [{"content": '{"topics":[]}', "error": "缺少matches"}, {"content": '{"matches":"LLM"}', "error": "matches不是数组"}]
 
     def fail(system, prompt, validator, **kwargs):
-        assert kwargs["response_schema"] == screening_schema(["LLM"])
+        assert TEXT not in prompt
         raise ModelValidationError("模型结果未通过依据校验：matches不是数组", attempts)
 
     monkeypatch.setattr(service.report_service.lab, "_model_call", fail)
-    with pytest.raises(ValueError, match="正文筛选失败.*C001"):
+    with pytest.raises(ValueError, match="标题筛选失败"):
         service._screen_source(source, ["LLM"])
     path = service._screen_path(source, ["LLM"])
-    failure = json.loads((path / "C001.failure.json").read_text(encoding="utf-8"))
+    failure = json.loads((path / "title.failure.json").read_text(encoding="utf-8"))
     assert failure["attempts"] == attempts
-    assert failure["source_id"] == source["id"]
+    assert failure["episode_id"] == source["episode_id"]
     assert not (path / "result.json").exists()
 
 
-def test_screening_reads_tail_and_reuses_body_cache_with_correct_episode_binding(tmp_path, monkeypatch):
+def test_title_screening_never_reads_body_and_retains_uncertain_titles(tmp_path, monkeypatch):
     service = scope_service(tmp_path)
     long_text = "这个片段讲的是历史过程。" * 1100 + TEXT
-    episode, feed = add_episode(service.db, datetime(2026, 9, 29), "long", long_text)
+    add_episode(service.db, datetime(2026, 9, 29), "long", long_text)
     scope = service.collect("week", "2026-09-28", ["LLM"])
     calls = []
 
     def model(system, prompt, validator, **kwargs):
         calls.append(prompt)
-        matches = [{"topic": "LLM", "reason": "尾部讨论大语言模型的推理评估。", "quote": TEXT}] if TEXT in prompt else []
-        return validator({"matches": matches}), {"usage": {"total": 1}}
+        assert TEXT not in prompt and long_text not in prompt
+        items = json.loads(prompt.split("节目标题与已有简介：\n")[1])
+        return validator({"decisions": [{"id": item["id"], "decision": "uncertain", "topics": [], "reason": "标题无法确定，保留供全文阅读。"} for item in items]}), {"usage": {"total": 1}}
 
     monkeypatch.setattr(service.report_service.lab, "_model_call", model)
     screened = service.screen(scope)
-    assert len(calls) == len(split_text(long_text)) > 1
+    assert len(calls) == 1
     assert screened["period"]["selected_count"] == 1
     old_source = screened["corpus"]["sources"][0]
-    alternative = {**old_source, "id": "ep" + "a" * 24, "episode_id": "a" * 24, "segments": [{"start": 500, "end": 550, "text": long_text}]}
+    alternative = {**old_source, "id": "ep" + "a" * 24, "episode_id": "a" * 24, "full_text": "正文修改不影响标题初筛。"}
     rebound = service.cached_screening(alternative, ["llm"])
-    assert rebound["topic_tags"] == ["llm"]
-    assert rebound["evidence"][0]["source_id"] == alternative["id"]
-    assert rebound["evidence"][0]["episode_id"] == alternative["episode_id"]
-    assert rebound["evidence"][0]["start"] == 500
+    assert rebound["selected"] is True and rebound["evidence"] == []
     service.screen(scope)
-    assert len(calls) == len(split_text(long_text))
+    assert len(calls) == 1
+
+
+def excluded_titles(prompt):
+    items = json.loads(prompt.split("节目标题与已有简介：\n")[1])
+    return {"decisions": [{"id": item["id"], "decision": "exclude", "topics": [], "reason": "与关注问题明显无关。"} for item in items]}
 
 
 def test_no_match_creates_scoped_empty_reports_without_falling_back_to_sample(tmp_path, monkeypatch):
     service = scope_service(tmp_path)
     add_episode(service.db, datetime(2026, 9, 29), "history", TEXT)
     scope = service.collect("week", "2026-09-28", ["历史"])
-    monkeypatch.setattr(service.report_service.lab, "_model_call", lambda system, prompt, validator, **kwargs: (validator({"matches": []}), {"usage": {"total": 1}}))
+    monkeypatch.setattr(service.report_service.lab, "_model_call", lambda system, prompt, validator, **kwargs: (validator(excluded_titles(prompt)), {"usage": {"total": 1}}))
     modes = BriefingModesService(owner_id=service.owner_id, report_service=service.report_service, scope_service=service)
     generated = modes.generate(scope=scope)
     assert all(not report["sections"][0]["items"] for report in generated["reports"].values())
@@ -245,7 +248,9 @@ def test_no_match_creates_scoped_empty_reports_without_falling_back_to_sample(tm
     assert snapshot["period"]["selected_count"] == 0
     assert all(report is None for report in modes.snapshot()["reports"].values())
     other = service.collect("week", "2026-09-28", ["科学"])
-    assert all(report is None for report in modes.snapshot(scope=other)["reports"].values())
+    historical = modes.snapshot(scope=other)["reports"]
+    assert {mode: report["id"] for mode, report in historical.items()} == {mode: report["id"] for mode, report in generated["reports"].items()}
+    assert all(report["matches_current_selection"] is False for report in historical.values())
 
 
 @pytest.fixture
@@ -331,7 +336,7 @@ def test_other_period_generation_does_not_block_september(client, monkeypatch, a
 def test_october_generation_preserves_september_reports_and_fingerprint(tmp_path, monkeypatch):
     service = scope_service(tmp_path)
     add_episode(service.db, datetime(2026, 9, 29), "september", TEXT)
-    monkeypatch.setattr(service.report_service.lab, "_model_call", lambda system, prompt, validator, **kwargs: (validator({"matches": []}), {"usage": {"total": 1}}))
+    monkeypatch.setattr(service.report_service.lab, "_model_call", lambda system, prompt, validator, **kwargs: (validator(excluded_titles(prompt)), {"usage": {"total": 1}}))
     modes = BriefingModesService(owner_id=service.owner_id, report_service=service.report_service, scope_service=service)
     september = service.collect("month", "2026-09-01", ["历史"])
     september_reports = modes.generate(scope=september)["reports"]
@@ -374,7 +379,7 @@ def test_stable_source_endpoint_returns_actual_body_and_cannot_escape_paths(clie
 
 def test_dynamic_single_reading_generation_queues_real_episode_source(client, monkeypatch):
     app, http, headers, service = client
-    episode, _ = add_episode(app.db, datetime(2026, 9, 29), "single", TEXT)
+    episode, feed = add_episode(app.db, datetime(2026, 9, 29), "single", TEXT)
     monkeypatch.setattr(api, "BriefingReportService", lambda **kwargs: service.report_service)
     monkeypatch.setattr(api, "is_ai_analysis_enabled", lambda: True)
     monkeypatch.setattr(api.task_queue, "get_all_tasks", lambda **kwargs: [])
@@ -384,6 +389,9 @@ def test_dynamic_single_reading_generation_queues_real_episode_source(client, mo
     response = http.post(f"/api/briefing-reports/reading/{sid}/generate", headers=headers, json={})
     assert response.status_code == 202
     assert captured["source_id"] == sid
+    assert captured["episode_id"] == str(episode["_id"])
+    assert captured["feed_id"] == str(feed["_id"])
+    assert captured["report_context"] == {"kind": "reading", "source_id": sid, "source_title": "single", "feed_title": feed["title"]}
     assert captured["func"].__self__.report_service.corpus()["sources"][0]["full_text"] == TEXT
 
 
@@ -406,7 +414,9 @@ def test_legacy_single_reading_rebinds_every_quote_and_alias_when_same_text_has_
     write_json(path, cached)
     result = {"reading": None, "source": source_metadata(source)}
     api._reuse_existing_reading(reading, result, source["id"])
-    updated = result["reading"]
+    assert result["reading"] is None
+    updated = result["legacy_reading"]
+    assert updated["legacy"] is True
     all_quotes = [updated["points"][0]["quote"], *updated["resources"], *updated["core_evidence"]]
     assert all(quote["start"] == 500 and quote["end"] == 520 for quote in all_quotes)
     assert all(quote["source_id"] == source["id"] and quote["episode_id"] == source["episode_id"] for quote in all_quotes)

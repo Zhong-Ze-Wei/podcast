@@ -7,9 +7,8 @@ Feeds API
 
 import logging
 from urllib.parse import unquote, urlparse
-from ..services.feed_identity import normalize_feed_url as _normalize_feed_url
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 
 
 from bson import ObjectId
@@ -18,15 +17,21 @@ from datetime import datetime
 
 from ..models.feed import Feed
 from ..models.episode import Episode
-from ..services.rss_service import RSSService
-from ..services.task_queue import task_queue
+from ..models.transcript import Transcript
 from ..services.feed_sync_service import (
     FeedSyncService, _build_episode_doc, _persist_feed_icon, _upsert_video_episode,
     _refresh_youtube_channel_feed, _refresh_bilibili_feed,
 )
+from ..services.episode_query_service import EpisodeQueryService
+from ..services.feed_identity import normalize_feed_url as _normalize_feed_url
+from ..services.ai_control import is_ai_analysis_enabled
+from ..services.rss_service import RSSService
+from ..services.task_queue import task_queue
+from ..services.trash_service import restore_feed_content, trash_feed_content
 from ..services.youtube_service import YouTubeService
 from ..services.bilibili_service import BilibiliService
-from ..services.user_episode_state import episode_ids_with, user_filter_condition
+from ..services.user_episode_state import episode_ids_with, user_filter_condition, unread_count
+from ..services.user_feed_state import get_states as get_feed_states, latest_episode_id, has_unseen_updates, record_view
 from .utils import (
     success_response,
     error_response,
@@ -40,6 +45,8 @@ from .decorators import current_owner_id, current_user, owner_filter, require_au
 logger = logging.getLogger(__name__)
 
 feeds_bp = Blueprint("feeds", __name__)
+
+
 
 
 def get_db():
@@ -74,17 +81,19 @@ def list_feeds():
     total = db.feeds.count_documents(query)
     skip = (page - 1) * per_page
 
-    feeds = list(db.feeds.find(query).sort("created_at", -1).skip(skip).limit(per_page))
+    feeds = list(db.feeds.find(query).sort([("created_at", -1), ("_id", -1)]).skip(skip).limit(per_page))
 
     # 转换响应格式；未读数按当前用户计算（已读状态按用户隔离）
     user_id = current_user()["id"]
     read_ids = episode_ids_with(db, user_id, "is_read")
+    feed_states = get_feed_states(db, user_id, [feed["_id"] for feed in feeds])
     data = []
     for f in feeds:
         resp = Feed.to_response(f)
         resp["unread_count"] = db.episodes.count_documents(
             {"feed_id": f["_id"], "_id": {"$nin": read_ids}}
         )
+        resp["has_unseen_updates"] = has_unseen_updates(latest_episode_id(db, f["_id"]), feed_states.get(f["_id"]))
         data.append(resp)
 
     return paginated_response(data, page, per_page, total)
@@ -101,7 +110,30 @@ def get_feed(feed_id):
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
-    return success_response(Feed.to_response(feed))
+    response = Feed.to_response(feed)
+    user_id = current_user()["id"]
+    response["unread_count"] = unread_count(db, user_id, feed_id)
+    response["has_unseen_updates"] = has_unseen_updates(latest_episode_id(db, feed_id), get_feed_states(db, user_id, [feed_id]).get(feed_id))
+    return success_response(response)
+
+
+@feeds_bp.route("/<feed_id>/view", methods=["POST"])
+@validate_object_id("feed_id")
+@require_auth
+def view_feed(feed_id):
+    """订阅列表成功加载后，自动确认当前用户看过的更新版本。"""
+    db = get_db()
+    if not db.feeds.find_one(owner_filter({"_id": feed_id})):
+        return error_response("Feed not found", "FEED_NOT_FOUND", 404)
+    data = request.get_json() or {}
+    snapshot = data.get("latest_episode_id")
+    if not isinstance(snapshot, str) or not ObjectId.is_valid(snapshot):
+        return error_response("Invalid episode snapshot", "INVALID_EPISODE_SNAPSHOT", 400)
+    seen_id = ObjectId(snapshot)
+    if not db.episodes.find_one({"_id": seen_id, "feed_id": feed_id}, {"_id": 1}):
+        return error_response("Episode snapshot not found in this feed", "EPISODE_SNAPSHOT_NOT_FOUND", 404)
+    unseen = record_view(db, current_user()["id"], feed_id, seen_id)
+    return success_response({"feed_id": str(feed_id), "has_unseen_updates": unseen})
 
 
 @feeds_bp.route("", methods=["POST"])
@@ -207,6 +239,8 @@ def _create_feed_sync(db, rss_url, owner_id, data, progress_callback=None):
 
     # 获取并返回创建的Feed
     feed_doc["_id"] = feed_id
+    # 垃圾箱里同源的历史剧集（含字幕/摘要）自动捞回
+    restore_feed_content(db, feed_doc)
     return success_response(Feed.to_response(feed_doc), "Feed added successfully", 201)
 
 
@@ -217,6 +251,8 @@ def _queue_initial_refresh(feed_id, owner_id):
         return _refresh_feed_sync(str(feed_id), progress_callback)
 
     task_queue.submit_unique(task_type="refresh", func=do_refresh, feed_id=str(feed_id), owner_id=owner_id, dedup_key=f"refresh:{feed_id}")
+
+
 
 
 def _create_youtube_channel_feed(db, url, owner_id, data, progress_callback=None):
@@ -249,6 +285,9 @@ def _create_youtube_channel_feed(db, url, owner_id, data, progress_callback=None
     result = db.feeds.insert_one(feed_doc)
     feed_doc["_id"] = result.inserted_id
 
+    # 垃圾箱里同源的历史剧集（含字幕/摘要）自动捞回
+    restore_feed_content(db, feed_doc)
+
     if progress_callback:
         progress_callback((70, "订阅已保存，正在获取频道封面"))
 
@@ -266,7 +305,7 @@ def _create_youtube_channel_feed(db, url, owner_id, data, progress_callback=None
 
 
 def _create_bilibili_feed(db, url, space_id, owner_id, data):
-    """订阅 B站 UP 主：拉 UP 主信息 → 建 feed → 后台拉首批视频"""
+    """订阅 B站 UP 主；自动更新暂停，节目可手动刷新。"""
     existing = db.feeds.find_one({"owner_id": owner_id, "rss_url": url})
     if existing:
         return error_response("Feed already exists", "FEED_EXISTS", 409)
@@ -289,6 +328,9 @@ def _create_bilibili_feed(db, url, space_id, owner_id, data):
     feed_doc["last_checked"] = None
     result = db.feeds.insert_one(feed_doc)
     feed_doc["_id"] = result.inserted_id
+
+    # 垃圾箱里同源的历史剧集（含字幕/摘要）自动捞回
+    restore_feed_content(db, feed_doc)
 
     if uploader.get("face"):
         local_icon = _persist_feed_icon(
@@ -351,19 +393,14 @@ def delete_feed(feed_id):
     if not feed:
         return error_response("Feed not found", "FEED_NOT_FOUND", 404)
 
-    # 删除相关的episodes, transcripts, summaries
-    owner_id = current_owner_id()
-    episode_ids = [ep["_id"] for ep in db.episodes.find({"owner_id": owner_id, "feed_id": oid}, {"_id": 1})]
-
-    if episode_ids:
-        db.transcripts.delete_many({"owner_id": owner_id, "episode_id": {"$in": episode_ids}})
-        db.summaries.delete_many({"owner_id": owner_id, "episode_id": {"$in": episode_ids}})
-        db.episodes.delete_many({"owner_id": owner_id, "feed_id": oid})
+    # 剧集及附属数据（字幕/摘要/个人状态）整体进垃圾箱：
+    # 保留期内重新订阅同一来源可自动捞回，过期由后台定期物理清除
+    trashed = trash_feed_content(db, feed)
 
     # 删除Feed
     db.feeds.delete_one(owner_filter({"_id": oid}))
 
-    return success_response(message="Feed deleted successfully")
+    return success_response({"trashed_episodes": trashed}, "Feed deleted successfully")
 
 
 @feeds_bp.route("/<feed_id>/refresh", methods=["POST"])
@@ -391,7 +428,21 @@ def refresh_feed(feed_id):
 
 
 def _refresh_feed_sync(feed_id: str, progress_callback=None):
+    """Compatibility entry point; the service owns the refresh workflow."""
     return FeedSyncService(get_db(), queue=task_queue).refresh(feed_id, progress_callback)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 @feeds_bp.route("/<feed_id>/star", methods=["POST"])
@@ -462,35 +513,12 @@ def list_feed_episodes(feed_id):
 
     page, per_page = get_pagination_params()
 
-    # 构建查询条件
-    query = owner_filter({"feed_id": oid})
-
-    status = request.args.get("status")
-    if status:
-        query["status"] = status
-
-    # 已读/加星是用户个人状态，转为 _id 条件过滤
-    state_condition = user_filter_condition(
-        db,
-        current_user()["id"],
-        is_read=get_bool_param("is_read"),
-        is_starred=get_bool_param("is_starred"),
-    )
-    if state_condition:
-        query.update(state_condition)
-
-    # 查询
-    total = db.episodes.count_documents(query)
-    skip = (page - 1) * per_page
-
-    episodes = list(
-        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
-    )
-
-    # 添加feed_title并转换响应格式
-    for ep in episodes:
-        ep["feed_title"] = feed.get("title", "")
-
-    data = [Episode.to_response(ep, include_feed_title=True) for ep in episodes]
-
-    return paginated_response(data, page, per_page, total)
+    snapshot = latest_episode_id(db, oid)
+    service = EpisodeQueryService(db, current_app.config.get("MEDIA_ROOT", "."),
+                                  current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False), is_ai_analysis_enabled(),
+                                  current_user()["role"] in {"user", "admin"})
+    try:
+        data, total = service.list(current_user()["id"], request.args, page, per_page, oid)
+    except ValueError as error:
+        return error_response(str(error), "INVALID_QUERY", 400)
+    return paginated_response(data, page, per_page, total, meta={"latest_episode_id": str(snapshot) if snapshot else None})

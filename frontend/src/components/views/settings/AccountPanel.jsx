@@ -3,9 +3,12 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, User, Activity, Power } from 'lucide-react';
 import { adminApi } from '../../../services/api';
+import { localizeUiMessage } from '../../../utils/localization';
 
 const AccountPanel = ({ currentUser, onLogout }) => {
   const { t } = useTranslation();
+  const roles = { admin: t('ui.administrator'), user: t('ui.member'), viewer: t('ui.viewer') };
+  const statuses = { active: t('ui.active'), pending: t('ui.awaitingApproval'), disabled: t('ui.disabled') };
   const [health, setHealth] = useState(null);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
@@ -36,7 +39,7 @@ const AccountPanel = ({ currentUser, onLogout }) => {
             <div>
               <div className="text-white font-medium">{currentUser?.email || t('settings.account.localUser')}</div>
               <div className="text-xs text-zinc-500">
-                {t('settings.account.role')}: {currentUser?.role || 'user'}
+                {t('settings.account.role')}: {roles[currentUser?.role || 'user']}
               </div>
               {isAdmin && (
                 <div className="mt-1 text-xs text-emerald-300">
@@ -61,12 +64,12 @@ const AccountPanel = ({ currentUser, onLogout }) => {
             <Shield size={18} className="text-indigo-300" />
             {t('settings.account.adminTitle')}
           </h2>
-          {error && <div className="text-sm text-red-300">{error}</div>}
+          {error && <div className="text-sm text-red-300">{localizeUiMessage(error, t)}</div>}
           {health && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {['users', 'feeds', 'episodes', 'tasks'].map(key => (
                 <div key={key} className="border border-zinc-800 bg-zinc-900/40 rounded-lg p-4">
-                  <div className="text-xs text-zinc-500 uppercase">{key}</div>
+                  <div className="text-xs text-zinc-500 uppercase">{t(`ui.accountCounts.${key}`)}</div>
                   <div className="text-2xl text-white mt-1">{health[key]}</div>
                 </div>
               ))}
@@ -81,10 +84,10 @@ const AccountPanel = ({ currentUser, onLogout }) => {
               <div key={user.id} className="px-4 py-3 border-b border-zinc-800/70 last:border-0 flex items-center justify-between">
                 <div>
                   <div className="text-sm text-white">{user.email}</div>
-                  <div className="text-xs text-zinc-500">{user.role}</div>
+                  <div className="text-xs text-zinc-500">{roles[user.role]}</div>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded ${user.status === 'active' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
-                  {user.status}
+                  {statuses[user.status]}
                 </span>
               </div>
             ))}

@@ -357,3 +357,69 @@ def test_bilibili_status_endpoint(monkeypatch):
     body = resp.get_json()
     assert body["configured"] is False
     assert body["valid"] is False
+
+
+def test_update_bilibili_sessdata_validates_and_persists(monkeypatch, tmp_path):
+    from app.api import settings as settings_module
+    from app.services.bilibili_service import BilibiliService
+    from app.config import Config
+
+    app = make_auth_app((settings_bp, "/api/settings"))
+    admin = add_user(app.db, "u@example.com", role="admin")
+    viewer = add_user(app.db, "v@example.com", role="viewer")
+    client = app.test_client()
+
+    # viewer 不可用（admin 专属）
+    denied = client.put(
+        "/api/settings/bilibili-sessdata",
+        json={"sessdata": "x"},
+        headers=auth_headers(viewer),
+    )
+    assert denied.status_code == 403
+
+    # 空值 400
+    assert client.put(
+        "/api/settings/bilibili-sessdata", json={}, headers=auth_headers(admin)
+    ).status_code == 400
+
+    # 正常更新：运行时生效 + 写入 .env + 回传验证结果
+    monkeypatch.setattr(
+        BilibiliService, "_get",
+        classmethod(lambda cls, path: ({"isLogin": True, "uname": "zz", "mid": 42}, None)),
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text("JWT_SECRET=old\nBILI_SESSDATA=stale\n", encoding="utf-8")
+    # 经 ENV_FILE 注入临时路径，测试绝不碰真实 backend/.env
+    app.config["ENV_FILE"] = str(env_file)
+
+    resp = client.put(
+        "/api/settings/bilibili-sessdata",
+        json={"sessdata": "NEW%2CVALUE"},
+        headers=auth_headers(admin),
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["valid"] is True
+    assert body["nickname"] == "zz"
+    assert Config.BILI_SESSDATA == "NEW%2CVALUE"  # 运行时立即生效
+
+    written = env_file.read_text(encoding="utf-8")
+    assert "BILI_SESSDATA=NEW%2CVALUE" in written
+    assert "JWT_SECRET=old" in written
+
+
+def test_feed_check_error_is_humanized_in_response():
+    from bson import ObjectId
+
+    from app.models.feed import Feed
+
+    doc = {
+        "_id": ObjectId(),
+        "title": "硅谷101",
+        "rss_url": "https://space.bilibili.com/1",
+        "type": "bilibili",
+        "check_error": "Bilibili login required (check BILI_SESSDATA)",
+    }
+    resp = Feed.to_response(doc)
+    assert resp["check_error"].startswith("B站登录已失效")
+    assert "SESSDATA" in resp["check_error"]

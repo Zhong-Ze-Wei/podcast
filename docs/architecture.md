@@ -36,7 +36,12 @@ flowchart LR
     UPSERT -->|"无字幕：episode 记录<br/>人话原因 + no_speech 标记"| WHY["不再重复尝试"]
 
     TR --> SUM["summaries 摘要<br/>模板 + 参数 → 全局 LLM"]
-    SUM --> BR["briefings 简报<br/>近 7 天已摘要剧集聚合"]
+    SUM --> BR["briefings 旧接口<br/>近 7 天已摘要剧集聚合"]
+    TR --> EA["episode-analysis 全文分析<br/>正文哈希 + 提示词/模型版本"]
+    EA --> SINGLE["单篇 AI 解读<br/>传统详情与简报共用"]
+    UPSERT --> SCOPE["周/月标题与简介初筛<br/>用户关注问题"]
+    SCOPE --> EA
+    EA --> MODES["五种内容模式<br/>紧凑单篇记录 + 原话汇总"]
 
     UPSERT -->|"video/youtube 剧集<br/>音频直链流代理（不落盘）"| PLAY["播放器"]
 ```
@@ -75,6 +80,8 @@ sequenceDiagram
 - completed 任务 7 天 TTL 自动清理。
 - 视频源刷新逐视频节流 2.5s（B站滑动风控，实测 1.2s 仍偶发触发）。
 
+业务同步由 `FeedSyncService` 统一负责，手动与自动调度共用该服务与任务队列。下载与转录在后端同一任务内完成，浏览器离开详情页不影响后续转录。`submit_unique` 在锁内复用同一参数的活动任务；排队取消真实停止 Future，终态不可被迟到进度覆盖，已开始的不可中断操作不伪报取消。详见[工程改造](./engineering-migration.md)。
+
 ## 权限模型
 
 ```mermaid
@@ -90,12 +97,13 @@ flowchart TD
 
 - **共享库**：feeds / episodes / transcripts / summaries 全员可见，`owner_id` 只做归属记录、不做读取隔离。
 - **个人状态隔离**：已读 / 加星 / 播放进度存 `user_episode_states`，按用户隔离——一家人各看各的进度，互不覆盖。
+- **个人简报隔离**：报告索引、收藏快照与简报任务按 owner 读取；旧共享报告保留共享归属。阅读布局和关注话题属于个人偏好，保持既有登录可写权限；收藏写操作拒绝 viewer。
 - **LLM 配置全局一套**：由 admin 在设置页维护（服务商 / 模型 / 任务路由），全员共用，不存 per-user API Key。
 - 认证实现：`@require_auth`（登录即可）/ `@require_role("user", "admin")`（挡 viewer）/ `@require_admin`；`<audio>` 标签等无法带请求头的场景用 query 参数令牌（如 `/episodes/<id>/stream?token=`）。
 
 ## 后端模块地图
 
-### API 层：12 个蓝图，64 个路由
+### API 层：14 个蓝图，88 个路由声明
 
 | 蓝图 | 前缀 | 文件 | 路由数 | 职责 |
 |------|------|------|--------|------|
@@ -108,13 +116,15 @@ flowchart TD
 | tasks | `/api/tasks` | `tasks.py` | 3 | 任务列表 / 状态 / 取消 |
 | settings | `/api/settings` | `settings.py` | 13 | LLM / Tavily / AI 开关 / B站登录态 |
 | prompt_templates | `/api/prompt-templates` | `prompt_templates.py` | 9 | 模板 CRUD + 初始化 |
-| insights | `/api/insights` | `insights.py` | 3 | AI 简报 + PDF 导出 |
+| insights | `/api/insights` | `insights.py` | 4 | 旧摘要聚合简报 + PDF 导出 |
+| briefing_reports | `/api/briefing-reports` | `briefing_reports.py` | 19 | 周/月报告、来源、单篇、历史、收藏与个人偏好 |
+| briefing_lab | `/api/briefing-lab` | `briefing_lab.py` | 4 | 兼容的简报实验入口 |
 | stats | `/api` | `stats.py` | 1 | 统计（未读按用户计） |
 | video_import | `/api/video-import` | `video_import.py` | 1 | 单个 YouTube 视频 URL 直接导入 |
 
 另有 `/api/media/<path>` 由 `app/__init__.py` 注册（非蓝图），带 7 天浏览器缓存。
 
-### 服务层（app/services/，22 个文件）
+### 服务层（app/services/）
 
 | 服务 | 行数 | 职责 |
 |------|------|------|
@@ -133,6 +143,8 @@ flowchart TD
 | UserEpisodeState | 79 | 剧集个人状态读写（已读/加星/进度） |
 | 其余 | — | jwt_auth / ai_control / briefing_prompts 等小模块 |
 
+新增的业务服务分别承担明确职责：`FeedSyncService` 同步共享节目和平台字幕；`TranscriptionService` 编排必要下载与转录；`EpisodeQueryService` 负责分页查询、产物与操作能力；`BriefingStore` 发布不可变文件并维护历史索引；`BriefingFavorites` 从可信报告创建个人收藏快照。任务排队、去重和取消仍由 `TaskQueue` 统一负责。
+
 ### 核心层（app/core/summarization/）
 
 | 模块 | 行数 | 职责 |
@@ -145,7 +157,8 @@ flowchart TD
 ## 前端组件树
 
 ```
-App.jsx — 路由 + 全局状态 + 播放器 + 任务面板
+App.jsx — 两种模式路由 + 设置返回上下文 + 播放器
+├── TasksProvider — 共享任务ID、状态轮询与终态通知
 ├── Sidebar.jsx — 订阅导航（移动端抽屉）
 ├── AuthView.jsx — 登录/注册（注册后提示等待审批）
 ├── WorkspaceView.jsx — 主工作台
@@ -155,7 +168,7 @@ App.jsx — 路由 + 全局状态 + 播放器 + 任务面板
 ├── SettingsView.jsx — 设置容器
 │    ├── LlmConfigPanel — LLM 配置（admin 可见，状态灯折叠卡）
 │    ├── AdminUsersPanel — 用户管理（admin 可见）
-│    ├── PromptTemplatesPanel / AppSettingsPanel / AccountPanel
+│    ├── PromptTemplatesPanel / AppSettingsPanel / AccountPanel / BriefingPreferencesPanel
 ├── PlayerBar.jsx — 播放器（YouTube 剧集走流地址）
 ├── TaskPanel.jsx — 任务面板（人话进度）
 └── common/ — FeedImage（平台图标兜底）、StatusBadge 等

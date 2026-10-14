@@ -1,3 +1,4 @@
+import { templateDisplayName, localizeUiMessage, localizedLabel } from '../../../utils/localization';
 // -*- coding: utf-8 -*-
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,7 +19,7 @@ import { promptTemplatesApi } from '../../../services/api';
  * - Configure blocks and parameters
  */
 const PromptTemplatesPanel = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateDetail, setTemplateDetail] = useState(null);
@@ -58,10 +59,10 @@ const PromptTemplatesPanel = () => {
             handleSelectTemplate(templateList[0]);
           }
         } catch (initErr) {
-          setError('Failed to initialize templates');
+          setError(t("ui.initTemplatesFailed"));
         }
       } else {
-        setError('Failed to load templates');
+        setError(t("ui.loadTemplatesFailed"));
       }
       console.error('Failed to load templates:', err);
     } finally {
@@ -78,7 +79,7 @@ const PromptTemplatesPanel = () => {
       setTemplateDetail(detail);
     } catch (err) {
       console.error('Failed to load template detail:', err);
-      setError('Failed to load template details');
+      setError(t("ui.loadTemplateDetailsFailed"));
     } finally {
       setDetailLoading(false);
     }
@@ -86,7 +87,7 @@ const PromptTemplatesPanel = () => {
 
   const handleDuplicate = async () => {
     if (!duplicateName.trim()) {
-      setError('Template name is required');
+      setError(t("ui.templateNameRequired"));
       return;
     }
 
@@ -98,7 +99,7 @@ const PromptTemplatesPanel = () => {
         duplicateName.trim(),
         duplicateDisplayName.trim() || duplicateName.trim()
       );
-      setSuccess('Template duplicated successfully');
+      setSuccess(t("ui.templateDuplicated"));
       setTimeout(() => setSuccess(null), 3000);
       setShowDuplicateModal(false);
       setDuplicateName('');
@@ -109,26 +110,26 @@ const PromptTemplatesPanel = () => {
         handleSelectTemplate(result);
       }
     } catch (err) {
-      setError(err.message || 'Failed to duplicate template');
+      setError(err.message || t("ui.duplicateTemplateFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (templateId) => {
-    if (!confirm('Are you sure you want to delete this template?')) {
+    if (!confirm(t("ui.confirmDeleteTemplate"))) {
       return;
     }
 
     try {
       await promptTemplatesApi.delete(templateId);
-      setSuccess('Template deleted');
+      setSuccess(t("ui.templateDeleted"));
       setTimeout(() => setSuccess(null), 3000);
       await loadTemplates();
       setSelectedTemplate(null);
       setTemplateDetail(null);
     } catch (err) {
-      setError(err.message || 'Failed to delete template');
+      setError(err.message || t("ui.deleteTemplateFailed"));
     }
   };
 
@@ -147,10 +148,10 @@ const PromptTemplatesPanel = () => {
         optional_blocks: updatedBlocks
       });
       setTemplateDetail({ ...templateDetail, optional_blocks: updatedBlocks });
-      setSuccess('Block updated');
+      setSuccess(t("ui.blockUpdated"));
       setTimeout(() => setSuccess(null), 2000);
     } catch (err) {
-      setError('Failed to update block');
+      setError(t("ui.updateBlockFailed"));
     }
   };
 
@@ -170,10 +171,10 @@ const PromptTemplatesPanel = () => {
         parameters: updatedParams
       });
       setTemplateDetail({ ...templateDetail, parameters: updatedParams });
-      setSuccess('Parameter updated');
+      setSuccess(t("ui.parameterUpdated"));
       setTimeout(() => setSuccess(null), 2000);
     } catch (err) {
-      setError('Failed to update parameter');
+      setError(t("ui.updateParameterFailed"));
     }
   };
 
@@ -198,7 +199,7 @@ const PromptTemplatesPanel = () => {
             <button
               onClick={loadTemplates}
               className="p-1 text-zinc-500 hover:text-white transition-colors"
-              title="Refresh"
+              title={t("ui.refresh")}
             >
               <RefreshCw size={14} />
             </button>
@@ -227,7 +228,7 @@ const PromptTemplatesPanel = () => {
                     <FileText size={12} className="text-indigo-400 flex-shrink-0" />
                   )}
                   <span className="text-sm font-medium text-white truncate">
-                    {template.display_name}
+                    {templateDisplayName(template, t)}
                   </span>
                 </div>
                 <p className="text-xs text-zinc-500 truncate mt-0.5">
@@ -246,14 +247,14 @@ const PromptTemplatesPanel = () => {
         {error && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-red-400 px-4 py-2 bg-red-900/20 rounded-lg border border-red-800/50">
             <AlertCircle size={16} />
-            <span className="text-sm">{error}</span>
+            <span className="text-sm">{localizeUiMessage(error, t)}</span>
             <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-300">x</button>
           </div>
         )}
         {success && (
           <div className="mx-6 mt-4 flex items-center gap-2 text-green-400 px-4 py-2 bg-green-900/20 rounded-lg border border-green-800/50">
             <Check size={16} />
-            <span className="text-sm">{success}</span>
+            <span className="text-sm">{localizeUiMessage(success, t)}</span>
           </div>
         )}
 
@@ -268,25 +269,23 @@ const PromptTemplatesPanel = () => {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <h2 className="text-xl font-bold text-white">
-                    {templateDetail.display_name}
+                    {templateDisplayName(templateDetail, t)}
                   </h2>
                   {templateDetail.is_system && (
-                    <span className="text-xs px-2 py-0.5 bg-zinc-700 text-zinc-400 rounded">
-                      System Template
-                    </span>
+                    <span className="text-xs px-2 py-0.5 bg-zinc-700 text-zinc-400 rounded">{t('ui.systemTemplate')}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setDuplicateName(`${templateDetail.name}_copy`);
-                      setDuplicateDisplayName(`${templateDetail.display_name} (Copy)`);
+                      setDuplicateDisplayName(t("ui.copyName", { name: templateDetail.display_name }));
                       setShowDuplicateModal(true);
                     }}
                     className="px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors flex items-center gap-2"
                   >
                     <Copy size={14} />
-                    Duplicate
+                    {t("ui.duplicate")}
                   </button>
                   {!templateDetail.is_system && (
                     <button
@@ -294,7 +293,7 @@ const PromptTemplatesPanel = () => {
                       className="px-3 py-1.5 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors flex items-center gap-2"
                     >
                       <Trash2 size={14} />
-                      Delete
+                      {t("ui.delete")}
                     </button>
                   )}
                 </div>
@@ -305,10 +304,8 @@ const PromptTemplatesPanel = () => {
             {/* Blocks Section */}
             <div className="mb-8">
               <h3 className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
-                <FileText size={14} />
-                Optional Blocks
-                {templateDetail.is_system && (
-                  <span className="text-xs text-zinc-600">(duplicate to edit)</span>
+                <FileText size={14} />{t('ui.optionalBlocks')}{templateDetail.is_system && (
+                  <span className="text-xs text-zinc-600">{t("ui.duplicateToEdit")}</span>
                 )}
               </h3>
               <div className="grid gap-2">
@@ -323,8 +320,7 @@ const PromptTemplatesPanel = () => {
                   >
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white">{block.name}</span>
-                        <span className="text-xs text-zinc-500">({block.name_zh})</span>
+                        <span className="text-sm font-medium text-white">{i18n.resolvedLanguage === 'en' ? block.name : block.name_zh || block.name}</span>
                       </div>
                       <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1">
                         {block.prompt_fragment}
@@ -348,17 +344,15 @@ const PromptTemplatesPanel = () => {
 
             {/* Parameters Section */}
             <div>
-              <h3 className="text-sm font-medium text-zinc-400 mb-3">
-                Default Parameters
-              </h3>
+              <h3 className="text-sm font-medium text-zinc-400 mb-3">{t('ui.defaultParameters')}</h3>
               <div className="grid gap-4">
                 {templateDetail.parameters && Object.entries(templateDetail.parameters).map(([key, param]) => (
                   <div key={key} className="bg-zinc-900/30 border border-zinc-800 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium text-white">
-                        {param.label || key}
+                        {localizedLabel(param, i18n.resolvedLanguage) || key}
                       </span>
-                      <span className="text-xs text-zinc-500">{param.label_zh}</span>
+
                     </div>
                     {param.type === 'enum' && (
                       <div className="flex gap-2 flex-wrap">
@@ -373,7 +367,7 @@ const PromptTemplatesPanel = () => {
                                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                             } ${templateDetail.is_system ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
-                            {opt.label}
+                            {localizedLabel(opt, i18n.resolvedLanguage)}
                             {opt.token_hint && (
                               <span className="text-xs ml-1 opacity-60">
                                 (~{opt.token_hint})
@@ -390,7 +384,7 @@ const PromptTemplatesPanel = () => {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-zinc-500">
-            Select a template to view details
+            {t("ui.selectTemplate")}
           </div>
         )}
       </div>
@@ -399,10 +393,10 @@ const PromptTemplatesPanel = () => {
       {showDuplicateModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold text-white mb-4">Duplicate Template</h3>
+            <h3 className="text-lg font-bold text-white mb-4">{t('ui.duplicateTemplate')}</h3>
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Template ID (unique)</label>
+                <label className="text-sm text-zinc-400 mb-1 block">{t("ui.templateIdUnique")}</label>
                 <input
                   type="text"
                   value={duplicateName}
@@ -412,12 +406,12 @@ const PromptTemplatesPanel = () => {
                 />
               </div>
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Display Name</label>
+                <label className="text-sm text-zinc-400 mb-1 block">{t('ui.displayName')}</label>
                 <input
                   type="text"
                   value={duplicateDisplayName}
                   onChange={(e) => setDuplicateDisplayName(e.target.value)}
-                  placeholder="My Custom Template"
+                  placeholder={t('ui.customTemplatePlaceholder')}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -427,7 +421,7 @@ const PromptTemplatesPanel = () => {
                 onClick={() => setShowDuplicateModal(false)}
                 className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
               >
-                Cancel
+                {t("ui.cancel")}
               </button>
               <button
                 onClick={handleDuplicate}
@@ -435,7 +429,7 @@ const PromptTemplatesPanel = () => {
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 {saving && <Loader2 className="animate-spin" size={16} />}
-                Duplicate
+                {t('ui.duplicate')}
               </button>
             </div>
           </div>

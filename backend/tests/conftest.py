@@ -41,7 +41,7 @@ class MockCollection:
     def insert_one(self, doc):
         from bson import ObjectId
         self._id_counter += 1
-        doc["_id"] = ObjectId()
+        doc.setdefault("_id", ObjectId())  # 与 Mongo 一致：文档自带 _id 时保留
         self._data.append(dict(doc))
         from pymongo.results import InsertOneResult
         return InsertOneResult(doc["_id"], acknowledged=True)
@@ -61,7 +61,14 @@ class MockCollection:
 
     def find(self, query=None, *args, **kwargs):
         query = query or {}
+        projection = args[0] if args else kwargs.get("projection")
         results = [dict(doc) for doc in self._data if self._match(doc, query)]
+        if projection:
+            included = [key for key, enabled in projection.items() if enabled and key != "_id"]
+            if included:
+                results = [{key: value for key, value in doc.items() if key in included or (key == "_id" and projection.get("_id", 1))} for doc in results]
+            else:
+                results = [{key: value for key, value in doc.items() if projection.get(key, 1)} for doc in results]
         return MockCursor(results)
 
     def update_one(self, query, update, **kwargs):
@@ -72,11 +79,15 @@ class MockCollection:
                     self._data[i].update(update["$set"])
                 for field in update.get("$unset", {}):
                     self._data[i].pop(field, None)
+                for field, value in update.get("$max", {}).items():
+                    if field not in orig_doc or value > orig_doc[field]:
+                        self._data[i][field] = value
                 return UpdateResult({"n": 1, "nModified": 1}, True)
         if kwargs.get("upsert"):
             new_doc = dict(query)
             if "$set" in update:
                 new_doc.update(update["$set"])
+            new_doc.update(update.get("$max", {}))
             self.insert_one(new_doc)
             return UpdateResult({"n": 1, "nModified": 0}, True)
         return UpdateResult({"n": 0, "nModified": 0}, True)
@@ -105,11 +116,19 @@ class MockCollection:
 
     def _match(self, doc, query):
         for key, value in query.items():
+            if isinstance(value, dict) and "$exists" in value:
+                if (key in doc) != bool(value["$exists"]):
+                    return False
             if key == "$or":
                 if not any(self._match(doc, clause) for clause in value):
                     return False
-                continue
-            if key == "_id":
+            elif key == "$nor":
+                if any(self._match(doc, clause) for clause in value):
+                    return False
+            elif key == "$and":
+                if not all(self._match(doc, clause) for clause in value):
+                    return False
+            elif key == "_id":
                 from bson import ObjectId
                 doc_val = doc.get("_id")
                 if isinstance(value, ObjectId):
@@ -145,6 +164,11 @@ class MockCollection:
 
     def _match_operator(self, val, ops):
         from datetime import datetime
+        if "$regex" in ops:
+            import re
+            flags = re.IGNORECASE if "i" in ops.get("$options", "") else 0
+            if not isinstance(val, str) or not re.search(ops["$regex"], val, flags):
+                return False
         if "$gte" in ops:
             if val is None or val < ops["$gte"]:
                 return False
@@ -158,10 +182,13 @@ class MockCollection:
             if val is None or val >= ops["$lt"]:
                 return False
         if "$in" in ops:
-            if val not in ops["$in"]:
+            # 与 Mongo 一致：字段是数组时任一元素命中即可
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            if not any(v in ops["$in"] for v in vals):
                 return False
         if "$nin" in ops:
-            if val in ops["$nin"]:
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            if any(v in ops["$nin"] for v in vals):
                 return False
         if "$ne" in ops:
             if val == ops["$ne"]:
@@ -179,9 +206,9 @@ class MockCursor:
         self._limit_val = 0
 
     def sort(self, key, direction=None):
-        if isinstance(key, str):
-            reverse = direction == -1 if direction else False
-            self._data.sort(key=lambda x: (x.get(key) is not None, x.get(key)), reverse=reverse)
+        fields = [(key, direction or 1)] if isinstance(key, str) else key
+        for field, order in reversed(fields):
+            self._data.sort(key=lambda doc: (doc.get(field) is not None, doc.get(field)), reverse=order == -1)
         return self
 
     def skip(self, n):

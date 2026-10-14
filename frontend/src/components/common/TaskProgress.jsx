@@ -1,8 +1,10 @@
+import { localizeUiMessage } from '../../utils/localization';
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Mic2, Sparkles, Download, Languages, AlertCircle } from 'lucide-react';
-import { tasksApi } from '../../services/api';
+import { useTask } from '../tasks/TasksContext';
+import { isActiveTask, canCancelTask, createTerminalNotifier } from '../../utils/taskActions';
 
 /**
  * TaskProgress - 统一的任务进度组件
@@ -12,15 +14,23 @@ import { tasksApi } from '../../services/api';
  */
 const TaskProgress = ({
   taskType,      // 'transcribe' | 'summarize' | 'download' | 'translate'
-  episodeId,     // episode ID
+  taskId,        // 后端返回或节目 active_tasks 中的明确任务 ID
   onComplete,    // 任务完成回调
   onError,       // 任务失败回调
+  onCancelled,
   className = ''
 }) => {
   const { t } = useTranslation();
-  const [task, setTask] = useState(null);
+  const { task, error: requestError, cancel } = useTask(taskId);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const callbacksRef = useRef({ onComplete, onError, onCancelled });
+  callbacksRef.current = { onComplete, onError, onCancelled };
+  const notifyRef = useRef(createTerminalNotifier(terminal => {
+    if (terminal.status === 'completed') callbacksRef.current.onComplete?.();
+    if (terminal.status === 'failed') callbacksRef.current.onError?.(terminal.error_message);
+    if (terminal.status === 'cancelled') callbacksRef.current.onCancelled?.();
+  }));
 
   // 任务类型配置
   const taskConfig = {
@@ -32,6 +42,11 @@ const TaskProgress = ({
     summarize: {
       icon: Sparkles,
       label: t('detail.summarizingStatus') || 'Generating summary',
+      color: 'indigo'
+    },
+    analysis: {
+      icon: Sparkles,
+      label: t("ui.analyzingFullTranscript"),
       color: 'indigo'
     },
     download: {
@@ -49,53 +64,15 @@ const TaskProgress = ({
   const config = taskConfig[taskType] || taskConfig.transcribe;
   const Icon = config.icon;
 
-  // 轮询任务状态
-  const fetchTaskStatus = useCallback(async () => {
-    if (!episodeId) return;
-
-    try {
-      const response = await tasksApi.list({
-        episode_id: episodeId,
-        type: taskType,  // 后端参数名是 'type'
-        per_page: 1
-      });
-
-      const tasks = response.data?.data || response.data || [];
-      const activeTask = tasks.find(t =>
-        t.status === 'pending' || t.status === 'processing'
-      ) || tasks[0];
-
-      if (activeTask) {
-        setTask(activeTask);
-        setLastUpdate(Date.now());
-
-        // 计算已运行时间
-        if (activeTask.started_at || activeTask.created_at) {
-          const startTime = new Date(activeTask.started_at || activeTask.created_at).getTime();
-          setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
-        }
-
-        // 任务完成或失败
-        if (activeTask.status === 'completed') {
-          onComplete?.();
-        } else if (activeTask.status === 'failed') {
-          onError?.(activeTask.error_message);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch task status:', err);
-    }
-  }, [episodeId, taskType, onComplete, onError]);
-
-  // 轮询
   useEffect(() => {
-    fetchTaskStatus();
-    const interval = setInterval(fetchTaskStatus, 2000);
-    return () => clearInterval(interval);
-  }, [fetchTaskStatus]);
+    if (!task) return;
+    setLastUpdate(Date.now());
+    notifyRef.current(task);
+  }, [task]);
 
   // 更新已运行时间
   useEffect(() => {
+    if (task && !isActiveTask(task)) return;
     const interval = setInterval(() => {
       if (task?.started_at || task?.created_at) {
         const startTime = new Date(task.started_at || task.created_at).getTime();
@@ -121,8 +98,8 @@ const TaskProgress = ({
   };
 
   const progress = task?.progress || 0;
-  const isStale = Date.now() - lastUpdate > 30000; // 30秒无更新视为可能卡住
-
+  const active = !task || isActiveTask(task);
+  const isStale = active && Date.now() - lastUpdate > 30000;
   // 颜色映射
   const colorClasses = {
     purple: {
@@ -157,10 +134,11 @@ const TaskProgress = ({
     <div className={`w-full max-w-sm ${className}`}>
       {/* 标题行 */}
       <div className="flex items-center gap-2 mb-3">
-        <div className={`animate-spin ${colors.text}`}>
+        <div className={`${active ? 'animate-spin' : ''} ${colors.text}`}>
           <Icon size={20} />
         </div>
-        <span className={`font-medium ${colors.text}`}>{config.label}</span>
+        <span className={`font-medium ${colors.text}`}>{task?.cancel_requested ? t('tasks.cancelRequested') : active ? config.label : t(`tasks.status.${task.status}`)}</span>
+        {task && canCancelTask(task) && <button onClick={() => cancel(task.id)} className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">{t('tasks.cancel')}</button>}
       </div>
 
       {/* 进度条 */}
@@ -172,6 +150,7 @@ const TaskProgress = ({
       </div>
 
       {/* 信息行 */}
+      {task?.progress_message && <p className="mb-2 text-sm text-zinc-400" aria-live="polite">{localizeUiMessage(task.progress_message, t)}</p>}
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <span>{progress}%</span>
         <div className="flex items-center gap-3">
@@ -191,10 +170,11 @@ const TaskProgress = ({
       )}
 
       {/* 错误信息 */}
+      {requestError && <p role="alert" className="mt-2 text-xs text-red-400">{localizeUiMessage(requestError, t)}</p>}
       {task?.status === 'failed' && task?.error_message && (
         <div className="flex items-center gap-2 mt-2 text-red-400 text-xs bg-red-900/20 rounded-lg px-3 py-2">
           <AlertCircle size={14} />
-          <span>{task.error_message}</span>
+          <span>{localizeUiMessage(task.error_message, t)}</span>
         </div>
       )}
     </div>

@@ -4,47 +4,30 @@ import { useTranslation } from 'react-i18next';
 import { Briefcase } from 'lucide-react';
 import EpisodeCard from '../cards/EpisodeCard';
 import ViewToolbar from '../common/ViewToolbar';
+import { episodesApi } from '../../services/api';
+import usePaginatedList from '../../hooks/usePaginatedList';
+import useDebouncedValue from '../../hooks/useDebouncedValue';
+import { ListFilters, ListPagination } from '../common/ListControls';
 
 /**
  * WorkspaceView - 工作台页面
- * 显示所有处理过的节目（转录中、已转录、摘要中、已摘要）
+ * 显示已有音频、文稿或摘要的加工结果；运行过程在任务中查看
  * 支持Tab筛选
  */
-const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
+const WorkspaceView = ({ refreshVersion, feeds, onEpisodeClick, onPlay, onStar, viewMode = 'grid', onViewModeChange }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('all');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('published_desc');
+  const [readFilter, setReadFilter] = useState('all');
+  const q = useDebouncedValue(query);
+  const resultField = { downloaded: 'has_local_audio', transcript: 'has_transcript_or_summary', summary: 'has_summary' }[activeTab];
+  const list = usePaginatedList(episodesApi.list, { params: { processed: true, ...(resultField ? { [resultField]: true } : {}), ...(readFilter !== 'all' ? { is_read: readFilter === 'read' } : {}), q, sort }, revision: refreshVersion });
+  const filteredEpisodes = list.data;
 
   // 创建feed图片映射
   const feedImageMap = {};
   (feeds || []).forEach(f => { feedImageMap[f.id] = f.image; });
-
-  // 所有处理过的节目
-  const allProcessed = episodes.filter(ep =>
-    ['downloaded', 'transcribing', 'transcribed', 'summarizing', 'summarized'].includes(ep.status) ||
-    ep.local_audio_url ||
-    ep.has_transcript ||
-    ep.has_summary
-  );
-
-  // 根据Tab筛选
-  const getFilteredEpisodes = () => {
-    switch (activeTab) {
-      case 'downloaded':
-        return allProcessed.filter(ep => ep.status === 'downloaded' || ep.local_audio_url);
-      case 'transcript':
-        return allProcessed.filter(ep =>
-          ep.has_transcript || ep.status === 'transcribing' || ep.status === 'transcribed'
-        );
-      case 'summary':
-        return allProcessed.filter(ep =>
-          ep.has_summary || ep.status === 'summarizing' || ep.status === 'summarized'
-        );
-      default:
-        return allProcessed;
-    }
-  };
-
-  const filteredEpisodes = getFilteredEpisodes();
 
   // Tab配置
   const tabs = [
@@ -57,23 +40,23 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* 头部 */}
-      <div className="px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
+      <div className="px-4 md:px-8 py-4 md:py-6 border-b border-zinc-800 bg-zinc-900/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl">
+            <div className="hidden md:flex w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl">
               <Briefcase size={32} className="text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-white">{t('workspace.title')}</h1>
+              <h1 className="text-xl md:text-3xl font-bold text-white">{t('workspace.title')}</h1>
               <p className="text-zinc-400 text-sm mt-1">
-                {filteredEpisodes.length} {t('workspace.episodes')}
+                {list.pagination.total} {t('workspace.episodes')}
               </p>
             </div>
           </div>
         </div>
 
         {/* Tab筛选 */}
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-4 overflow-x-auto">
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -93,13 +76,13 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
       {/* 列表 */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <ViewToolbar
-          count={`${filteredEpisodes.length} ${t('workspace.episodes')}`}
+          count={`${list.pagination.total} ${t('workspace.episodes')}`}
           description={t('viewToolbar.workspaceDescription')}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
-        />
+        ><ListFilters query={query} onQuery={setQuery} sort={sort} onSort={setSort} readFilter={readFilter} onReadFilter={setReadFilter} /></ViewToolbar>
         {filteredEpisodes.length > 0 ? (
-          <div className={`p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
+          <div className={`p-4 md:p-4 md:p-8 grid ${viewMode === 'list' ? 'grid-cols-1 gap-3' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4'}`}>
             {filteredEpisodes.map(ep => (
               <EpisodeCard
                 key={ep.id}
@@ -112,13 +95,14 @@ const WorkspaceView = ({ episodes, feeds, onEpisodeClick, onPlay, onStar, viewMo
               />
             ))}
           </div>
-        ) : (
+        ) : !list.loading && !list.error ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
             <Briefcase size={48} className="mb-4 text-zinc-700" />
             <p className="text-lg font-medium mb-2">{t('workspace.empty')}</p>
             <p className="text-sm text-zinc-600">{t('workspace.emptyHint')}</p>
           </div>
-        )}
+        ) : null}
+        <ListPagination list={list} />
       </div>
     </div>
   );

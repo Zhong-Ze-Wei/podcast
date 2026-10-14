@@ -1,5 +1,7 @@
 """PDF 以实际 Chrome 字体测量、页数和来源完整性验证，避免只检查模板字符串。"""
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 from unittest.mock import Mock
 
@@ -102,7 +104,7 @@ def test_oversized_quote_is_omitted_whole_with_visible_count():
     quotes = [card for card in cards if card["kind"] == "quote"]
     quotes[0]["quote"] = "很长的一段原话必须完整保留，不能截断给用户错误的印象。" * 300
     report["sections"][0]["items"] = quotes[:3]
-    content = render_report_html(report)
+    content = render_report_html(report, pages=1)
     parser = ReportParser(content)
     assert quotes[0]["id"] not in parser.cards
     assert parser.counts == {"selected": 2, "omitted": 1}
@@ -132,7 +134,7 @@ def test_print_quote_uses_full_labelled_translation_and_links_original():
     card["quote"] = "An exact English source quotation that remains available in the saved transcript."
     card["translation"] = "这段完整的中文译文在纸面上展示，英文原句可以通过节目文稿回看。"
     report["sections"][0]["items"] = [card]
-    content = render_report_html(report)
+    content = render_report_html(report, pages=1)
     assert card["translation"] in content
     assert card["quote"] not in content
     assert "译文 · 原句见节目文稿" in content
@@ -341,8 +343,8 @@ def test_print_style_changes_cache_identity_and_invalid_style_never_opens_browse
     report = example_report("resources")
     paper = render_report_html(report, style="paper")
     newspaper = render_report_html(report, style="newspaper")
-    assert 'class="report-style-paper"' in paper
-    assert 'class="report-style-newspaper"' in newspaper
+    assert 'report-style-paper' in paper
+    assert 'report-style-newspaper' in newspaper
     assert paper != newspaper
     monkeypatch.setattr("app.services.briefing_report_pdf._PrintBrowser", Mock(side_effect=AssertionError("不应启动浏览器")))
     with pytest.raises(ValueError, match="未知报告风格"):
@@ -357,6 +359,102 @@ def test_quote_mode_measures_full_report_instead_of_only_homepage_six_items():
     quotes[6].update(title="", brief="谈具体的工作方法。")
     report.update(mode_report=True, mode="quotes", reading_edition=True,
                   sections=[{"id": "quotes", "items": quotes}])
-    content = render_report_html(report, style="paper")
+    content = render_report_html(report, pages=1, style="paper")
     assert ReportParser(content).counts == {"selected": 1, "omitted": 6}
     assert quotes[6]["quote"] in content
+
+
+@pytest.mark.parametrize("style", ["legacy", "paper", "newspaper"])
+def test_complete_export_keeps_all_items_evidence_translations_and_sources(style, tmp_path):
+    report = example_report("overview")
+    cards = report["sections"][0]["items"]
+    cards[-1].update(title="最后一条也必须完整导出", text="FINALREPORTITEM")
+    cards[0]["evidence"] = [{
+        "source_id": "S10", "episode_id": "episode-9", "quote": "Complete evidence from the second source. EVIDENCEEND",
+        "translation": "第二个来源的原话译文也需要完整保留。", "context": "这段原话的独有完整语境。", "start": 61,
+    }]
+    quote = next(card for card in cards if card["kind"] == "quote")
+    quote.update(quote="The original sentence stays alongside its translation. QUOTEEND", translation="完整中文译文。")
+    report["mode_report"] = True
+    content = render_report_html(report, style=style)
+    parser = ReportParser(content)
+    assert parser.counts == {"selected": len(cards), "omitted": 0}
+    assert set(parser.cards) == {card["id"] for card in cards}
+    assert set(parser.source_index) == {source["id"] for source in report["sources"]}
+    assert quote["translation"] in content and quote["quote"] in content
+    assert all(value in content for value in ("EVIDENCEEND", "独有完整语境", "FINALREPORTITEM"))
+    assert any("episode-9?t=61" in link for link in parser.links)
+    with _PrintBrowser() as browser:
+        browser.set_html(content)
+        columns = browser.command("Runtime.evaluate", {"expression": "getComputedStyle(document.querySelector('.report-content')).columnCount", "returnByValue": True}, session=True)["result"]["value"]
+        # Chrome 的单列 multicol 跨页可能被后续索引遮住，单栏必须用正常文档流。
+        assert columns == ("2" if style == "newspaper" else "auto")
+    pdf = create_report_pdf(report, style=style)
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) > 2
+    _assert_pdf_contains(pdf, tmp_path, ["FINALREPORTITEM", "EVIDENCEEND", "QUOTEEND"])
+
+
+def _assert_pdf_contains(pdf, tmp_path, expected):
+    executable = shutil.which("pdftotext")
+    if executable is None:
+        return  # HTML 和真实页数在所有环境检查；有 Poppler 时额外检查最终 PDF 正文。
+    path = tmp_path / "complete.pdf"
+    path.write_bytes(pdf)
+    result = subprocess.run([executable, "-enc", "UTF-8", str(path), "-"], check=True, capture_output=True)
+    text = result.stdout.decode("utf-8")
+    assert all(value in text for value in expected)
+
+
+@pytest.mark.parametrize("style", ["paper", "newspaper"])
+def test_complete_export_flows_a_single_long_quote_across_pages(style, tmp_path):
+    report = example_report("quotes")
+    quote = next(card for card in report["sections"][0]["items"] if card["kind"] == "quote")
+    quote.update(quote="FIRSTLINE " + ("An exact quotation must survive across printed page boundaries. " * 400) + " LASTLINE",
+                 translation="原文很长也不能从 PDF 中丢掉。")
+    report.update(reading_edition=True, sections=[{"items": [quote]}])
+    content = render_report_html(report, style=style)
+    assert quote["quote"] in content
+    assert ReportParser(content).counts == {"selected": 1, "omitted": 0}
+    pdf = create_report_pdf(report, style=style)
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) > 2
+    _assert_pdf_contains(pdf, tmp_path, ["FIRSTLINE", "LASTLINE"])
+
+
+def test_complete_export_density_is_readable_and_does_not_remove_content():
+    report = example_report("overview")
+    comfortable = create_report_pdf(report, style="paper", density="comfortable")
+    compact = create_report_pdf(report, style="paper", density="compact")
+    assert len(re.findall(rb"/Type\s*/Page\b", compact)) <= len(re.findall(rb"/Type\s*/Page\b", comfortable))
+    content = render_report_html(report, style="paper", density="compact")
+    assert ReportParser(content).counts == {"selected": 48, "omitted": 0}
+    with _PrintBrowser() as browser:
+        browser.set_html(content)
+        size = browser.command("Runtime.evaluate", {"expression": "getComputedStyle(document.querySelector('blockquote')).fontSize", "returnByValue": True}, session=True)["result"]["value"]
+        assert float(size.removesuffix("px")) >= 12
+
+
+def test_complete_empty_report_is_one_page_and_explains_missing_content():
+    report = example_report("overview")
+    report.update(sections=[], sources=[])
+    content = render_report_html(report)
+    assert "这份报告暂无分析内容" in content
+    assert ReportParser(content).counts == {"selected": 0, "omitted": 0}
+    assert len(re.findall(rb"/Type\s*/Page\b", create_report_pdf(report))) == 1
+
+
+def test_complete_episode_export_keeps_children_and_full_quote_context():
+    report = example_report("episodes")
+    episode = report["sections"][0]["items"][0]
+    quote = episode["children"][1]
+    quote.update(quote="A complete original nested inside an episode.", translation="节目内原话的完整译文。",
+                 brief="简短语境。", context="原话的必要条件在完整语境中保留。")
+    report["sections"][0]["items"] = [episode]
+    content = render_report_html(report)
+    assert all(quote[key] in content for key in ("quote", "translation", "brief", "context"))
+    assert {episode["id"], *(child["id"] for child in episode["children"])} == set(ReportParser(content).cards)
+
+
+def test_invalid_density_is_rejected_before_browser_start(monkeypatch):
+    monkeypatch.setattr("app.services.briefing_report_pdf._PrintBrowser", Mock(side_effect=AssertionError("不应启动浏览器")))
+    with pytest.raises(ValueError, match="未知报告密度"):
+        create_report_pdf(example_report("quotes"), density="unreadable")

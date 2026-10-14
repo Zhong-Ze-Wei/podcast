@@ -115,3 +115,4 @@ uv run pytest tests/test_feeds_api.py -v   # 单个模块
 - **某些 RSS 报 403 / 超时**：后端已内置降级（chrome 指纹 → 代理），仍失败多半是源本身拒绝访问。
 - **前端打开是 3000 但你想用 3002**：端口被占时 Vite 自动递增，属正常行为。
 - **uv 缓存权限报错**：设 `UV_CACHE_DIR` 到项目内目录（见 README 故障排查节）。
+- **Docker 起不来，报 `mkdir ...\Docker\run: Cannot create a file when that file already exists`**（连带 Mongo/后端/前端全挂）：`%LOCALAPPDATA%\Docker\run` 被坏符号链接占了位——删掉它再新建同名普通文件夹，重启 Docker Desktop 即可（2026-10-09 实例：删链接后引擎 8 秒就绪）。

@@ -17,10 +17,15 @@ from datetime import datetime
 from ..models.episode import Episode
 from ..models.feed import Feed
 from ..services.task_queue import task_queue
+from ..services.download_service import DownloadService
+from ..services.episode_processing_service import EpisodeProcessingService, ProcessingConflict, ProcessingSubmissionFailed
+from ..services.episode_query_service import EpisodeQueryService
+from ..services.ai_control import is_ai_analysis_enabled
 from ..services.user_episode_state import (
     apply_to_response,
     get_states,
     upsert,
+    unread_count,
     user_filter_condition,
 )
 from ..services.youtube_service import YouTubeService
@@ -67,67 +72,24 @@ def list_episodes():
     db = get_db()
     page, per_page = get_pagination_params()
 
-    # 构建查询条件
-    query = owner_filter()
-
-    # 支持多个状态值 (用逗号分隔: status=transcribing,transcribed)
-    status = request.args.get("status")
-    if status:
-        status_query = _episode_status_query(status)
-        if status_query is not None:
-            query["status"] = status_query
-
-    # 已读/加星是用户个人状态（存 user_episode_states），转为 _id 条件过滤
-    user = current_user()
-    state_condition = user_filter_condition(
-        db,
-        user["id"],
-        is_read=get_bool_param("is_read"),
-        is_starred=get_bool_param("is_starred"),
-    )
-    if state_condition:
-        query.update(state_condition)
-
     feed_id = request.args.get("feed_id")
     if feed_id:
         try:
-            query["feed_id"] = ObjectId(feed_id)
+            feed_id = ObjectId(feed_id)
         except InvalidId:
-            pass
-
-    # 转录/摘要筛选
-    has_transcript = get_bool_param("has_transcript")
-    if has_transcript is not None:
-        query["has_transcript"] = has_transcript
-
-    has_summary = get_bool_param("has_summary")
-    if has_summary is not None:
-        query["has_summary"] = has_summary
-
-    # 查询
-    total = db.episodes.count_documents(query)
-    skip = (page - 1) * per_page
-
-    episodes = list(
-        db.episodes.find(query).sort("published", -1).skip(skip).limit(per_page)
-    )
-
-    # 获取feed标题映射
-    feed_ids = list(set(ep.get("feed_id") for ep in episodes if ep.get("feed_id")))
-    feeds = {f["_id"]: f for f in db.feeds.find(owner_filter({"_id": {"$in": feed_ids}}))}
-
-    # 添加feed_title
-    for ep in episodes:
-        feed = feeds.get(ep.get("feed_id"))
-        ep["feed_title"] = feed.get("title", "") if feed else ""
-
-    states = get_states(db, user["id"], [ep["_id"] for ep in episodes])
-    data = [
-        apply_to_response(Episode.to_response(ep, include_feed_title=True), states.get(ep["_id"]))
-        for ep in episodes
-    ]
-
+            return error_response("Invalid feed ID", "INVALID_ID", 400)
+    service = _query_service(db)
+    try:
+        data, total = service.list(current_user()["id"], request.args, page, per_page, feed_id)
+    except ValueError as error:
+        return error_response(str(error), "INVALID_QUERY", 400)
     return paginated_response(data, page, per_page, total)
+
+
+def _query_service(db):
+    return EpisodeQueryService(db, current_app.config.get("MEDIA_ROOT", "."),
+                               current_app.config.get("TRANSCRIPTION_CLOUD_ENABLED", False), is_ai_analysis_enabled(),
+                               current_user()["role"] in {"user", "admin"})
 
 
 @episodes_bp.route("/<episode_id>", methods=["GET"])
@@ -145,13 +107,7 @@ def get_episode(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    # 获取feed标题
-    feed = db.feeds.find_one(owner_filter({"_id": episode.get("feed_id")}))
-    episode["feed_title"] = feed.get("title", "") if feed else ""
-
-    user_id = current_user()["id"]
-    state = get_states(db, user_id, [oid]).get(oid)
-    return success_response(apply_to_response(Episode.to_response(episode, include_feed_title=True), state))
+    return success_response(_query_service(db).responses([episode], current_user()["id"])[0])
 
 
 @episodes_bp.route("/<episode_id>", methods=["PUT"])
@@ -209,7 +165,7 @@ def star_episode(episode_id):
 
 
 @episodes_bp.route("/<episode_id>/read", methods=["POST"])
-@require_role("user", "admin")
+@require_auth
 def mark_read(episode_id):
     """标记已读/未读（按用户隔离）"""
     db = get_db()
@@ -227,10 +183,15 @@ def mark_read(episode_id):
     user_id = current_user()["id"]
     current_state = get_states(db, user_id, [oid]).get(oid) or {}
     is_read = data.get("is_read", not current_state.get("is_read", False))
+    if not isinstance(is_read, bool):
+        return error_response("is_read must be a boolean", "INVALID_READ_STATE", 400)
 
     upsert(db, user_id, oid, {"is_read": is_read})
 
-    return success_response({"id": episode_id, "is_read": is_read})
+    feed_id = episode.get("feed_id")
+    return success_response({"id": episode_id, "is_read": is_read,
+                             "feed_id": str(feed_id) if feed_id else None,
+                             "unread_count": unread_count(db, user_id, feed_id) if feed_id else None})
 
 
 def _proxy_stream(url, use_proxy=False):
@@ -302,7 +263,7 @@ def stream_episode_audio(episode_id):
 
 
 @episodes_bp.route("/<episode_id>/download", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def download_episode(episode_id):
     """下载单集音频 (异步)"""
     db = get_db()
@@ -316,166 +277,39 @@ def download_episode(episode_id):
     if not episode:
         return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
 
-    # 检查是否可以下载
-    episode_status = episode.get("status", "new")
-    can_redownload_missing_file = (
-        episode_status in [
-            Episode.STATUS_DOWNLOADED,
-            Episode.STATUS_TRANSCRIBED,
-            Episode.STATUS_SUMMARIZED,
-        ]
-        and not _local_audio_file_exists(episode)
-    )
-    if not Episode.can_download(episode_status) and not can_redownload_missing_file:
-        # 如果已经下载过，返回更友好的提示
-        if episode_status in [
-            Episode.STATUS_DOWNLOADED,
-            Episode.STATUS_TRANSCRIBED,
-            Episode.STATUS_TRANSCRIBING,
-            Episode.STATUS_SUMMARIZED,
-            Episode.STATUS_SUMMARIZING,
-        ]:
-            return error_response(
-                "Episode already downloaded", "ALREADY_DOWNLOADED", 400
-            )
-        elif episode_status == Episode.STATUS_DOWNLOADING:
-            return error_response(
-                "Episode is currently downloading", "ALREADY_DOWNLOADING", 400
-            )
-        else:
-            return error_response(
-                "Episode cannot be downloaded in current state", "INVALID_STATE", 400
-            )
+    processing = EpisodeProcessingService(db, task_queue)
+    dedup_key = f"download:{oid}"
+    try:
+        existing = processing.active_task_id(oid, "download", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued"})
 
-    # 检查是否有进行中的任务
-    existing_task = db.tasks.find_one(
-        {
-            "episode_id": str(oid),
-            "owner_id": current_owner_id(),
-            "task_type": "download",
-            "status": {"$in": ["pending", "processing"]},
-        }
-    )
-    if existing_task:
-        return error_response(
-            "Download task already in progress", "TASK_IN_PROGRESS", 409
-        )
+    if _local_audio_file_exists(episode):
+        return error_response("Episode already downloaded", "ALREADY_DOWNLOADED", 400)
+    if not episode.get("audio_url") and not episode.get("guid", "").startswith(("youtube:", "bilibili:")):
+        return error_response("No downloadable audio available", "NO_AUDIO_URL", 400)
 
     # 提交下载任务
     def do_download(progress_callback=None):
         return _download_episode_sync(str(oid), progress_callback)
 
-    task_id = task_queue.submit(
-        task_type="download", func=do_download, episode_id=str(oid), owner_id=current_owner_id()
-    )
-
-    # 更新状态为下载中
-    db.episodes.update_one(
-        owner_filter({"_id": oid}), {"$set": {"status": Episode.STATUS_DOWNLOADING}}
-    )
+    try:
+        task_id = processing.submit(
+            episode, "download", dedup_key, do_download, current_owner_id(),
+            on_failure=lambda error: DownloadService(db).restore_episode_status(str(oid), error),
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({"task_id": task_id, "status": "queued"})
 
 
 def _download_episode_sync(episode_id: str, progress_callback=None):
-    """同步执行下载"""
-    import os
-    import requests
-    from ..config import Config
-
-    # 限制最大下载文件大小 (500MB)
-    MAX_FILE_SIZE = 500 * 1024 * 1024
-
-    db = get_db()
-    oid = ObjectId(episode_id)
-
-    episode = db.episodes.find_one({"_id": oid})
-    if not episode:
-        raise ValueError("Episode not found")
-
-    audio_url = episode.get("audio_url")
-    if not audio_url:
-        raise ValueError("No audio URL")
-
-    if progress_callback:
-        progress_callback(10)
-
-    # 创建保存目录
-    feed_id = str(episode.get("feed_id"))
-    save_dir = os.path.join(Config.MEDIA_ROOT, "audio", feed_id)
-    os.makedirs(save_dir, exist_ok=True)
-
-    # 生成文件名
-    ext = ".mp3"
-    if "m4a" in audio_url.lower():
-        ext = ".m4a"
-    elif "wav" in audio_url.lower():
-        ext = ".wav"
-    elif "ogg" in audio_url.lower():
-        ext = ".ogg"
-
-    filename = f"{episode_id}{ext}"
-    filepath = os.path.join(save_dir, filename)
-
-    # 下载文件
-    # 部分 CDN（如 Acast sphinx）会拒绝 python-requests 默认 User-Agent，
-    # 需要模拟标准播客客户端
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (compatible; PodcastManager/1.0; "
-            "+https://github.com/podcast-manager)"
-        )
-    }
-    response = requests.get(audio_url, stream=True, timeout=300, headers=headers)
-    response.raise_for_status()
-
-    total_size = int(response.headers.get("content-length", 0))
-
-    # 检查文件大小限制
-    if total_size > MAX_FILE_SIZE:
-        raise ValueError(
-            f"File too large: {total_size / 1024 / 1024:.1f}MB (max {MAX_FILE_SIZE / 1024 / 1024}MB)"
-        )
-
-    downloaded = 0
-
-    with open(filepath, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-                downloaded += len(chunk)
-
-                # 实时检查大小限制
-                if downloaded > MAX_FILE_SIZE:
-                    os.remove(filepath)
-                    raise ValueError(
-                        f"Download exceeded maximum size of {MAX_FILE_SIZE / 1024 / 1024}MB"
-                    )
-
-                if total_size > 0 and progress_callback:
-                    progress = 10 + int(80 * downloaded / total_size)
-                    progress_callback(min(progress, 90))
-
-    if progress_callback:
-        progress_callback(95)
-
-    # 更新episode状态
-    relative_path = os.path.join("audio", feed_id, filename)
-    db.episodes.update_one(
-        {"_id": oid},
-        {
-            "$set": {
-                "status": Episode.STATUS_DOWNLOADED,
-                "local_path": relative_path,
-                "updated_at": datetime.utcnow(),
-            }
-        },
-    )
-
-    if progress_callback:
-        progress_callback(100)
-
-    return {"local_path": relative_path}
+    return DownloadService(get_db()).download(episode_id, progress_callback)
 
 
 def _episode_status_query(status: str):
