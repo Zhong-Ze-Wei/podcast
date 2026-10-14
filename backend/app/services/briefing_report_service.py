@@ -107,11 +107,16 @@ def validate_extraction(data, chunk, skip_invalid=False):
 
 
 class BriefingReportService:
-    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None, corpus=None):
+    def __init__(self, runtime_dir=None, lab_runtime_dir=None, client_factory=None, owner_id=None, corpus=None, db=None):
         self.root = Path(runtime_dir) if runtime_dir else RUNTIME_DIR
         self.lab = BriefingLabService(runtime_dir=lab_runtime_dir, client_factory=client_factory, owner_id=owner_id)
         self.owner_id = owner_id
         self._corpus = corpus
+        from flask import current_app, has_app_context
+        from .briefing_store import BriefingStore
+        if db is None and has_app_context():
+            db = getattr(current_app, "db", None)
+        self.store = BriefingStore(self.root, db, owner_id)
 
     def corpus(self):
         return self._corpus if self._corpus is not None else self.lab.corpus()
@@ -239,24 +244,14 @@ class BriefingReportService:
         return sources
 
     def report(self, report_id):
-        if not re.fullmatch(r"[a-f0-9]{32}", report_id):
-            return None
-        path = self.root / "reports" / f"{report_id}.json"
-        if not path.exists():
-            from .briefing_reading_service import BriefingReadingService
-            from .briefing_modes_service import BriefingModesService
-            edition = BriefingReadingService(owner_id=self.owner_id, report_service=self).report(report_id)
-            return edition or BriefingModesService(owner_id=self.owner_id, report_service=self).report(report_id)
-        report = read_json(path)
-        return report if report.get("owner_id") in (None, self.owner_id) else None
+        return self.store.report(report_id)
 
     def snapshot(self):
         corpus = self.corpus()
         identifier = corpus_id(corpus)
         reports = []
         sources = self._metadata(corpus)
-        for path in (self.root / "reports").glob("*.json"):
-            report = self.report(path.stem)
+        for report in self.store.reports("reports"):
             if report is not None and report["corpus_id"] == identifier:
                 # 封面属于展示元数据，读取时补齐，不重新分析正文。
                 report["sources"] = sources
@@ -421,7 +416,7 @@ class BriefingReportService:
             if external and "backgrounds" in interests:
                 sections.append({"id": "external-backgrounds", "title": "补充背景 · 联网资料", "kind": "background", "items": external})
             report = {"id": uuid.uuid4().hex, "owner_id": self.owner_id, "corpus_id": identifier, "variant": layout["id"], "topic": topic, "interests": interests, "generated_at": now_iso(), "title": layout["name"] + (f" · {topic}" if topic else ""), "coverage": {"sources": len(sources), "chunks": extraction["total_chunks"], "characters": sum(len(source["full_text"]) for source in corpus["sources"])}, "sections": sections, "sources": sources, "web_mode": web_mode, "usage": zero_usage(), "extraction_usage": extraction["usage"], "model": " / ".join(extraction["models"]), "extraction_version": EXTRACTION_VERSION}
-            write_json(self.root / "reports" / f"{report['id']}.json", report)
+            self.store.publish(report, "reports")
             reports.append(report)
             if progress_callback:
                 progress_callback((85 + int(index / len(selected_variants) * 15), f"已编排：{layout['name']}"))

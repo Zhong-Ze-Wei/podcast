@@ -8,24 +8,11 @@ import { Clock, Download, HardDrive, Mic2, FileText, Sparkles, CheckCircle2, Ale
  *
  * 根据节目状态显示对应的徽章样式和图标
  */
-const StatusBadge = ({ status, hasTranscript, hasSummary }) => {
+const StatusBadge = ({ hasTranscript, hasSummary, hasLocalAudio }) => {
   const { t } = useTranslation();
 
   // 根据实际内容状态修正显示
-  let displayStatus = status;
-
-  // 如果有摘要，显示summarized
-  if (hasSummary) {
-    displayStatus = 'summarized';
-  }
-  // 如果有转录但没有摘要，显示transcribed
-  else if (hasTranscript) {
-    displayStatus = 'transcribed';
-  }
-  // 如果status是summarized但没有实际摘要，显示transcribed或new
-  else if (status === 'summarized' && !hasSummary) {
-    displayStatus = hasTranscript ? 'transcribed' : 'new';
-  }
+  const displayStatus = hasSummary ? 'summarized' : hasTranscript ? 'transcribed' : hasLocalAudio ? 'downloaded' : 'new';
 
   const styles = {
     new: 'bg-zinc-800 text-zinc-400 border-zinc-700',

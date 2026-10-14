@@ -4,6 +4,20 @@ from types import SimpleNamespace
 import pytest
 
 
+def test_reading_effort_is_light_only_for_supported_flash(monkeypatch):
+    from app.services.llm_client import reading_request_options
+    assert reading_request_options("DeepSeek-V4.1-Flash") == {"reasoning_effort": "low"}
+    assert reading_request_options("test-model") == {}
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="DeepSeek-V4.1-Flash")
+    captured = {}
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok":true}'), finish_reason="stop")], usage=None)
+    monkeypatch.setattr(client.client.chat.completions, "create", create)
+    client.chat(messages=[{"role": "user", "content": "Read"}], **reading_request_options(client.model))
+    assert captured["reasoning_effort"] == "low"
+
+
 def _chat_result(content, completion):
     return {
         "content": content,
@@ -91,7 +105,8 @@ def test_openai_compatible_client_uses_openai_sdk(monkeypatch):
     }
 
 
-def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch):
+@pytest.mark.parametrize("reasoning_effort", [None, "low"])
+def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch, reasoning_effort):
     requests = {}
 
     class FakeResponse:
@@ -128,6 +143,7 @@ def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch):
         max_tokens=32,
         temperature=0.1,
         json_mode=True,
+        reasoning_effort=reasoning_effort,
     )
 
     assert requests["url"] == "https://api.anthropic.com/v1/messages"
@@ -137,6 +153,10 @@ def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch):
     assert requests["json"]["messages"] == [{"role": "user", "content": "Ping"}]
     assert requests["json"]["max_tokens"] == 32
     assert requests["json"]["temperature"] == 0.1
+    if reasoning_effort is not None:
+        assert requests["json"]["output_config"]["effort"] == "low"
+    else:
+        assert "output_config" not in requests["json"]
     assert result["content"] == "{\"ok\": true}"
     assert result["usage"] == {"prompt": 3, "completion": 4, "total": 7}
 
@@ -180,3 +200,31 @@ def test_empty_anthropic_response_preserves_usage_and_finish_reason(monkeypatch)
     assert error.value.response["content"] == ""
     assert error.value.response["usage"]["total"] == 30
     assert error.value.response["finish_reason"] == "max_tokens"
+
+
+@pytest.mark.parametrize("top_level", [False, True])
+def test_cache_reasoning_and_provider_usage_are_preserved(monkeypatch, top_level):
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20, total_tokens=120,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=80),
+        completion_tokens_details=None if top_level else SimpleNamespace(reasoning_tokens=12))
+    if top_level:
+        usage.reasoning_tokens = 0
+        usage.prompt_cache_hit_tokens = 90
+        usage.prompt_cache_miss_tokens = 10
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok":true}'), finish_reason="stop")], usage=usage, provider="test-provider")
+    monkeypatch.setattr(client.client.chat.completions, "create", lambda **kwargs: response)
+    result = client.chat(messages=[{"role": "user", "content": "read"}])
+    assert result["usage"]["cached_tokens"] == (90 if top_level else 80)
+    assert result["usage"]["reasoning_tokens"] == (0 if top_level else 12)
+    assert result["provider"] == "test-provider"
+    assert result["visible_output_characters"] == 11
+
+
+def test_unknown_cache_usage_is_not_reported_as_zero(monkeypatch):
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2, total_tokens=12))
+    monkeypatch.setattr(client.client.chat.completions, "create", lambda **kwargs: response)
+    result = client.chat(messages=[])
+    assert "cached_tokens" not in result["usage"] and "reasoning_tokens" not in result["usage"]

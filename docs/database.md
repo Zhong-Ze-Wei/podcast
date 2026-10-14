@@ -8,6 +8,7 @@
 ```mermaid
 erDiagram
     users ||--o{ user_episode_states : "个人状态"
+    users ||--o{ user_feed_states : "查看订阅更新"
     feeds ||--o{ episodes : "feed_id"
     episodes ||--o| transcripts : "episode_id"
     episodes ||--o{ summaries : "episode_id"
@@ -21,7 +22,7 @@ erDiagram
     }
 ```
 
-共享库原则：feeds / episodes / transcripts / summaries 全员可读，`owner_id` 只做归属记录；用户维度的数据只有 `users` 和 `user_episode_states` 两张。
+共享库原则：feeds / episodes / transcripts / summaries 全员可读，`owner_id` 只做归属记录；个人数据包括 `users`、`user_episode_states`、`user_feed_states`、个人简报索引与收藏。共享内容任务全员可读，个人简报任务按 owner 隔离。
 
 ---
 
@@ -35,6 +36,10 @@ erDiagram
 | `role` | string | `admin` / `user` / `viewer` |
 | `status` | string | `pending`（注册默认，等审批）/ `active` / `disabled` |
 | `created_at` / `updated_at` / `last_login_at` | datetime | `last_login_at` nullable |
+| `briefing_interests` | array | 个人关注话题 `[{label, enabled}]` |
+| `briefing_auto_period` | string | nullable；自动简报周期 `week` / `month` |
+| `briefing_auto_enabled_at` | datetime | nullable；启用自动简报的时间 |
+| `briefing_layout` | string | 个人阅读布局，限定为 space/large/list/columns/paper/newspaper/notes |
 
 **索引**: `email` unique, `role`, `status`
 
@@ -82,6 +87,7 @@ erDiagram
 | `image` / `chapters_url` / `transcript_url` | | nullable |
 | `status` | string | 状态机：`new` → `downloading` → `downloaded` → `transcribing` → `transcribed` → `summarizing` → `summarized`（或 `error`） |
 | `local_path` / `audio_path` | string | nullable；下载后的本地文件（读取时两者都兼容） |
+| `has_local_audio` | bool | 下载成功后的本地音频标记；旧记录兼容已有路径，响应产物仍验证文件存在 |
 | `is_read` / `is_starred` / `play_position` | | **弃用**：个人状态迁至 `user_episode_states`，旧值仅历史保留 |
 | `popularity_score` | int | |
 | `has_transcript` / `has_summary` | bool | 完成标记，列表过滤用（有索引） |
@@ -108,7 +114,22 @@ erDiagram
 
 **索引**: `(user_id, episode_id)` unique, `episode_id`
 
-写入要求 user/admin 角色（viewer 只读）。订阅列表未读数、`?is_read=` 等过滤都基于本集合按请求用户计算。
+打开单集详情成功后自动记录 `is_read=true`，包括 viewer；收藏与播放进度的写入要求 user/admin。`?is_read=` 过滤基于本集合按请求用户计算。进入订阅不会把全部单集批量设成已读。
+
+## user_feed_states
+
+订阅的紫点表示新更新是否被当前用户查看过，独立于单集已读状态（`services/user_feed_state.py`）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | string | users._id 字符串 |
+| `feed_id` | ObjectId | 订阅源 |
+| `last_seen_episode_id` | ObjectId | 最近一次成功加载时的最大入库 ID，原子 `$max` 更新，只前进 |
+| `last_viewed_at` | datetime | 最近确认查看的时间 |
+
+**索引**: `(user_id, feed_id)` unique；episodes 的 `(feed_id, _id desc)` 用于取得更新版本。
+
+成功加载订阅节目列表后，前端自动确认该次加载的 `meta.latest_episode_id`。新入库节目 ID 大于已确认版本时返回 `has_unseen_updates=true`。不依赖节目发布时间或总数量，其他用户的查看记录互不影响。空订阅无更新点；后台查询不修改查看记录。
 
 ---
 
@@ -166,7 +187,10 @@ B站字幕入库前过四重校验（时间轴/密度/字数/标题词窗）+ �
 | `task_id` | string | UUID |
 | `task_type` | string | `download` / `transcribe` / `summarize` / `translate` / `refresh` |
 | `episode_id` / `feed_id` / `owner_id` | | nullable 关联 |
-| `status` | string | `pending` → `processing` → `completed` / `failed` |
+| `status` | string | `pending` → `processing` → `completed` / `failed`；排队真实取消为 `cancelled` |
+| `dedup_key` | string | nullable；本进程同一业务参数活动任务的复用键，不传给 worker |
+| `report_period` | object | nullable；简报周期 `{type:week\|month,start:YYYY-MM-DD}`，用于刷新页面后恢复任务 |
+| `report_context` | object | nullable；后端登记的kind、mode/source_id；区分内容报告和单篇解读，不传给worker |
 | `progress` | int | 0–100 |
 | `progress_message` | string | nullable；人话进度（"频道名 · 拉取字幕 2/25"） |
 | `result` / `error_message` | | nullable |
@@ -175,6 +199,38 @@ B站字幕入库前过四重校验（时间轴/密度/字数/标题词窗）+ �
 **索引**: `task_id` unique, `owner_id`, `status`, `episode_id`, `created_at`, `completed_at`（**TTL 7 天**，完成态自动清理）
 
 后端重启会把孤儿 running 任务标记为"请重试"，不永久卡住。
+
+排队取消后按已保存音频、文稿和摘要恢复节目状态；终态不能被后续进度覆盖。`can_cancel` 是API根据活跃Future、角色和任务归属计算的展示能力，不持久化。
+
+## briefing_reports
+
+完整报告正文保存在 `backend/.runtime/briefing-reports/` 的不可变 UUID JSON 中，MongoDB 只登记历史元数据。`reports`、`content-modes-v1/reports`、`reading-v*/editions` 进入历史；`reading-v*/sources` 保留旧片段解读兼容。
+
+实际单篇全文分析统一保存在 `episode-analysis/<key>.json`，单篇/周报/月报共用。key由正文SHA-256、提示词与结构版本、模型endpoint及生成参数构成，不包含用户、周期、兴趣。记录包括核心摘要、议题/回答/条件、逐字原话及偏移、概念方法、资料、usage与生成时间；音频时间可空。以系统文件锁协调并发，成功后原子写入；读取时重新绑定可见节目的元数据。缓存不是用户私有报告，个人兴趣、周期结果和收藏仍按各自owner隔离。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `report_id` / `id` | string | 报告 UUID，`report_id` 为唯一索引键 |
+| `owner_id` | string/null | 个人归属；null 为旧共享报告，不自动认领 |
+| `path` | string | 相对于报告根目录的文件路径，使用 POSIX 分隔符 |
+| `generated_at` | string | ISO生成时间 |
+| `title` / `mode` / `variant` / `topic` | string | 报告元数据，按报告类型存在 |
+| `period` / `coverage` | object | 周/月范围与材料覆盖 |
+| `corpus_id` / `selection_key` | string | 材料与选择指纹 |
+
+**索引**：`report_id` unique，`(owner_id,generated_at desc,report_id desc)`，`(owner_id,period.type,period.start,generated_at desc)`。无 TTL；历史不依赖 tasks 集合。文件完整发布后登记索引，历史读取可幂等补建索引。备份需同时保存 MongoDB 与报告文件目录。
+
+## briefing_favorites
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `owner_id` / `item_id` | string/null | 账号与稳定条目ID，组合唯一 |
+| `report_id` | string | 可访问来源报告 |
+| `item` | object | 后端从来源报告提取的不可变内容快照 |
+| `report` | object | 标题、模式、周期、来源与时间快照 |
+| `created_at` | string | ISO收藏时间 |
+
+**索引**：`(owner_id,item_id)` unique，`(owner_id,created_at desc,item_id desc)`。无 TTL，跨周期分页读取。首次收藏快照保留，重复PUT幂等；旧浏览器ID不能唯一匹配可信来源时返回 unresolved 并保留旧记录。
 
 ---
 

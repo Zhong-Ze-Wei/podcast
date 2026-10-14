@@ -30,6 +30,10 @@
     "episodeDescription": "节目简介",
     "quickNavigation": "快速切换节目"
   },
+  "briefing": {
+    "reportInfo": "报告说明",
+    "savedVersion": "正在阅读 {{date}} 保存的报告。关注话题、材料或分析配置已变化；已有内容和出处仍保留，可在需要时生成新版本。"
+  },
   "app": {
     "title": "PodMaster"
   },
@@ -53,6 +57,7 @@
     "addPodcast": "添加播客",
     "favorites": "我的喜欢",
     "workspace": "工作台",
+    "recent": "最近更新",
     "settings": "设置"
   },
   "feed": {
@@ -78,6 +83,12 @@
     }
   },
   "feedDetail": {
+    "syncStarted": "正在更新节目列表，新节目会自动显示。",
+    "bilibiliAutoPaused": "B 站自动更新已暂停，可手动刷新。",
+    "fetchingTranscripts": "视频列表已可阅读，文稿正在后台逐期补齐。",
+    "checkingVideos": "正在获取最新视频，列表会自动更新…",
+    "noMatches": "没有符合筛选条件的节目。",
+    "noEpisodes": "尚未获取到节目，可点击刷新检查。",
     "playLatest": "播放最新",
     "visitWebsite": "访问官网",
     "showMore": "展开更多",
@@ -85,13 +96,7 @@
     "lastUpdated": "最后更新",
     "subscribedAt": "订阅时间",
     "allEpisodes": "全部节目",
-    "toggleStar": "收藏/取消收藏",
-    "syncStarted": "正在更新节目列表，新节目会自动显示。",
-    "bilibiliAutoPaused": "B 站自动更新已暂停，可手动刷新。",
-    "fetchingTranscripts": "视频列表已可阅读，文稿正在后台逐期补齐。",
-    "checkingVideos": "正在获取最新视频，列表会自动更新…",
-    "noMatches": "没有符合筛选条件的节目。",
-    "noEpisodes": "尚未获取到节目，可点击刷新检查。"
+    "toggleStar": "收藏/取消收藏"
   },
   "episode": {
     "library": "你的收藏库",
@@ -198,6 +203,22 @@
     "empty": "还没有转录的节目",
     "emptyHint": "下载音频后点击AI转录按钮可以生成转录"
   },
+  "reading": {
+    "read": "已读",
+    "unread": "未读",
+    "all": "全部状态",
+    "filter": "阅读状态",
+    "saveFailed": "查看记录未能保存。",
+    "unseenUpdates": "有未查看的更新"
+  },
+  "recent": {
+    "title": "最近更新",
+    "description": "查看所有订阅最近 {{days}} 天发布的节目。",
+    "count": "{{count}} 个节目",
+    "days": "最近天数",
+    "apply": "应用",
+    "empty": "最近 {{days}} 天内没有符合筛选条件的节目。"
+  },
   "workspace": {
     "title": "工作台",
     "episodes": "个节目",
@@ -225,10 +246,20 @@
     "clearCompleted": "清除已完成",
     "cancel": "取消",
     "dismiss": "关闭",
+    "cancelRequested": "正在取消",
+    "cancelError": "取消未成功，请重试。",
+    "loadError": "任务状态暂时无法读取，正在重试。",
     "openPanel": "打开任务",
     "closePanel": "关闭任务",
     "resizePanel": "调整任务面板大小",
     "openTarget": "打开关联的节目或订阅",
+    "singleReading": "单篇 AI 解读",
+    "weeklyBriefing": "AI 周报",
+    "monthlyBriefing": "AI 月报",
+    "openReading": "查看这期解读",
+    "openBriefing": "查看简报",
+    "openEpisode": "查看这期节目",
+    "openFeed": "查看订阅",
     "targetDeleted": "关联内容已不存在",
     "unknownEpisode": "节目",
     "unknownFeed": "订阅",
@@ -256,20 +287,14 @@
       "daysAgo": "{{count}} 天前"
     },
     "types": {
+      "fetch_transcripts": "补齐节目资料",
       "briefing-report": "生成 AI 简报",
       "briefing-lab": "简报分析",
       "download": "下载音频",
       "transcribe": "AI转录",
       "summarize": "生成摘要",
       "refresh": "刷新订阅",
-      "fetch_transcripts": "补齐节目资料",
       "subscribe": "添加订阅"
-    },
-    "status": {
-      "pending": "等待中",
-      "processing": "处理中",
-      "completed": "已完成",
-      "failed": "失败"
     },
     "progress": {
       "videos": "视频列表已更新：新增 {{count}} 期",
@@ -281,12 +306,25 @@
       "subscriptionSaved": "订阅已保存，正在获取频道封面",
       "subscriptionDone": "订阅已添加，正在后台更新节目"
     },
+    "status": {
+      "pending": "等待中",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消"
+    },
     "retrySubscription": "重试添加"
   },
   "settings": {
     "title": "设置",
     "accountTab": "账号",
     "llmTab": "AI 配置",
+    "biliSessdataPlaceholder": "粘贴新 SESSDATA（浏览器 F12 → Application → Cookies → SESSDATA，整段含 %2C 复制）",
+    "biliSessdataSave": "保存并验证",
+    "biliSessdataVerifying": "验证中…",
+    "biliSessdataSaved": "SESSDATA 已更新并验证通过（{{value1}}），B站订阅刷新已恢复",
+    "biliSessdataInvalid": "验证未通过：请确认复制的是登录 bilibili.com 后的最新 SESSDATA",
+    "biliSessdataHowTo": "获取方法：bilibili.com 登录后按 F12 → Application（应用）→ Cookies → SESSDATA，整段复制粘贴到上面，保存即生效",
     "templatesTab": "摘要模板",
     "appTab": "应用设置",
     "templatesDesc": "管理摘要生成时使用的提示词模板。",
@@ -368,8 +406,8 @@
     },
     "app": {
       "description": "应用行为和任务面板偏好会保存在当前浏览器。",
-      "autoRefreshTitle": "自动刷新订阅内容",
-      "autoRefreshDescription": "定时刷新订阅源和单集状态，适合下载、转录和摘要任务运行时保持页面同步。",
+      "autoRefreshTitle": "自动更新页面数据",
+      "autoRefreshDescription": "定时读取后端已保存的订阅和节目结果。订阅内容抓取由后端自动同步或订阅上的刷新操作负责。",
       "taskPollTitle": "任务状态轮询",
       "taskPollDescription": "控制右下角任务旋钮和任务中心检查进度的频率。值越小越实时，值越大越省资源。",
       "taskHistoryTitle": "任务历史范围",

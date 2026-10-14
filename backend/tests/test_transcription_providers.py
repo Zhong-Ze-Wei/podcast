@@ -44,7 +44,7 @@ def test_auto_provider_without_official_transcript_does_not_queue_cloud_task(mon
     monkeypatch.setattr(transcripts, "get_db", lambda: db)
     monkeypatch.setattr(
         transcripts.task_queue,
-        "submit",
+        "submit_unique",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cloud task should not be queued")),
     )
 
@@ -80,7 +80,7 @@ def test_official_provider_queues_transcribe_task(monkeypatch):
         submitted.update(kwargs)
         return "task-1"
 
-    monkeypatch.setattr(transcripts.task_queue, "submit", fake_submit)
+    monkeypatch.setattr(transcripts.task_queue, "submit_unique", fake_submit)
 
     with app.test_request_context(f"/api/transcripts/{episode_id}", method="POST", json={"provider": "official"}):
         response, status_code = transcripts.create_transcript(str(episode_id))
@@ -119,7 +119,7 @@ def test_local_whisperx_provider_can_be_queued_when_local_audio_exists(monkeypat
         submitted.update(kwargs)
         return "task-whisperx"
 
-    monkeypatch.setattr(transcripts.task_queue, "submit", fake_submit)
+    monkeypatch.setattr(transcripts.task_queue, "submit_unique", fake_submit)
 
     with app.test_request_context(f"/api/transcripts/{episode_id}", method="POST", json={"provider": "local_whisperx"}):
         response, status_code = transcripts.create_transcript(str(episode_id))
@@ -144,7 +144,7 @@ def test_create_transcript_accepts_language_hint(monkeypatch, tmp_path):
         submitted.update(kwargs)
         return "task-zh"
 
-    monkeypatch.setattr(transcripts.task_queue, "submit", fake_submit)
+    monkeypatch.setattr(transcripts.task_queue, "submit_unique", fake_submit)
 
     with app.test_request_context(
         f"/api/transcripts/{episode_id}",

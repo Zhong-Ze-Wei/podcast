@@ -71,7 +71,8 @@ export const feedsApi = {
   delete: (id) => api.delete(`/feeds/${id}`),
   refresh: (id) => api.post(`/feeds/${id}/refresh`),
   favorite: (id, favorite) => api.post(`/feeds/${id}/favorite`, { favorite }),
-  getEpisodes: (id, params = {}) => api.get(`/feeds/${id}/episodes`, { params })
+  getEpisodes: (id, params = {}) => api.get(`/feeds/${id}/episodes`, { params }),
+  recordView: (id, latestEpisodeId) => api.post(`/feeds/${id}/view`, { latest_episode_id: latestEpisodeId })
 };
 
 // Auth API
@@ -87,19 +88,25 @@ export const briefingReportsApi = {
   generateModes: (options) => api.post('/briefing-reports/modes/generate', options),
   preferences: () => api.get('/briefing-reports/preferences'),
   savePreferences: (options) => api.put('/briefing-reports/preferences', options),
+  favorites: (params = {}) => api.get('/briefing-reports/favorites', { params }),
+  favorite: (itemId, reportId) => api.put(`/briefing-reports/favorites/${encodeURIComponent(itemId)}`, { report_id: reportId }),
+  unfavorite: (itemId) => api.delete(`/briefing-reports/favorites/${encodeURIComponent(itemId)}`),
+  importFavorites: (ids) => api.post('/briefing-reports/favorites/import', { ids }),
   source: (sourceId) => api.get(`/briefing-reports/sources/${sourceId}`),
   edition: () => api.get('/briefing-reports/edition'),
   generateEdition: (options) => api.post('/briefing-reports/edition/generate', options),
   reading: (sourceId) => api.get(`/briefing-reports/reading/${sourceId}`),
-  generateReading: (sourceId) => api.post(`/briefing-reports/reading/${sourceId}/generate`),
+  generateReading: (sourceId, options) => api.post(`/briefing-reports/reading/${sourceId}/generate`, options),
+  // 原文依据（逐字英文引文）按需中译，后端按引文哈希缓存
+  translateEvidence: (sourceId, quotes) => api.post(`/briefing-reports/reading/${sourceId}/translate-evidence`, { quotes }),
   snapshot: () => api.get('/briefing-reports'),
   generate: (options) => api.post('/briefing-reports/generate', options),
   task: (id) => api.get(`/briefing-reports/tasks/${id}`),
-  html: (id, pages, style = 'legacy') => api.get(`/briefing-reports/reports/${id}/html`, {
-    params: { pages, style }, responseType: 'text'
+  html: (id, pages = 'all', style = 'legacy', density = 'comfortable') => api.get(`/briefing-reports/reports/${id}/html`, {
+    params: { pages, style, density }, responseType: 'text'
   }),
-  pdf: (id, pages, style = 'legacy') => api.get(`/briefing-reports/reports/${id}/pdf`, {
-    params: { pages, style }, responseType: 'blob'
+  pdf: (id, pages = 'all', style = 'legacy', density = 'comfortable') => api.get(`/briefing-reports/reports/${id}/pdf`, {
+    params: { pages, style, density }, responseType: 'blob'
   })
 };
 
@@ -120,10 +127,10 @@ export const adminApi = {
 // Episodes API
 export const episodesApi = {
   list: (params = {}) => api.get('/episodes', { params }),
-  listTranscribed: () => api.get('/episodes', { params: { status: 'downloading,downloaded,transcribing,transcribed,summarizing,summarized', per_page: 1000 } }),
   get: (id) => api.get(`/episodes/${id}`),
   update: (id, data) => api.put(`/episodes/${id}`, data),
   star: (id, starred) => api.post(`/episodes/${id}/star`, { starred }),
+  read: (id, isRead) => api.post(`/episodes/${id}/read`, { is_read: isRead }),
   download: (id) => api.post(`/episodes/${id}/download`),
   // <audio> 标签带不了 Authorization 头，流地址经 query 参数携带令牌
   getStreamUrl: (id) => `${API_BASE}/episodes/${id}/stream?token=${getAuthToken()}`
@@ -172,6 +179,8 @@ export const settingsApi = {
   fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
   getAiAnalysis: () => api.get('/settings/ai-analysis'),
   getBilibiliStatus: () => api.get('/settings/bilibili-status'),
+  // 在线更新 B站登录态：立即生效并持久化 .env，返回实时验证结果
+  updateBilibiliSessdata: (sessdata) => api.put('/settings/bilibili-sessdata', { sessdata }),
   setAiAnalysis: (enabled) => api.put('/settings/ai-analysis', { enabled }),
 };
 

@@ -8,10 +8,13 @@ from flask import Blueprint, request
 from bson import ObjectId
 from bson.errors import InvalidId
 import logging
+import hashlib
+import json
 
 from ..models.episode import Episode
 from ..models.summary import Summary
 from ..services.task_queue import task_queue
+from ..services.episode_processing_service import EpisodeProcessingService, ProcessingConflict, ProcessingSubmissionFailed
 from ..services.summary_service import get_summary_service
 from ..services.ai_control import AI_DISABLED_MESSAGE, is_ai_analysis_enabled
 from .utils import success_response, error_response
@@ -66,7 +69,7 @@ def get_summary(episode_id):
 
 
 @summaries_bp.route("/<episode_id>", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def create_summary(episode_id):
     """
     创建摘要任务（异步）。
@@ -97,6 +100,16 @@ def create_summary(episode_id):
     params = data.get("params", {})
     force = data.get("force", False)
 
+    options = json.dumps({"template_name": template_name, "enabled_blocks": enabled_blocks, "params": params, "force": force}, sort_keys=True, separators=(",", ":"))
+    dedup_key = f"summarize:{oid}:{hashlib.sha256(options.encode()).hexdigest()}"
+    processing = EpisodeProcessingService(db, task_queue)
+    try:
+        existing = processing.active_task_id(oid, "summarize", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued", "template_name": template_name, "message": "Summary generation started"})
+
     # 检查转录
     transcript = db.transcripts.find_one(owner_filter({"episode_id": oid}))
     if not transcript or not transcript.get("text"):
@@ -117,16 +130,6 @@ def create_summary(episode_id):
                 "SUMMARY_EXISTS", 409
             )
 
-    # 检查进行中的任务
-    existing_task = db.tasks.find_one({
-        "episode_id": str(oid),
-        "owner_id": current_owner_id(),
-        "task_type": "summarize",
-        "status": {"$in": ["pending", "processing"]}
-    })
-    if existing_task:
-        return error_response("Summarize task already in progress", "TASK_IN_PROGRESS", 409)
-
     # 提交任务
     def do_summarize(progress_callback=None):
         return _summarize_sync(
@@ -138,17 +141,15 @@ def create_summary(episode_id):
             progress_callback=progress_callback
         )
 
-    task_id = task_queue.submit(
-        task_type="summarize",
-        func=do_summarize,
-        episode_id=str(oid),
-        owner_id=current_owner_id()
-    )
-
-    db.episodes.update_one(
-        owner_filter({"_id": oid}),
-        {"$set": {"status": Episode.STATUS_SUMMARIZING}}
-    )
+    try:
+        task_id = processing.submit(
+            episode, "summarize", dedup_key, do_summarize, current_owner_id(),
+            on_failure=lambda error: processing.restore_status(oid, "summarize", error),
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({
         "task_id": task_id,
@@ -226,7 +227,7 @@ def _summarize_sync(
 
 
 @summaries_bp.route("/<episode_id>/translate", methods=["POST"])
-@require_auth
+@require_role("user", "admin")
 def translate_summary(episode_id):
     """
     翻译摘要为中文。
@@ -262,19 +263,36 @@ def translate_summary(episode_id):
             "summary": Summary.to_response(summary, template)
         })
 
+    episode = db.episodes.find_one(owner_filter({"_id": oid}))
+    if not episode:
+        return error_response("Episode not found", "EPISODE_NOT_FOUND", 404)
+    processing = EpisodeProcessingService(db, task_queue)
+    dedup_key = f"translate:{oid}:{summary.get('template_name', '')}"
+    try:
+        existing = processing.active_task_id(oid, "translate", dedup_key)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    if existing:
+        return success_response({"task_id": existing, "status": "queued", "message": "Translation started"})
+
     def do_translate(progress_callback=None):
-        return _translate_sync(
+        result = _translate_sync(
             episode_id=str(oid),
             template_name=summary.get("template_name"),
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
         )
+        processing.restore_status(oid, "translate", None)
+        return result
 
-    task_id = task_queue.submit(
-        task_type="translate",
-        func=do_translate,
-        episode_id=str(oid),
-        owner_id=current_owner_id()
-    )
+    try:
+        task_id = processing.submit(
+            episode, "translate", dedup_key, do_translate, current_owner_id(),
+            on_failure=lambda error: processing.restore_status(oid, "translate", error),
+        )
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
+    except ProcessingSubmissionFailed as error:
+        return error_response(str(error), "TASK_SUBMIT_FAILED", 503)
 
     return success_response({
         "task_id": task_id,
@@ -334,29 +352,22 @@ def delete_summary(episode_id):
 
     template_name = request.args.get("template_name")
 
-    if template_name:
-        result = db.summaries.delete_one({
-            **owner_filter(),
-            "episode_id": oid,
-            "template_name": template_name
-        })
-    else:
-        result = db.summaries.delete_many(owner_filter({"episode_id": oid}))
-
-    if result.deleted_count == 0:
-        return error_response("Summary not found", "SUMMARY_NOT_FOUND", 404)
-
-    # 检查剩余摘要
-    remaining = db.summaries.count_documents(owner_filter({"episode_id": oid}))
-    if remaining == 0:
-        if episode.get("status") == Episode.STATUS_SUMMARIZED:
-            db.episodes.update_one(
-                owner_filter({"_id": oid}),
-                {"$set": {
-                    "status": Episode.STATUS_TRANSCRIBED,
-                    "has_summary": False
-                }}
-            )
+    processing = EpisodeProcessingService(db, task_queue)
+    try:
+        with processing.edit_artifacts(oid):
+            if template_name:
+                result = db.summaries.delete_one({
+                    **owner_filter(), "episode_id": oid, "template_name": template_name,
+                })
+            else:
+                result = db.summaries.delete_many(owner_filter({"episode_id": oid}))
+            if result.deleted_count == 0:
+                return error_response("Summary not found", "SUMMARY_NOT_FOUND", 404)
+            remaining = db.summaries.count_documents(owner_filter({"episode_id": oid}))
+            db.episodes.update_one({"_id": oid}, {"$set": {"has_summary": remaining > 0}})
+            processing.restore_status(oid, "summarize", None)
+    except ProcessingConflict as error:
+        return error_response(str(error), "TASK_IN_PROGRESS", 409)
 
     return success_response(message=f"Deleted {result.deleted_count} summary(ies)")
 

@@ -39,6 +39,8 @@ class FeedAutoRefresher:
         self.stale_threshold = timedelta(hours=stale_threshold_hours)
         self._running = False
         self._thread = None
+        self._last_transcript_sweep = None
+        self._last_trash_purge = None
 
     def start(self):
         """启动自动刷新服务"""
@@ -71,9 +73,87 @@ class FeedAutoRefresher:
             except Exception as e:
                 logger.error(f"Auto-refresh error: {e}")
 
+            try:
+                self._maybe_sweep_transcripts()
+            except Exception as e:
+                logger.error(f"Transcript sweep error: {e}")
+
+            try:
+                self._maybe_purge_trash()
+            except Exception as e:
+                logger.error(f"Trash purge error: {e}")
+
             # 等待下一次检查
             sleep_seconds = self.interval_hours * 3600
             time.sleep(sleep_seconds)
+
+    def _ensure_youtube_exit(self, max_rotations: int = 6) -> bool:
+        """确保默认代理通道当前出口能访问 YouTube（探 watch 页），不行就轮换，直到可用或试满。"""
+        from .youtube_service import YouTubeService
+
+        for _ in range(max_rotations + 1):
+            if YouTubeService.watchpage_reachable():
+                return True
+            from .clash_service import rotate_next
+            if not rotate_next():
+                return False
+        return YouTubeService.watchpage_reachable()
+
+    def _maybe_purge_trash(self, interval_hours=24):
+        """每天清一次过期垃圾箱（超过保留期的删除数据物理清除）。"""
+        from . import trash_service
+
+        now = datetime.utcnow()
+        if self._last_trash_purge and now - self._last_trash_purge < timedelta(hours=interval_hours):
+            return
+        self._last_trash_purge = now
+        purged = trash_service.purge_expired(self.db)
+        if purged:
+            logger.info("Trash purge: %d 个过期桶已物理清除", purged)
+
+    def _maybe_sweep_transcripts(self, interval_minutes=30, limit=8):
+        """每 interval 分钟顺手补捞 limit 个无字幕 YouTube 剧集。
+
+        存量剧集大多在频道 RSS 最近 15 条窗口外，常规刷新永远不碰；
+        这里走完整降级链（主库→watch页签名→yt-dlp+POT），默认代理通道
+        被 429/掐线时会自动轮换 Clash 出口节点，慢慢把存量啃干净。
+        """
+        from .youtube_service import YouTubeService, persist_transcript
+
+        now = datetime.utcnow()
+        if self._last_transcript_sweep and now - self._last_transcript_sweep < timedelta(minutes=interval_minutes):
+            return
+        self._last_transcript_sweep = now
+
+        stuck = list(self.db.episodes.find(
+            {"audio_type": "video/youtube", "has_transcript": {"$ne": True},
+             "guid": {"$regex": "^youtube:"},
+             # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube
+             "$nor": [{"transcript_fetch_error": {"$regex": "No subtitles|No transcript"}}]},
+            {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1},
+        ).limit(limit))
+        if not stuck:
+            return
+
+        # 先探路：默认通道被掐/429 时换节点直到 watch 页可达（最多 6 个出口），找不到就跳过本轮
+        if not self._ensure_youtube_exit(max_rotations=6):
+            logger.warning("Transcript sweep skipped: no working YouTube exit this round")
+            return
+
+        ok = 0
+        for episode in stuck:
+            video_id = episode["guid"].replace("youtube:", "")
+            transcript, error = YouTubeService.fetch_transcript(video_id)
+            if transcript and persist_transcript(self.db, episode, transcript):
+                ok += 1
+                logger.info("Transcript sweep ✓ %s", episode.get("title", "")[:40])
+            else:
+                self.db.episodes.update_one(
+                    {"_id": episode["_id"]},
+                    {"$set": {"transcript_fetch_error": str(error or "")[:120]}},
+                )
+            time.sleep(4)
+        logger.info("Transcript sweep done: %d/%d 成功", ok, len(stuck))
 
     def _check_and_refresh_feeds(self):
         """检查并刷新需要更新的订阅源"""

@@ -1,14 +1,19 @@
+import { localizeUiMessage } from '../../utils/localization';
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { localizeFeedProgress } from '../../utils/feedSyncProgress';
 import {
   X, Download, Mic2, Sparkles, RefreshCw, CheckCircle2,
-  AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight
+  AlertCircle, Loader2, Activity, Clock3, Grip, ChevronRight, FileText
 } from 'lucide-react';
-import { tasksApi } from '../../services/api';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import useDialogFocus from '../../hooks/useDialogFocus';
+import { shouldAutoOpenTaskPanel } from '../../utils/taskPanelPolicy';
+import { useTasks } from './TasksContext';
+import { briefingTaskLabel, getBriefingTaskPeriod } from '../../utils/briefingTask';
+import { getTaskNavigation } from '../../utils/taskNavigation';
+import { isActiveTask, isTerminalTask, canCancelTask } from '../../utils/taskActions';
 import { subscriptionProgress } from '../../utils/subscriptionTask';
-import { briefingTaskLabel, briefingTaskNavigation } from '../../utils/briefingTask';
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
 const DEFAULT_PANEL_SIZE = { width: 352, height: 480 };
@@ -33,93 +38,42 @@ function readPanelSize() {
 
 const TaskPanel = ({
   onRetrySubscription,
-  queuedTask,
-  onTaskComplete,
-  onTaskProgress,
-  onTasksChange,
   onNavigate,
-  pollIntervalMs = 3000,
   historyWindowMinutes = 60,
-  defaultOpen = false
+  defaultOpen = false,
+  openRequest = 0
 }) => {
   const { t, i18n } = useTranslation();
-  const [activeTasks, setActiveTasks] = useState([]);
-  const [historyTasks, setHistoryTasks] = useState([]);
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh } = useTasks();
+  const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
+  const historyTasks = allHistoryTasks.filter(task => task.completed_at && new Date(task.completed_at).getTime() > historyCutoff);
+  const mobile = useMediaQuery('(max-width: 767px)');
+  const [isOpen, setIsOpen] = useState(defaultOpen && !mobile);
+  const panelRef = useRef(null);
   const [activeTab, setActiveTab] = useState('active');
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [panelSize, setPanelSize] = useState(readPanelSize);
   const panelSizeRef = useRef(panelSize);
-  const notifiedTaskIdsRef = useRef(new Set());
-  const previousProgress = useRef({});
   const userClosedDuringActiveRef = useRef(false);
   const previousActiveCountRef = useRef(0);
   const resizeStateRef = useRef(null);
 
-  useEffect(() => {
-    if (!queuedTask) return;
-    setActiveTasks(tasks => [...tasks.filter(task => task.id !== queuedTask.id), queuedTask]);
-    setIsOpen(true);
-    setActiveTab('active');
-  }, [queuedTask]);
-
   const visibleHistoryTasks = historyTasks.filter(task => !dismissedTaskIds.has(task.id));
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      const [activeResponse, historyResponse] = await Promise.all([
-        tasksApi.list({ status: 'pending,processing', per_page: 50 }),
-        tasksApi.list({ status: 'completed,failed', per_page: 50 })
-      ]);
-
-      const nextActiveTasks = activeResponse.data || [];
-      const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
-      const nextHistoryTasks = (historyResponse.data || []).filter(task => {
-        const completedAt = task.completed_at ? new Date(task.completed_at).getTime() : 0;
-        return completedAt && completedAt > historyCutoff;
-      });
-
-      const changed = nextActiveTasks.filter(task => task.type === 'fetch_transcripts' && task.progress > 0 && task.progress !== previousProgress.current[task.id]);
-      previousProgress.current = Object.fromEntries(nextActiveTasks.map(task => [task.id, task.progress]));
-      onTasksChange?.(nextActiveTasks);
-      if (changed.length) onTaskProgress?.(changed);
-      setActiveTasks(nextActiveTasks);
-      setHistoryTasks(nextHistoryTasks);
-
-      const terminalTasks = nextHistoryTasks.filter(task =>
-        task.id && !notifiedTaskIdsRef.current.has(task.id)
-      );
-      if (terminalTasks.length > 0 && onTaskComplete) {
-        terminalTasks.forEach(task => notifiedTaskIdsRef.current.add(task.id));
-        onTaskComplete(terminalTasks);
-      }
-
-      if (nextActiveTasks.length === 0) {
-        userClosedDuringActiveRef.current = false;
-      }
-      if (
-        nextActiveTasks.length > 0 &&
-        previousActiveCountRef.current === 0 &&
-        !userClosedDuringActiveRef.current
-      ) {
-        setIsOpen(true);
-        setActiveTab('active');
-      }
-      previousActiveCountRef.current = nextActiveTasks.length;
-    } catch (err) {
-      console.error('Failed to fetch tasks:', err);
+  useEffect(() => {
+    if (!activeTasks.length) userClosedDuringActiveRef.current = false;
+    if (shouldAutoOpenTaskPanel({ mobile, activeCount: activeTasks.length, previousActiveCount: previousActiveCountRef.current, userClosed: userClosedDuringActiveRef.current })) {
+      setIsOpen(true);
+      setActiveTab('active');
     }
-  }, [historyWindowMinutes, onTaskComplete, onTaskProgress, onTasksChange]);
+    previousActiveCountRef.current = activeTasks.length;
+  }, [activeTasks.length, mobile]);
 
   useEffect(() => {
-    fetchTasks();
-    const interval = setInterval(fetchTasks, pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [fetchTasks, pollIntervalMs]);
-
-  useEffect(() => {
-    if (defaultOpen) setIsOpen(true);
-  }, [defaultOpen]);
+    if (defaultOpen && !mobile) setIsOpen(true);
+  }, [defaultOpen, mobile]);
+  useEffect(() => { if (mobile) setIsOpen(false); }, [mobile]);
+  useEffect(() => { if (openRequest) { refresh(); setIsOpen(true); } }, [openRequest, refresh]);
 
   const closePanel = () => {
     if (activeTasks.length > 0) {
@@ -127,6 +81,8 @@ const TaskPanel = ({
     }
     setIsOpen(false);
   };
+
+  useDialogFocus(panelRef, mobile && isOpen, closePanel);
 
   useEffect(() => {
     const handlePointerMove = (event) => {
@@ -173,14 +129,7 @@ const TaskPanel = ({
     document.body.style.userSelect = 'none';
   };
 
-  const handleCancel = async (taskId) => {
-    try {
-      await tasksApi.cancel(taskId);
-      fetchTasks();
-    } catch (err) {
-      console.error('Failed to cancel task:', err);
-    }
-  };
+  const handleCancel = cancel;
 
   const handleDismiss = (taskId) => {
     setDismissedTaskIds(prev => {
@@ -203,8 +152,8 @@ const TaskPanel = ({
   const getTaskTargetLabel = (task) => {
     const periodLabel = briefingTaskLabel(task, i18n.language);
     if (periodLabel) return periodLabel;
-    if (task.episode_title) return task.episode_title;
-    if (task.feed_title) return task.feed_title;
+    if (task.episode_title || task.report_context?.source_title) return task.episode_title || task.report_context.source_title;
+    if (task.feed_title || task.report_context?.feed_title) return task.feed_title || task.report_context.feed_title;
     if (task.target_exists === false) return t('tasks.targetDeleted');
     if (task.episode_id) return t('tasks.unknownEpisode');
     if (task.feed_id) return t('tasks.unknownFeed');
@@ -213,35 +162,43 @@ const TaskPanel = ({
 
   const getTaskMetaLabel = (task) => {
     const parts = [];
-    if (task.feed_title && task.episode_title) parts.push(task.feed_title);
-    if (task.episode_status) parts.push(t(`status.${task.episode_status}`, task.episode_status));
+    const feedTitle = task.feed_title || task.report_context?.feed_title;
+    if (feedTitle && (task.episode_title || task.report_context?.source_title)) parts.push(feedTitle);
+    if (task.target_exists === false) parts.push(t('tasks.targetDeleted'));
     return parts.join(' · ');
   };
 
-  const canOpenTask = (task) => Boolean(onNavigate && (briefingTaskNavigation(task) || (task.target_id && task.target_type && task.target_exists !== false)));
+  const canOpenTask = (task) => Boolean(onNavigate && getTaskNavigation(task));
 
   const handleOpenTask = (task) => {
     if (!canOpenTask(task)) return;
-    const briefing = briefingTaskNavigation(task);
-    onNavigate(briefing ? { type: 'briefing', ...briefing, task } : { type: task.target_type, id: task.target_id, task });
+    onNavigate(getTaskNavigation(task));
     setIsOpen(false);
   };
 
-  const handleTaskKeyDown = (event, task) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    handleOpenTask(task);
+  const getTaskTypeLabel = (task) => {
+    if (task.type !== 'briefing-report') return t(`tasks.types.${task.type}`);
+    if (task.report_context?.kind === 'reading') return t('tasks.singleReading');
+    const period = getBriefingTaskPeriod(task);
+    return t(period?.type === 'month' ? 'tasks.monthlyBriefing' : period?.type === 'week' ? 'tasks.weeklyBriefing' : 'tasks.types.briefing-report');
+  };
+
+  const getTaskOpenLabel = (task) => {
+    if (task.report_context?.kind === 'reading') return t('tasks.openReading');
+    const navigation = getTaskNavigation(task);
+    if (navigation?.type === 'briefing') return t('tasks.openBriefing');
+    return t(navigation?.type === 'feed' ? 'tasks.openFeed' : 'tasks.openEpisode');
   };
 
   const getTaskIcon = (type) => {
     switch (type) {
       case 'download': return <Download size={16} />;
       case 'transcribe': return <Mic2 size={16} />;
-      case 'summarize': return <Sparkles size={16} />;
       case 'briefing-report': return <Sparkles size={16} />;
+      case 'summarize': return <Sparkles size={16} />;
       case 'refresh': return <RefreshCw size={16} />;
       case 'subscribe': return <RefreshCw size={16} />;
-      case 'fetch_transcripts': return <Mic2 size={16} />;
+      case 'fetch_transcripts': return <FileText size={16} />;
       default: return <Loader2 size={16} />;
     }
   };
@@ -252,6 +209,7 @@ const TaskPanel = ({
       case 'processing': return 'text-sky-400';
       case 'completed': return 'text-emerald-400';
       case 'failed': return 'text-red-400';
+      case 'cancelled': return 'text-zinc-400';
       default: return 'text-zinc-400';
     }
   };
@@ -262,6 +220,7 @@ const TaskPanel = ({
       case 'processing': return <Loader2 size={14} className="animate-spin" />;
       case 'completed': return <CheckCircle2 size={14} />;
       case 'failed': return <AlertCircle size={14} />;
+      case 'cancelled': return <X size={14} />;
       default: return null;
     }
   };
@@ -279,102 +238,80 @@ const TaskPanel = ({
   };
 
   const renderTask = (task) => {
-    const isActive = task.status === 'pending' || task.status === 'processing';
+    const isActive = isActiveTask(task);
     const errorMessage = ['refresh', 'fetch_transcripts', 'subscribe'].includes(task.type)
       ? t('common.fetchUnavailable')
-      : task.error_message;
+      : localizeUiMessage(task.error_message, t);
     const targetLabel = getTaskTargetLabel(task);
     const metaLabel = getTaskMetaLabel(task);
     const isOpenable = canOpenTask(task);
+    const progress = clamp(task.progress || 0, 0, 100);
+    const hasAction = canCancelTask(task) || isTerminalTask(task);
+    const Content = isOpenable ? 'button' : 'div';
     return (
-      <div
+      <article
         key={task.id}
-        role={isOpenable ? 'button' : undefined}
-        tabIndex={isOpenable ? 0 : undefined}
-        onClick={() => handleOpenTask(task)}
-        onKeyDown={(event) => handleTaskKeyDown(event, task)}
-        title={isOpenable ? t('tasks.openTarget') : undefined}
-        className={`group flex items-start gap-3 px-4 py-3 border-b border-zinc-800/80 last:border-b-0 transition-colors ${isOpenable ? 'cursor-pointer hover:bg-zinc-800/50 focus:outline-none focus:bg-zinc-800/50' : 'hover:bg-zinc-800/30'}`}
+        data-task-id={task.id}
+        className={`group relative mx-3 my-3 overflow-hidden rounded-xl border bg-zinc-950/40 transition-colors ${task.status === 'processing' ? 'border-sky-500/25' : 'border-zinc-800'} ${isOpenable ? 'hover:border-sky-500/50 hover:bg-zinc-950/70' : ''}`}
       >
-        <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-zinc-950 border border-zinc-800 ${getStatusStyle(task.status)}`}>
-          {getTaskIcon(task.type)}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-200 truncate">
-              {t(`tasks.types.${task.type}`)}
+        <Content
+          {...(isOpenable ? { type: 'button', onClick: () => handleOpenTask(task), 'aria-label': `${getTaskOpenLabel(task)} · ${targetLabel || getTaskTypeLabel(task)}` } : {})}
+          className="block w-full min-w-0 p-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
+        >
+          <div className={`flex items-center justify-between gap-2 ${hasAction ? 'pr-6' : ''}`}>
+            <span className="flex min-w-0 items-center gap-2 text-[11px] font-medium text-zinc-400">
+              <span className={getStatusStyle(task.status)}>{getTaskIcon(task.type)}</span>
+              <span className="truncate">{getTaskTypeLabel(task)}</span>
             </span>
-            <span className={`flex items-center gap-1 text-xs ${getStatusStyle(task.status)}`}>
+            <span className={`flex shrink-0 items-center gap-1 text-[11px] ${getStatusStyle(task.status)}`}>
               {getStatusIcon(task.status)}
-              {t(`tasks.status.${task.status}`)}
+              {task.cancel_requested ? t('tasks.cancelRequested') : t(`tasks.status.${task.status}`)}
             </span>
           </div>
 
-          {targetLabel && (
-            <div className="mt-1 min-w-0">
-              <p className={`truncate text-xs ${task.target_exists === false ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                {targetLabel}
-              </p>
-              {metaLabel && (
-                <p className="mt-0.5 truncate text-[11px] text-zinc-500">
-                  {metaLabel}
-                </p>
-              )}
-            </div>
-          )}
+          <p className="mt-3 line-clamp-2 break-words text-sm font-semibold leading-6 text-zinc-100">
+            {targetLabel || getTaskTypeLabel(task)}
+          </p>
+          {metaLabel && <p className="mt-1 truncate text-[11px] text-zinc-500">{metaLabel}</p>}
 
-          {isActive ? (
-            <div className="mt-2">
+          {isActive && (
+            <div className="mt-3">
               {task.progress_message && (
-                <p className="mb-1 truncate text-[11px] text-sky-300">{localizeFeedProgress(subscriptionProgress(task.progress_message, t), t)}</p>
+                <p className="mb-2 line-clamp-2 text-[11px] leading-5 text-zinc-400">{localizeUiMessage(subscriptionProgress(task.progress_message, t), t)}</p>
               )}
-              <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                role="progressbar"
+                aria-label={targetLabel || getTaskTypeLabel(task)}
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
+                className="h-1 bg-zinc-800 rounded-full overflow-hidden"
+              >
                 <div
-                  className={`h-full transition-all duration-300 ${task.status === 'processing' ? 'bg-sky-500' : 'bg-zinc-600'}`}
-                  style={{ width: `${Math.max(task.progress || 0, task.status === 'processing' ? 8 : 0)}%` }}
+                  className={`h-full rounded-full transition-all duration-300 motion-reduce:transition-none ${task.status === 'processing' ? 'bg-sky-400' : 'bg-zinc-600'}`}
+                  style={{ width: `${progress}%` }}
                 />
               </div>
-            </div>
-          ) : (
-            <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
-              <Clock3 size={12} />
-              <span>{formatRelativeTime(task.completed_at)}</span>
             </div>
           )}
 
           {task.status === 'failed' && task.error_message && (
-            <p className="text-xs text-red-400 mt-1 truncate" title={errorMessage}>
+            <p className="mt-2 line-clamp-2 text-xs leading-5 text-red-400" title={errorMessage}>
               {errorMessage}
             </p>
           )}
-          {task.type === 'subscribe' && task.status === 'failed' && task.report_context?.url && <button type="button" onClick={event => { event.stopPropagation(); onRetrySubscription(task.report_context.url); setActiveTab('active'); }} className="mt-2 rounded-md bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300 hover:bg-sky-500/20">{t('tasks.retrySubscription')}</button>}
-        </div>
 
-        <div className="flex-shrink-0">
-          {task.status === 'pending' && (
-            <button
-              onClick={(event) => { event.stopPropagation(); handleCancel(task.id); }}
-              className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
-              title={t('tasks.cancel')}
-            >
-              <X size={14} />
-            </button>
-          )}
-          {(task.status === 'completed' || task.status === 'failed') && (
-            <button
-              onClick={(event) => { event.stopPropagation(); handleDismiss(task.id); }}
-              className="p-1 text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 transition-all"
-              title={t('tasks.dismiss')}
-            >
-              <X size={14} />
-            </button>
-          )}
-          {isOpenable && (
-            <ChevronRight size={14} className="mt-2 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100" />
-          )}
-        </div>
-      </div>
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-zinc-800/70 pt-2.5 text-[11px]">
+            {isActive ? <span className="font-mono tabular-nums text-zinc-500">{progress}%</span> : <span className="flex items-center gap-1 text-zinc-500"><Clock3 size={12} />{formatRelativeTime(task.completed_at)}</span>}
+            {isOpenable && <span className="flex items-center gap-1 font-medium text-sky-300">{getTaskOpenLabel(task)}<ChevronRight size={14} className="transition-transform motion-safe:group-hover:translate-x-0.5" /></span>}
+          </div>
+        </Content>
+        {task.type === 'subscribe' && task.status === 'failed' && task.report_context?.url && <button type="button" onClick={() => { onRetrySubscription(task.report_context.url); setActiveTab('active'); }} className="mx-4 mb-3 rounded-md bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300 hover:bg-sky-500/20">{t('tasks.retrySubscription')}</button>}
+        {hasAction && <button
+          type="button"
+          onClick={() => isActive ? handleCancel(task.id) : handleDismiss(task.id)}
+          aria-label={isActive ? t('tasks.cancel') : t('tasks.dismiss')}
+          className="absolute right-2 top-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        ><X size={14} /></button>}
+      </article>
     );
   };
 
@@ -386,16 +323,16 @@ const TaskPanel = ({
     <>
       {isOpen && (
         <div
-          className="fixed bottom-40 right-5 z-50 flex max-h-[calc(100vh-12rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/50"
+          ref={panelRef} role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-label={t('tasks.title')} className="task-panel fixed bottom-40 right-5 z-50 flex max-h-[calc(100vh-12rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/50"
           style={{ width: `${panelSize.width}px`, height: `${panelSize.height}px` }}
         >
-          <button
+          {!mobile && <button
             onPointerDown={handleResizeStart}
             className="absolute left-1 top-1 z-10 flex h-6 w-6 cursor-nwse-resize items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
             title={t('tasks.resizePanel')}
           >
             <Grip size={13} />
-          </button>
+          </button>}
           <div className="flex items-center justify-between px-4 py-3 bg-zinc-950/70 border-b border-zinc-800">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-sky-400">
@@ -412,6 +349,7 @@ const TaskPanel = ({
             </div>
             <button
               onClick={closePanel}
+              aria-label={t("ui.closeTasks")}
               className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
               title={t('tasks.dismiss')}
             >
@@ -446,6 +384,7 @@ const TaskPanel = ({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+            {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{localizeUiMessage(requestError, t)}</div>}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (
@@ -468,8 +407,8 @@ const TaskPanel = ({
       )}
 
       <button
-        onClick={() => setIsOpen(prev => !prev)}
-        className="fixed bottom-24 right-5 z-50 h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 transition-transform hover:scale-105 hover:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
+        onClick={() => { refresh(); setIsOpen(prev => !prev); }}
+        aria-label={isOpen ? t('tasks.closePanel') : t('tasks.openPanel')} className="task-launcher fixed bottom-24 right-5 z-50 h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/50 transition-transform hover:scale-105 hover:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60"
         title={isOpen ? t('tasks.closePanel') : t('tasks.openPanel')}
       >
         <span

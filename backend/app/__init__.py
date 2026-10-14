@@ -87,9 +87,11 @@ def ensure_indexes(db):
     db.feeds.create_index("is_starred")
     db.feeds.create_index("is_favorite")
     db.feeds.create_index("created_at")
+    db.feeds.create_index([("created_at", -1), ("_id", -1)])
 
     # episodes索引
     db.episodes.create_index("feed_id")
+    db.episodes.create_index([("feed_id", 1), ("_id", -1)])
     db.episodes.create_index("guid")
     try:
         db.episodes.drop_index("feed_id_1_guid_1")
@@ -103,10 +105,18 @@ def ensure_indexes(db):
     db.episodes.create_index("has_transcript")
     db.episodes.create_index("has_summary")
     db.episodes.create_index([("feed_id", 1), ("is_read", 1)])
+    db.episodes.create_index([("published", -1), ("_id", -1)])
+    db.episodes.create_index([("feed_id", 1), ("published", -1), ("_id", -1)])
+    for artifact in ("has_local_audio", "has_transcript", "has_summary"):
+        db.episodes.create_index([(artifact, 1), ("published", -1), ("_id", -1)])
 
     # 剧集个人状态（已读/加星/播放进度按用户隔离）
     db.user_episode_states.create_index([("user_id", 1), ("episode_id", 1)], unique=True)
     db.user_episode_states.create_index("episode_id")
+    db.user_episode_states.create_index([("user_id", 1), ("is_starred", 1), ("episode_id", 1)])
+
+    # 订阅更新是否看过，按用户保存，与单集已读状态独立。
+    db.user_feed_states.create_index([("user_id", 1), ("feed_id", 1)], unique=True)
 
     # transcripts索引
     try:
@@ -141,6 +151,9 @@ def ensure_indexes(db):
     db.tasks.create_index("status")
     db.tasks.create_index("episode_id")
     db.tasks.create_index("created_at")
+    db.tasks.create_index([("episode_id", 1), ("status", 1)])
+    db.tasks.create_index([("owner_id", 1), ("task_type", 1), ("report_period.type", 1),
+                          ("report_period.start", 1), ("created_at", -1)])
     db.tasks.create_index(
         "completed_at",
         expireAfterSeconds=7 * 24 * 60 * 60,
@@ -154,6 +167,14 @@ def ensure_indexes(db):
         except Exception:
             pass
     db.briefings.create_index([("date", 1), ("strategy", 1), ("days", 1)], unique=True)
+
+    # 简报历史与个人收藏独立于短期任务记录保存，不设置 TTL。
+    db.briefing_reports.create_index("report_id", unique=True)
+    db.briefing_reports.create_index([("owner_id", 1), ("generated_at", -1), ("report_id", -1)])
+    db.briefing_reports.create_index([("owner_id", 1), ("period.type", 1),
+                                     ("period.start", 1), ("generated_at", -1)])
+    db.briefing_favorites.create_index([("owner_id", 1), ("item_id", 1)], unique=True)
+    db.briefing_favorites.create_index([("owner_id", 1), ("created_at", -1), ("item_id", -1)])
 
 
 def register_media_routes(app):

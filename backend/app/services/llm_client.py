@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 config = get_config()
 
 
+def reading_request_options(model):
+    """全文阅读与编辑任务保留轻量思考，避免默认深思挤占正文输出。"""
+    name = model.rsplit("/", 1)[-1].casefold()
+    return {"reasoning_effort": "low"} if name in {"deepseek-v4.1-flash", "deepseek-flash"} else {}
+
+
 class EmptyLLMResponse(ValueError):
     """模型已响应但没有正文；保留用量和结束原因供调用方审计、重试。"""
 
@@ -59,6 +65,7 @@ class LLMClient:
         temperature: float = None,
         json_mode: bool = False,
         response_schema: dict = None,
+        reasoning_effort: str = None,
     ) -> dict:
         """
         发送聊天请求
@@ -90,6 +97,7 @@ class LLMClient:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_schema=response_schema,
+                reasoning_effort=reasoning_effort,
             )
 
         kwargs = {
@@ -98,6 +106,8 @@ class LLMClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if reasoning_effort is not None:
+            kwargs["reasoning_effort"] = reasoning_effort
 
         if response_schema is not None:
             kwargs["response_format"] = {"type": "json_schema", "json_schema": {
@@ -117,6 +127,19 @@ class LLMClient:
                 "completion": response.usage.completion_tokens if response.usage else 0,
                 "total": response.usage.total_tokens if response.usage else 0,
             }
+            if response.usage:
+                prompt_details = getattr(response.usage, "prompt_tokens_details", None)
+                completion_details = getattr(response.usage, "completion_tokens_details", None)
+                details = {
+                    "cached_tokens": getattr(response.usage, "prompt_cache_hit_tokens", None),
+                    "cache_miss_tokens": getattr(response.usage, "prompt_cache_miss_tokens", None),
+                    "reasoning_tokens": getattr(completion_details, "reasoning_tokens", None),
+                }
+                if details["cached_tokens"] is None:
+                    details["cached_tokens"] = getattr(prompt_details, "cached_tokens", None)
+                if details["reasoning_tokens"] is None:
+                    details["reasoning_tokens"] = getattr(response.usage, "reasoning_tokens", None)
+                usage.update({key: value for key, value in details.items() if value is not None})
             choice = response.choices[0] if response.choices else None
             result = {
                 "content": (choice.message.content or "") if choice else "",
@@ -124,6 +147,8 @@ class LLMClient:
                 "model": model,
                 "elapsed_seconds": elapsed,
                 "finish_reason": choice.finish_reason if choice else None,
+                "provider": getattr(response, "provider", None),
+                "visible_output_characters": len((choice.message.content or "") if choice else ""),
             }
             if not result["content"].strip():
                 reason = "LLM returned empty content" if choice else "LLM returned empty response (no choices)"
@@ -147,6 +172,7 @@ class LLMClient:
         max_tokens: int,
         temperature: float,
         response_schema: dict = None,
+        reasoning_effort: str = None,
     ) -> dict:
         """Call Anthropic Messages API using the same return shape as chat()."""
         system_parts = []
@@ -169,6 +195,8 @@ class LLMClient:
             payload["system"] = "\n\n".join(system_parts)
         if response_schema is not None:
             payload["output_config"] = {"format": {"type": "json_schema", "schema": response_schema}}
+        if reasoning_effort is not None:
+            payload.setdefault("output_config", {})["effort"] = reasoning_effort
 
         start_time = datetime.now()
         response = requests.post(
@@ -196,6 +224,11 @@ class LLMClient:
             "completion": raw_usage.get("output_tokens", 0),
             "total": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
         }
+        for field, key in (("cache_read_input_tokens", "cached_tokens"), ("cache_creation_input_tokens", "cache_creation_tokens")):
+            if field in raw_usage:
+                usage[key] = raw_usage[field]
+                usage["prompt"] += raw_usage[field]
+                usage["total"] += raw_usage[field]
 
         result = {
             "content": content,

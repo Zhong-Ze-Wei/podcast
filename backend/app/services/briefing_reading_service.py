@@ -31,7 +31,7 @@ def _selected_quote_time(source, offset, quote):
     return locate_time({**source, "full_text": segmented}, match.start(), match.group())
 
 
-def selected_quote(value, candidates, sources, brief_limit=32):
+def selected_quote(value, candidates, sources, brief_limit=32, enforce_display_limits=True):
     """引用只能来自已读全文的连续证据；缩短时必须保留完整句子。"""
     if not isinstance(value, dict):
         raise ValueError("原话项必须是JSON对象")
@@ -62,13 +62,13 @@ def selected_quote(value, candidates, sources, brief_limit=32):
     translation = value.get("translation", "")
     if re.search(r"[\u4e00-\u9fff]", quote):
         translation = ""
-        if len(quote) > 160:
+        if enforce_display_limits and len(quote) > 160:
             raise ValueError("首页中文原话过长，请选一至两句完整原话")
-    elif not isinstance(translation, str) or not translation.strip() or len(translation.strip()) > 90:
+    elif not isinstance(translation, str) or not translation.strip() or (enforce_display_limits and len(translation.strip()) > 90):
         raise ValueError("非中文原话需要90字以内的忠实译文，不能添加解释")
-    elif len(quote) > 500:
+    elif enforce_display_limits and len(quote) > 500:
         raise ValueError("首页英文原话过长，请选完整短句")
-    brief = _short_text(value.get("brief"), "背景提要", brief_limit)
+    brief = _short_text(value.get("brief"), "背景提要", brief_limit if enforce_display_limits else max(brief_limit, len(value.get("brief", ""))))
     start, end = _selected_quote_time(source, offset, quote)
     return {**candidate, "id": candidate["id"], "kind": "quote", "title": "", "text": "", "quote": quote,
             "translation": translation.strip(), "brief": brief, "context": brief, "offset": offset,
@@ -158,8 +158,7 @@ class BriefingReadingService:
 
     def _latest(self, directory, corpus_identifier, topic=None, source_id=None):
         matches = []
-        for path in (self.root / directory).glob("*.json"):
-            item = read_json(path)
+        for item in self.report_service.store.reports(f"reading-v{READING_VERSION}/{directory}"):
             if not self._visible(item) or item["corpus_id"] != corpus_identifier:
                 continue
             if topic is not None and item.get("topic", "") != topic:
@@ -180,13 +179,7 @@ class BriefingReadingService:
                 "extraction": self.report_service._extraction_status(corpus)}
 
     def report(self, report_id):
-        if not re.fullmatch(r"[a-f0-9]{32}", report_id):
-            return None
-        path = self.root / "editions" / f"{report_id}.json"
-        if not path.exists():
-            return None
-        edition = read_json(path)
-        return edition if self._visible(edition) else None
+        return self.report_service.store.report(report_id)
 
     @staticmethod
     def _candidate_prompt(cards):
@@ -232,12 +225,21 @@ class BriefingReadingService:
                    "coverage": {"sources": len(sources), "chunks": extraction["total_chunks"], "characters": sum(len(s["full_text"]) for s in corpus["sources"])},
                    "sections": [{"id": "selected-quotes", "title": "本期精选", "kind": "quote", "items": result["items"]}],
                    "threads": result["threads"], "topic_no_match": bool(topic and not result["items"]), "sources": sources, "web_mode": "disabled", **metadata}
-        write_json(self.root / "editions" / f"{edition['id']}.json", edition)
+        self.report_service.store.publish(edition, f"reading-v{READING_VERSION}/editions")
         if progress_callback:
             progress_callback((100, "精选已保存，五种排版共用这份原话"))
         return {"edition": edition}
 
     def reading(self, source_id):
+        if source_id.startswith("ep"):
+            from .episode_analysis_service import EpisodeAnalysisService
+            source = next((s for s in self.report_service.corpus()["sources"] if s["id"] == source_id), None)
+            if source is None:
+                return None
+            reading = EpisodeAnalysisService(self.report_service).cached(source)
+            metadata = next(s for s in self.report_service._metadata({"sources": [source]}) if s["id"] == source_id)
+            return {"reading": reading, "source": metadata, "analysis_status": "completed" if reading else "not_started",
+                    "candidates": {key: reading.get(key, []) if reading else [] for key in ("quotes", "concepts", "resources")}}
         corpus, cards, _ = self._material()
         source = next((s for s in corpus["sources"] if s["id"] == source_id), None)
         if source is None:
@@ -251,6 +253,17 @@ class BriefingReadingService:
                 "candidates": {key: [card for card in selected if card["kind"] == kind] for key, kind in (("quotes", "quote"), ("concepts", "concept"), ("resources", "resource"))}}
 
     def generate_reading(self, source_id, progress_callback=None):
+        if source_id.startswith("ep"):
+            from .episode_analysis_service import EpisodeAnalysisService
+            source = next((s for s in self.report_service.corpus()["sources"] if s["id"] == source_id), None)
+            if source is None:
+                raise ValueError("文稿不存在")
+            if progress_callback:
+                progress_callback((10, "正在读取这一期完整文稿；已有分析将直接复用"))
+            reading, reused = EpisodeAnalysisService(self.report_service).analyze(source)
+            if progress_callback:
+                progress_callback((100, "已复用单篇分析" if reused else "单篇分析已保存，周报和月报可以复用"))
+            return {"reading": reading, "reused": reused}
         corpus, all_cards, notes = self._material(complete=True, progress_callback=progress_callback)
         source = next((s for s in corpus["sources"] if s["id"] == source_id), None)
         if source is None:
@@ -284,7 +297,7 @@ class BriefingReadingService:
         source_meta = next(s for s in self.report_service._metadata(corpus) if s["id"] == source_id)
         reading = {"id": uuid.uuid4().hex, "owner_id": self.owner_id, "corpus_id": identifier, "source_id": source_id,
                    "source": source_meta, "generated_at": now_iso(), "version": READING_VERSION, "label": "AI解读", "points_label": "部分精选片段", **result, **metadata}
-        write_json(self.root / "sources" / f"{reading['id']}.json", reading)
+        self.report_service.store.publish(reading, f"reading-v{READING_VERSION}/sources")
         if progress_callback:
             progress_callback((100, "本期解读已保存"))
         return {"reading": reading}

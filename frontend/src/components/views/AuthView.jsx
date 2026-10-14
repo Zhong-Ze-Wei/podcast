@@ -1,8 +1,10 @@
+import { localizeUiMessage } from '../../utils/localization';
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LockKeyhole, Podcast, User, UserPlus } from 'lucide-react';
 import { authApi, setAuthToken } from '../../services/api';
+import LanguageSwitcher from '../common/LanguageSwitcher';
 
 const AuthView = ({ onAuthenticated }) => {
   const { t } = useTranslation();
@@ -26,7 +28,7 @@ const AuthView = ({ onAuthenticated }) => {
         setAuthToken(payload.token);
         onAuthenticated(payload.user);
       } else {
-        setNotice('注册成功，等待管理员审批后即可登录');
+        setNotice(t("ui.registeredSuccessfullyYouCanSignInAfter"));
         setMode('login');
       }
     } catch (err) {
@@ -38,6 +40,7 @@ const AuthView = ({ onAuthenticated }) => {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center px-6">
+      <div className="absolute top-4 right-4"><LanguageSwitcher /></div>
       <div className="fixed bottom-2 right-3 text-[10px] text-zinc-600">build: mobile-v2</div>
       <div className="w-full max-w-md">
         <div className="mb-8">
@@ -48,7 +51,7 @@ const AuthView = ({ onAuthenticated }) => {
           <p className="mt-2 text-sm text-zinc-400">{t('auth.subtitle')}</p>
         </div>
         {notice && (
-          <div className="mb-3 rounded-lg border border-green-700/40 bg-green-900/20 px-3 py-2 text-sm text-green-300">{notice}</div>
+          <div className="mb-3 rounded-lg border border-green-700/40 bg-green-900/20 px-3 py-2 text-sm text-green-300">{localizeUiMessage(notice, t)}</div>
         )}
 
 
@@ -105,7 +108,7 @@ const AuthView = ({ onAuthenticated }) => {
 
           {error && (
             <div className="mb-4 text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-md px-3 py-2">
-              {error}
+              {localizeUiMessage(error, t)}
             </div>
           )}
 

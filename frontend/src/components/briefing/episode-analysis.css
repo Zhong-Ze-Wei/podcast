@@ -1,0 +1,26 @@
+.episode-analysis-content { color: #d8d6df; font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
+.episode-analysis-content > section, .episode-analysis-details { margin: 0 0 30px; }
+.episode-analysis-content p { margin: 8px 0 0; }
+.episode-analysis-content h4 { margin: 0; color: #e9e5ee; font-size: 18px; line-height: 1.65; font-weight: 500; }
+.episode-analysis-label { display: block; color: #98919f; font-size: 12px; }
+.episode-analysis-summary { padding-bottom: 26px; border-bottom: 1px solid #302b36; }
+.episode-analysis-summary p { color: #e2dce9; font-size: 20px; line-height: 1.85; }
+.episode-analysis-section-title { margin: 0 0 8px; color: #a89ab7; font-size: 13px; font-weight: 500; }
+.episode-analysis-points > section { padding: 20px 0; border-bottom: 1px solid #29262f; }
+.episode-analysis-point-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+.episode-analysis-content .episode-analysis-boundary { color: #a39aa9; font-size: 14px; }
+.episode-analysis-concepts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+.episode-analysis-concepts > section { padding: 18px; background: #16121c; border: 1px solid #302738; border-radius: 8px; }
+.episode-analysis-concepts p { font-size: 15px; }
+.episode-analysis-details { border-top: 1px solid #302b36; }
+.episode-analysis-details summary { display: flex; align-items: center; gap: 12px; padding: 18px 0; color: #c8bbd6; cursor: pointer; list-style: none; font-size: 15px; }
+.episode-analysis-details summary::-webkit-details-marker { display: none; }
+.episode-analysis-details summary span { color: #8f819c; font-size: 12px; }
+.episode-analysis-details summary svg { margin-left: auto; }
+.episode-analysis-details[open] summary svg { transform: rotate(180deg); }
+.episode-analysis-details > div > section { padding: 18px 0; border-bottom: 1px solid #29262f; }
+.episode-analysis-details blockquote { margin: 10px 0; padding-left: 18px; border-left: 2px solid #6c5080; color: #c8c1d0; white-space: pre-line; }
+.episode-analysis-actions { display: flex; flex-wrap: wrap; gap: 18px; }
+.episode-analysis-content .episode-analysis-link { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 4px 0; border: 0; background: none; color: #bca4d4; font-size: 13px; text-decoration: none; cursor: pointer; }
+.episode-analysis-content :is(button, a, summary):focus-visible { outline: 2px solid #bba5ff; outline-offset: 4px; }
+@media (max-width: 600px) { .episode-analysis-point-heading { align-items: flex-start; gap: 10px; } .episode-analysis-summary p { font-size: 18px; } }

@@ -8,6 +8,7 @@ export function getBriefingTaskPeriod(task) {
 }
 
 export function briefingTaskLabel(task, language = 'zh') {
+  if (task.report_context?.kind === 'reading') return '';
   const period = getBriefingTaskPeriod(task);
   if (!period) return '';
   const date = new Date(`${period.start}T00:00:00Z`);
@@ -23,8 +24,11 @@ export function briefingTaskLabel(task, language = 'zh') {
 }
 
 export function briefingTaskNavigation(task) {
+  if (task.report_context?.kind === 'reading') return null;
   const period = getBriefingTaskPeriod(task);
   if (!period) return null;
   const modes = Object.keys(task.result?.reports || {});
-  return { periodType: period.type, periodStart: period.start, mode: modes.length === 1 ? modes[0] : 'core' };
+  const requestedMode = task.report_context?.mode;
+  const mode = modes.length === 1 ? modes[0] : ['core', 'quotes', 'connections', 'concepts', 'resources'].includes(requestedMode) ? requestedMode : 'core';
+  return { periodType: period.type, periodStart: period.start, mode };
 }

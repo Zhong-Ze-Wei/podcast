@@ -1,5 +1,6 @@
+import { templateDisplayName, localizeUiMessage, formatUiDate, localizedLabel } from '../../utils/localization';
 // -*- coding: utf-8 -*-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Play, Mic2, AlertCircle, ChevronLeft,
@@ -8,29 +9,32 @@ import {
 } from 'lucide-react';
 import { episodesApi, transcriptsApi, summariesApi, promptTemplatesApi } from '../../services/api';
 import { decodeHtmlEntities } from '../../utils/helpers';
-import { settingsApi } from '../../services/api';
 import TaskProgress from '../common/TaskProgress';
+import { useTasks } from '../tasks/TasksContext';
+import { getEpisodeTaskId, submitTranscription } from '../../utils/taskMonitor';
+import { isActiveTask } from '../../utils/taskActions';
+import EpisodeAnalysisPanel from '../briefing/EpisodeAnalysisPanel';
 
 /**
  * EpisodeStatusBadge - 剧集处理状态徽标（标题区，一眼可见）
  */
-const STATUS_BADGES = {
-  new: { label: '未转录', cls: 'bg-zinc-700/60 text-zinc-300' },
-  downloading: { label: '下载中', cls: 'bg-blue-500/15 text-blue-300 animate-pulse' },
-  downloaded: { label: '已下载', cls: 'bg-blue-500/15 text-blue-300' },
-  transcribing: { label: '转录中', cls: 'bg-purple-500/15 text-purple-300 animate-pulse' },
-  transcribed: { label: '已转录', cls: 'bg-green-500/15 text-green-300' },
-  summarizing: { label: '摘要中', cls: 'bg-indigo-500/15 text-indigo-300 animate-pulse' },
-  summarized: { label: '已摘要', cls: 'bg-green-500/15 text-green-300' },
-  error: { label: '出错', cls: 'bg-red-500/15 text-red-300' },
-};
 
 const EpisodeStatusBadge = ({ status, transcriptSource }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   let transcriptLabel = t('status.transcribed');
   if (transcriptSource?.startsWith('official')) transcriptLabel = t('status.officialTranscript');
   else if (['youtube', 'bilibili'].includes(transcriptSource)) transcriptLabel = t('status.platformTranscript');
   else if (['local_whisper', 'local_whisperx', 'assemblyai'].includes(transcriptSource)) transcriptLabel = t('status.audioTranscribed');
+  const STATUS_BADGES = {
+    new: { label: t("ui.noTranscript"), cls: 'bg-zinc-700/60 text-zinc-300' },
+    downloading: { label: t("ui.downloading"), cls: 'bg-blue-500/15 text-blue-300 animate-pulse' },
+    downloaded: { label: t("ui.downloaded"), cls: 'bg-blue-500/15 text-blue-300' },
+    transcribing: { label: t("ui.transcribing"), cls: 'bg-purple-500/15 text-purple-300 animate-pulse' },
+    transcribed: { label: t("ui.transcribed"), cls: 'bg-green-500/15 text-green-300' },
+    summarizing: { label: t("ui.summarizing"), cls: 'bg-indigo-500/15 text-indigo-300 animate-pulse' },
+    summarized: { label: t("ui.summarized"), cls: 'bg-green-500/15 text-green-300' },
+    error: { label: t("ui.error"), cls: 'bg-red-500/15 text-red-300' },
+  };
   const badge = STATUS_BADGES[status];
   if (!badge) return null;
   return (
@@ -48,13 +52,8 @@ const EpisodeStatusBadge = ({ status, transcriptSource }) => {
  * - AI生成的摘要
  * - 节目元信息
  */
-const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) => {
-  const { t } = useTranslation();
-  const [aiEnabled, setAiEnabled] = useState(true);
-  useEffect(() => {
-    settingsApi.getAiAnalysis().then(r => setAiEnabled(!!(r.enabled))).catch(() => {});
-  }, []);
-  const [activeTab, setActiveTab] = useState('transcript');
+const EpisodeDetailView = ({ episode: episodeProp, activeTab = 'transcript', onTabChange: setActiveTab, onBack, onRefresh, onPlay }) => {
+  const { t, i18n } = useTranslation();
   const [transcript, setTranscript] = useState(null);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -68,11 +67,11 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   // 任务状态
   const [localTranscribing, setLocalTranscribing] = useState(false);
-  const [localDownloading, setLocalDownloading] = useState(false);
   const [localSummarizing, setLocalSummarizing] = useState(false);
   const [transcriptionProvider, setTranscriptionProvider] = useState('official');
   const [transcriptionLanguage, setTranscriptionLanguage] = useState('auto');
-  const pendingTranscriptionProviderRef = useRef(null);
+  const [submittedTaskIds, setSubmittedTaskIds] = useState({});
+  const taskStore = useTasks();
 
   // Summary states
   const [templates, setTemplates] = useState([]);
@@ -95,9 +94,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         const response = await promptTemplatesApi.list();
         const templateList = response.data?.templates || response.templates || [];
         setTemplates(templateList);
-        // 默认选择 learning 模板（学习笔记），如果没有则选第一个
+        // 默认选择 learning 模板（学习笔记），如果没有则选第一个；
+        // 已有摘要时优先选中生成它的模板，打开即见内容（如"创业与商业分析"）
         if (templateList.length > 0 && !selectedTemplate) {
-          const defaultTemplate = templateList.find(t => t.name === 'learning') || templateList[0];
+          let defaultTemplate = templateList.find(t => t.name === 'learning') || templateList[0];
+          try {
+            const summaryResp = await summariesApi.get(episodeProp.id);
+            const existing = summaryResp.data || summaryResp;
+            const used = existing?.template_name && templateList.find(t => t.name === existing.template_name);
+            if (used) defaultTemplate = used;
+          } catch (err) { /* 无已有摘要，走默认模板 */ }
           setSelectedTemplate(defaultTemplate);
           // 获取模板详情以获取 enabled blocks
           const detailResp = await promptTemplatesApi.get(defaultTemplate.id);
@@ -116,101 +122,79 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     loadTemplates();
   }, []);
 
-  // 检查是否正在转录
-  const isTranscribing = episode?.status === 'transcribing';
-  // 综合判断：后端状态或本地刚触发的状态
-  const isCurrentlyTranscribing = isTranscribing || localTranscribing;
-  const isDownloading = episode?.status === 'downloading';
-  const isCurrentlyDownloading = isDownloading || localDownloading;
-
-  // 检查是否正在生成摘要
-  const isSummarizing = episode?.status === 'summarizing';
-  const isCurrentlySummarizing = isSummarizing || localSummarizing;
+  const transcribeTaskId = getEpisodeTaskId(episode, 'transcribe', submittedTaskIds.transcribe);
+  const downloadTaskId = getEpisodeTaskId(episode, 'download', submittedTaskIds.download);
+  const summarizeTaskId = getEpisodeTaskId(episode, 'summarize', submittedTaskIds.summarize);
+  const taskActive = id => id && (!taskStore.byId[id] || isActiveTask(taskStore.byId[id]));
+  const isCurrentlyTranscribing = Boolean(localTranscribing || taskActive(transcribeTaskId));
+  const isCurrentlyDownloading = Boolean(taskActive(downloadTaskId));
+  const isCurrentlySummarizing = Boolean(localSummarizing || taskActive(summarizeTaskId));
+  const aiEnabled = episode?.actions?.summarize?.reason_code !== 'AI_ANALYSIS_DISABLED';
+  const canSummarize = Boolean(episode?.actions?.summarize?.allowed);
+  const actionReasons = {
+    NO_TRANSCRIPT_URL: t('status.noOfficialTranscript'), LOCAL_AI_NOT_INSTALLED: t("ui.localTranscriptionComponentsAreNotInstalled"),
+    CLOUD_TRANSCRIPTION_DISABLED: t("ui.cloudTranscriptionIsDisabled"), NO_AUDIO_URL: t("ui.thisEpisodeHasNoAvailableAudio"),
+    TASK_IN_PROGRESS: t("ui.aTaskIsAlreadyRunningForThis"), ALREADY_DOWNLOADED: t("ui.audioAlreadyDownloaded"),
+    ALREADY_TRANSCRIBED: t("ui.thisEpisodeAlreadyHasATranscript"), NO_TRANSCRIPTION_PROVIDER: t("ui.noTranscriptionMethodIsAvailable"),
+    TRANSCRIPT_NOT_FOUND: t("ui.getATranscriptBeforeGeneratingASummary"), AI_ANALYSIS_DISABLED: t("ui.aIAnalysisIsDisabled"),
+    ROLE_DENIED: t("ui.yourAccountHasReadOnlyAccessAnd"),
+  };
+  // 无文稿时的真实原因优先于通用文案：字幕拉取失败原因 / 官网可拉提示
+  const transcriptHints = [];
+  if (!episode?.has_transcript) {
+    if (episode?.transcript_fetch_error) transcriptHints.push(episode.transcript_fetch_error);
+    else if (episode?.transcript_url) transcriptHints.push(t("ui.officialTranscriptAvailable"));
+  }
 
   // 计算预估费用 (AssemblyAI: $0.37/小时)
   const estimateCost = episode?.duration ? (episode.duration * 0.37 / 3600).toFixed(2) : null;
   const estimateTime = episode?.duration ? Math.ceil(episode.duration / 60 / 5) : null;
-  const hasOfficialTranscript = Boolean(episode?.transcript_url);
-  const hasLocalAudio = Boolean(episode?.local_audio_url || episode?.local_path || episode?.audio_path);
-  const hasRemoteAudio = Boolean(episode?.audio_url);
-  const isLocalTranscriptionProvider = (provider) => provider === 'local_whisper' || provider === 'local_whisperx';
-  const episodeHasLocalAudio = (targetEpisode) => Boolean(
-    targetEpisode?.local_audio_url || targetEpisode?.local_path || targetEpisode?.audio_path
-  );
+  const hasLocalAudio = Boolean(episode?.artifacts?.local_audio);
   const transcriptionOptions = [
-    {
-      value: 'official',
-      label: t('status.officialTranscript'),
-      description: hasOfficialTranscript ? t('status.officialTranscriptHint') : t('status.noOfficialTranscript'),
-      disabled: !hasOfficialTranscript
-    },
-    {
-      value: 'local_whisper',
-      label: '本地 Whisper',
-      description: hasLocalAudio
-        ? '使用已下载音频在本机转录，不调用云端。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 Whisper 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'local_whisperx',
-      label: 'WhisperX',
-      description: hasLocalAudio
-        ? '本地高级转录模式，用于后续接入说话人识别；当前需要单独安装 WhisperX runtime。'
-        : hasRemoteAudio
-          ? '需要先下载音频到本地，然后再用 WhisperX 转录。'
-          : '当前单集没有可下载的音频 URL。',
-      disabled: !hasLocalAudio && !hasRemoteAudio
-    },
-    {
-      value: 'assemblyai',
-      label: 'AssemblyAI 云端',
-      description: '付费云端转录，后端必须显式开启 TRANSCRIPTION_CLOUD_ENABLED=1。',
-      disabled: false
-    },
-    {
-      value: 'manual',
-      label: '手动导入',
-      description: '预留入口，后续支持粘贴或上传文本。',
-      disabled: true
-    }
-  ];
+    { value: 'official', label: t('status.officialTranscript'), description: t('status.officialTranscriptHint') },
+    { value: 'local_whisper', label: t("ui.localWhisper"), description: hasLocalAudio ? t("ui.transcribeDownloadedAudioOnThisComputer") : t("ui.downloadAudioInTheBackgroundThenTranscribe") },
+    { value: 'local_whisperx', label: 'WhisperX', description: hasLocalAudio ? t("ui.useDownloadedAudioForAdvancedLocalTranscription") : t("ui.downloadAudioInTheBackgroundThenTranscribe2") },
+    { value: 'assemblyai', label: t("ui.assemblyAICloud"), description: t("ui.transcribeWithTheEnabledPaidCloudService") },
+  ].map(option => {
+    const provider = episode?.transcription_providers?.find(provider => provider.id === option.value);
+    return { ...option, disabled: !provider?.available, description: provider?.reason_code ? actionReasons[provider.reason_code] : option.description };
+  });
   const selectedTranscriptionOption =
     transcriptionOptions.find(option => option.value === transcriptionProvider) || transcriptionOptions[0];
   const transcriptSourceLabels = {
-    local_whisper: '本地 Whisper',
+    local_whisper: t("ui.localWhisper"),
     local_whisperx: 'WhisperX',
-    assemblyai: 'AssemblyAI 云端',
+    assemblyai: t("ui.assemblyAICloud"),
     official: t('status.officialTranscript'),
-    official_srt: '官方 SRT',
-    official_vtt: '官方 VTT',
-    official_json: '官方 JSON',
-    external: '外部字幕',
-    manual: '手工导入'
+    official_srt: t("ui.officialSRT"),
+    official_vtt: t("ui.officialVTT"),
+    official_json: t("ui.officialJSON"),
+    external: t("ui.externalSubtitles"),
+    manual: t("ui.manualImport")
   };
   const transcriptSourceLabel =
-    transcriptSourceLabels[transcript?.source] || transcript?.source || episode?.transcript_source || '未知来源';
+    transcriptSourceLabels[transcript?.source] || transcript?.source || episode?.transcript_source || t("ui.unknownSource");
   const transcriptionLanguageOptions = [
-    { value: 'auto', label: '自动检测', description: '适合不确定语言的节目；中文播客建议手动选择中文。' },
-    { value: 'zh', label: '中文（简体输出）', description: '适合普通话、中文访谈和中英混合但以中文为主的节目。' },
-    { value: 'en', label: 'English', description: '适合英文为主的节目。' },
-    { value: 'ja', label: '日本語', description: '适合日文节目。' },
-    { value: 'ko', label: '한국어', description: '适合韩文节目。' },
+    { value: 'auto', label: t("ui.autoDetect"), description: t("ui.useWhenTheLanguageIsUnknownFor") },
+    { value: 'zh', label: t("ui.chineseSimplifiedOutput"), description: t("ui.forMandarinChineseInterviewsAndMixedContent") },
+    { value: 'en', label: 'English', description: t("ui.forMainlyEnglishEpisodes") },
+    { value: 'ja', label: '日本語', description: t("ui.forJapaneseEpisodes") },
+    { value: 'ko', label: '한국어', description: t("ui.forKoreanEpisodes") },
   ];
   const selectedLanguageOption =
     transcriptionLanguageOptions.find(option => option.value === transcriptionLanguage) || transcriptionLanguageOptions[0];
 
   useEffect(() => {
-    if (hasOfficialTranscript) {
-      setTranscriptionProvider('official');
-    } else if (hasLocalAudio || hasRemoteAudio) {
-      setTranscriptionProvider('local_whisper');
-    } else {
-      setTranscriptionProvider('assemblyai');
-    }
-  }, [episode?.id, hasOfficialTranscript, hasLocalAudio, hasRemoteAudio]);
+    setSubmittedTaskIds({});
+    setLocalTranscribing(false); setLocalSummarizing(false);
+    setTranscriptionProvider(episode?.transcription_providers?.find(provider => provider.available)?.id || 'official');
+  }, [episode?.id]);
+
+  const rememberTask = (type, data) => {
+    setSubmittedTaskIds(current => ({ ...current, [type]: data.task_id }));
+    taskStore.register({ id: data.task_id, type, episode_id: episode.id, status: 'pending', progress: 0 });
+    taskStore.refresh();
+  };
 
   // 任务完成回调
   const handleTranscribeComplete = async () => {
@@ -221,23 +205,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const handleDownloadComplete = async () => {
-    const providerToContinue = pendingTranscriptionProviderRef.current;
-    if (providerToContinue) {
-      pendingTranscriptionProviderRef.current = null;
-    }
-    setLocalDownloading(false);
-    const refreshedEpisode = await refreshEpisode();
-    if (onRefresh) {
-      await onRefresh();
-    }
 
-    if (!providerToContinue) return;
-
-    if (episodeHasLocalAudio(refreshedEpisode)) {
-      await startTranscriptionTask(providerToContinue);
-    } else {
-      setError('Download completed, but the local audio file was not found. Please try downloading again.');
-    }
+    await refreshEpisode();
+    onRefresh?.();
   };
 
   const handleSummarizeComplete = async () => {
@@ -249,12 +219,20 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   const handleTaskError = async (errorMsg) => {
     setError(errorMsg);
-    pendingTranscriptionProviderRef.current = null;
-    setLocalDownloading(false);
+
     setLocalTranscribing(false);
     setLocalSummarizing(false);
     await refreshEpisode();
     if (onRefresh) onRefresh();
+  };
+
+  const handleTaskCancelled = async () => {
+
+    setLocalTranscribing(false);
+    setLocalSummarizing(false);
+    setSuccessMsg(t('tasks.status.cancelled'));
+    await refreshEpisode();
+    onRefresh?.();
   };
 
   const refreshEpisode = async () => {
@@ -326,19 +304,19 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setLocalTranscribing(true);
     setError(null);
     try {
-      await transcriptsApi.create(episode.id, {
-        provider,
-        language: transcriptionLanguage
-      });
+      const task = await submitTranscription(episode.id, provider, transcriptionLanguage, transcriptsApi.create);
+      rememberTask('transcribe', task);
       // 任务已提交，TaskProgress 组件会轮询状态
       if (onRefresh) onRefresh();
       return true;
     } catch (err) {
       console.error('Failed to generate transcript:', err);
-      const errorCode = err?.code || '';
+      setLocalTranscribing(false);
+      const errorCode = err?.error_code || err?.code || '';
       const errorMsg = err?.message || 'Failed to generate transcript';
       if (errorCode === 'ALREADY_TRANSCRIBING' || errorCode === 'TASK_IN_PROGRESS') {
         setError(t('detail.alreadyTranscribing') || 'Transcription is already in progress');
+        await refreshEpisode();
       } else if (errorCode === 'ALREADY_TRANSCRIBED') {
         setError(t('detail.alreadyTranscribed') || 'Episode already has a transcript');
         await loadTranscript();
@@ -354,64 +332,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateTranscript = async () => {
+    if (!episode.actions.transcribe.allowed) {
+      setError(actionReasons[episode.actions.transcribe.reason_code]);
+      return;
+    }
     if (selectedTranscriptionOption?.disabled) {
       setError(selectedTranscriptionOption.description);
       return;
     }
 
-    if (isLocalTranscriptionProvider(transcriptionProvider) && !hasLocalAudio) {
-      pendingTranscriptionProviderRef.current = transcriptionProvider;
-      const downloadResult = await downloadAudio();
-
-      if (downloadResult === 'already_downloaded') {
-        const refreshedEpisode = await refreshEpisode();
-        if (episodeHasLocalAudio(refreshedEpisode)) {
-          pendingTranscriptionProviderRef.current = null;
-          await startTranscriptionTask(transcriptionProvider);
-        } else {
-          pendingTranscriptionProviderRef.current = null;
-          setError('Episode is marked as downloaded, but the local audio file was not found. Please try downloading again.');
-        }
-      } else if (downloadResult === 'failed') {
-        pendingTranscriptionProviderRef.current = null;
-      }
-      return;
-    }
-
-    pendingTranscriptionProviderRef.current = null;
     await startTranscriptionTask(transcriptionProvider);
-  };
-
-  const downloadAudio = async () => {
-    if (!hasRemoteAudio) {
-      setError('当前单集没有可下载的音频 URL');
-      return 'failed';
-    }
-    setLoading(true);
-    setLocalDownloading(true);
-    setError(null);
-    try {
-      await episodesApi.download(episode.id);
-      if (onRefresh) onRefresh();
-      return 'queued';
-    } catch (err) {
-      const errorCode = err?.code || '';
-      if (errorCode === 'ALREADY_DOWNLOADED') {
-        setLocalDownloading(false);
-        await refreshEpisode();
-        if (onRefresh) await onRefresh();
-        return 'already_downloaded';
-      } else if (errorCode === 'ALREADY_DOWNLOADING') {
-        setError(t('detail.downloadInProgress') || 'Download already in progress');
-        return 'queued';
-      } else {
-        setError(err?.message || 'Failed to download audio');
-        setLocalDownloading(false);
-      }
-      return 'failed';
-    } finally {
-      setLoading(false);
-    }
   };
 
   const deleteTranscript = async () => {
@@ -431,7 +361,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
     setError(null);
     setLocalTranscribing(true);
     try {
-      await transcriptsApi.transcribeVideo(episode.id);
+      const response = await transcriptsApi.transcribeVideo(episode.id);
+      rememberTask('transcribe', response.data);
     } catch (err) {
       setError(err?.message || 'Failed to start transcription');
       setLocalTranscribing(false);
@@ -439,8 +370,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   };
 
   const generateSummary = async (force = false) => {
-    if (!aiEnabled) {
-      setError('AI 分析已冻结：旧摘要可查看，但暂时不再生成新摘要。');
+    if (!canSummarize) {
+      setError(actionReasons[episode.actions.summarize.reason_code]);
       return;
     }
     if (!selectedTemplate) {
@@ -454,12 +385,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
       const params = {};
       if (templateParams.length) params.length = templateParams.length;
       if (templateParams.language) params.language = templateParams.language;
-      await summariesApi.create(episode.id, {
+      const summaryResponse = await summariesApi.create(episode.id, {
         template_name: selectedTemplate.name,
         enabled_blocks: enabledBlocks,
         params,
         force
       });
+      rememberTask('summarize', summaryResponse.data);
       setSuccessMsg(t('detail.summaryStarted') || 'Summary generation started');
       setTimeout(() => setSuccessMsg(null), 3000);
       if (onRefresh) onRefresh();
@@ -472,6 +404,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
         await loadSummary();
         setLocalSummarizing(false);
       } else if (errorCode === 'TASK_IN_PROGRESS') {
+        setLocalSummarizing(false);
+        await refreshEpisode();
         setError(t('detail.summaryInProgress') || 'Summary generation in progress');
       } else {
         setError(err?.message || 'Failed to generate summary');
@@ -513,7 +447,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
 
   const tabLabels = {
     transcript: t('detail.transcript'),
-    summary: t('detail.summary'),
+    analysis: t("ui.aIAnalysis"),
+    summary: t("ui.templateSummary"),
     info: t('detail.info')
   };
 
@@ -522,16 +457,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 overflow-hidden animate-in">
       <div className="px-4 md:px-8 py-6 border-b border-zinc-800 flex items-start gap-4 md:gap-6 bg-zinc-900/20">
-        <button onClick={onBack} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
+        <button onClick={onBack} aria-label={t("ui.backToPreviousPage")} className="mt-1 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white">
           <ChevronLeft size={24} />
         </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="episode-header-meta flex items-center gap-3 mb-2">
             <span className="text-indigo-400 text-sm font-semibold tracking-wide uppercase">
               {episode.feed_title || episode.feed?.title}
             </span>
             <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
-            <span className="text-zinc-500 text-sm">{new Date(episode.published_at).toLocaleDateString()}</span>
+            <span className="text-zinc-500 text-sm">{formatUiDate(episode.published_at, i18n.resolvedLanguage)}</span>
             <EpisodeStatusBadge status={episode.status} transcriptSource={transcript?.source || episode.transcript_source} />
           </div>
           <h1 className="text-xl md:text-3xl font-bold text-white mb-4 leading-tight max-w-4xl">{episode.title}</h1>
@@ -545,13 +480,14 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
             <div className="flex gap-2">
               <button
                 onClick={generateTranscript}
-                disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
+                aria-label={transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') : t('detail.generateTranscript')}
+                disabled={!episode.actions?.transcribe?.allowed || loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlyTranscribing
                     ? 'border-purple-500 bg-purple-900/30 text-purple-400 cursor-not-allowed'
                     : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={isCurrentlyDownloading ? '正在下载音频' : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') : t('detail.generateTranscript'))}
+                title={!episode.actions?.transcribe?.allowed ? actionReasons[episode.actions?.transcribe?.reason_code] : isCurrentlyDownloading ? t("ui.downloadingAudio") : (isCurrentlyTranscribing ? t('detail.transcribingStatus') : transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') : t('detail.generateTranscript'))}
               >
                 {isCurrentlyDownloading ? (
                   <div className="animate-spin"><Download size={20} /></div>
@@ -563,7 +499,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
               <button
                 onClick={generateSummary}
-                disabled={!aiEnabled || loading || isCurrentlySummarizing}
+                aria-label={t('detail.generateSummary')}
+                disabled={!canSummarize || loading || isCurrentlySummarizing}
                 className={`p-2.5 rounded-full border transition-colors ${
                   isCurrentlySummarizing
                     ? 'border-indigo-500 bg-indigo-900/30 text-indigo-400 cursor-not-allowed'
@@ -571,7 +508,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       ? 'border-zinc-800 text-zinc-600 cursor-not-allowed'
                       : 'border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
-                title={!aiEnabled ? 'AI 分析已冻结' : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
+                title={!canSummarize ? actionReasons[episode.actions?.summarize?.reason_code] : (isCurrentlySummarizing ? t('detail.summarizingStatus') : t('detail.generateSummary'))}
               >
                 {isCurrentlySummarizing ? (
                   <div className="animate-spin"><Sparkles size={20} /></div>
@@ -581,11 +518,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               </button>
             </div>
           </div>
+          {[
+            ...transcriptHints,
+            ...Array.from(new Set([episode.actions?.transcribe?.reason_code, episode.actions?.summarize?.reason_code].filter(reason => reason && reason !== 'ALREADY_TRANSCRIBED').map(reason => actionReasons[reason])))
+              .filter(message => !(transcriptHints.length > 0 && message === t("ui.getATranscriptBeforeGeneratingASummary"))),
+          ].map(message => <p key={message} className="mt-2 text-xs text-zinc-500">{message}</p>)}
         </div>
       </div>
 
       <div className="px-4 md:px-8 border-b border-zinc-800 flex items-center gap-4 md:gap-8 bg-zinc-950/50 backdrop-blur sticky top-0 z-10 overflow-x-auto">
-        {['transcript', 'summary', 'info'].map(tab => (
+        {['transcript', 'analysis', 'summary', 'info'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -622,18 +564,16 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
-                      {typeof transcript.word_count === 'number' && <span>{transcript.word_count} words</span>}
-                      {Array.isArray(transcript.segments) && <span>{transcript.segments.length} segments</span>}
-                      {transcript.created_at && <span>{new Date(transcript.created_at).toLocaleString()}</span>}
+                      {typeof transcript.word_count === 'number' && <span>{transcript.word_count} {t("ui.words")}</span>}
+                      {Array.isArray(transcript.segments) && <span>{transcript.segments.length} {t("ui.segments")}</span>}
+                      {transcript.created_at && <span>{formatUiDate(transcript.created_at, i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' })}</span>}
                     </div>
                   </div>
                   <button
                     onClick={deleteTranscript}
                     className="flex-shrink-0 px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-red-400 rounded-lg transition-colors border border-zinc-700"
-                    title="删除转录并重新生成"
-                  >
-                    删除转录
-                  </button>
+                    title={t("ui.deleteTranscriptAndRegenerate")}
+                  > {t("ui.deleteTranscript")} </button>
                 </div>
               )}
               {transcriptLoading || loading ? (
@@ -680,18 +620,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                 <div>
                   <div className="mb-3 flex items-center gap-2">
                     {transcript.source === 'bilibili' && (
-                      <span className="rounded-full bg-pink-500/15 px-2.5 py-0.5 text-[11px] font-medium text-pink-300">
-                        B站 AI 字幕 · 已通过内容校验
-                      </span>
+                      <span className="rounded-full bg-pink-500/15 px-2.5 py-0.5 text-[11px] font-medium text-pink-300"> {t("ui.bilibiliAISubtitlesContentVerified")} </span>
                     )}
                     {transcript.source === 'youtube' && (
-                      <span className="rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-medium text-red-300">
-                        YouTube 字幕
-                      </span>
+                      <span className="rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-medium text-red-300"> {t("ui.youTubeSubtitles")} </span>
                     )}
                     {(transcript.source === 'local_whisperx' || transcript.source === 'whisper') && (
-                      <span className="rounded-full bg-purple-500/15 px-2.5 py-0.5 text-[11px] font-medium text-purple-300">
-                        本地 Whisper 转写{transcript.segments?.some(s => s.speaker) ? ' · 含说话人分离' : ''}
+                      <span className="rounded-full bg-purple-500/15 px-2.5 py-0.5 text-[11px] font-medium text-purple-300"> {t("ui.localWhisperTranscription")}{transcript.segments?.some(s => s.speaker) ? t("ui.includesSpeakerDiarization") : ''}
                       </span>
                     )}
                   </div>
@@ -720,7 +655,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {error && (
                     <div className="flex items-center gap-2 text-red-400 mb-4 px-4 py-2 bg-red-900/20 rounded-lg border border-red-800/50">
                       <AlertCircle size={16} />
-                      <span className="text-sm">{error}</span>
+                      <span className="text-sm">{localizeUiMessage(error, t)}</span>
                     </div>
                   )}
 
@@ -728,7 +663,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {successMsg && (
                     <div className="flex items-center gap-2 text-green-400 mb-4 px-4 py-2 bg-green-900/20 rounded-lg border border-green-800/50">
                       <CheckCircle2 size={16} />
-                      <span className="text-sm">{successMsg}</span>
+                      <span className="text-sm">{localizeUiMessage(successMsg, t)}</span>
                     </div>
                   )}
 
@@ -736,26 +671,26 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     {isCurrentlyDownloading ? (
                       <TaskProgress
                         taskType="download"
-                        episodeId={episode.id}
+                        taskId={downloadTaskId}
                         onComplete={handleDownloadComplete}
                         onError={handleTaskError}
+                        onCancelled={handleTaskCancelled}
                       />
                     ) : isCurrentlyTranscribing ? (
                       <TaskProgress
                         taskType="transcribe"
-                        episodeId={episode.id}
+                        taskId={transcribeTaskId}
                         onComplete={handleTranscribeComplete}
                         onError={handleTaskError}
+                        onCancelled={handleTaskCancelled}
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-3">
                         <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
                           <div className="flex items-center justify-between gap-3 mb-2">
-                            <label htmlFor="transcription-provider" className="text-xs font-medium text-zinc-300">
-                              转录方式
-                            </label>
+                            <label htmlFor="transcription-provider" className="text-xs font-medium text-zinc-300"> {t("ui.transcriptionMethod")} </label>
                             {transcriptionProvider === 'assemblyai' && (
-                              <span className="text-[11px] text-amber-400">付费云端</span>
+                              <span className="text-[11px] text-amber-400">{t("ui.paidCloud")}</span>
                             )}
                           </div>
                           <select
@@ -779,11 +714,9 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                         </div>
                         <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
                           <div className="flex items-center justify-between gap-3 mb-2">
-                            <label htmlFor="transcription-language" className="text-xs font-medium text-zinc-300">
-                              转录语言
-                            </label>
+                            <label htmlFor="transcription-language" className="text-xs font-medium text-zinc-300"> {t("ui.transcriptionLanguage")} </label>
                             {transcriptionLanguage === 'zh' && (
-                              <span className="text-[11px] text-emerald-400">自动清理中文空格和繁简</span>
+                              <span className="text-[11px] text-emerald-400">{t("ui.normalizeChineseSpacingAndScript")}</span>
                             )}
                           </div>
                           <select
@@ -817,21 +750,21 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                             {estimateTime && (
                               <span className="flex items-center gap-1">
                                 <Clock size={12} />
-                                ~{estimateTime} min
+                                ~{estimateTime} {t('ui.minutes')}
                               </span>
                             )}
                           </div>
                         )}
                         <button
                           onClick={generateTranscript}
-                          disabled={loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
+                          disabled={!episode.actions?.transcribe?.allowed || loading || isCurrentlyTranscribing || isCurrentlyDownloading || selectedTranscriptionOption?.disabled}
                           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
                         >
-                          {isCurrentlyDownloading ? '正在下载音频' :
+                          {isCurrentlyDownloading ? t("ui.downloadingAudio") :
                            isCurrentlyTranscribing ? t('detail.transcribingStatus') :
                            loading ? t('detail.generating') :
-                            transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') :
-                            (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? '先下载音频' : `开始${selectedTranscriptionOption?.label || '转录'}`}
+                           transcriptionProvider === 'official' ? t('status.fetchOfficialTranscript') :
+                            (transcriptionProvider === 'local_whisper' || transcriptionProvider === 'local_whisperx') && !hasLocalAudio ? t("ui.downloadAndTranscribe") : t("ui.startValue", { value1: selectedTranscriptionOption?.label || t("ui.transcription") })}
                         </button>
                       </div>
                     )}
@@ -839,6 +772,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                 </div>
               )}
             </div>
+          )}
+
+          {activeTab === 'analysis' && (
+            <EpisodeAnalysisPanel key={episode.id} episode={episode} hasTranscript={Boolean(transcript || episode.has_transcript || episode.artifacts?.transcript)} onPlay={onPlay} onTranscript={() => setActiveTab('transcript')} />
           )}
 
           {activeTab === 'summary' && (
@@ -858,7 +795,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                     >
                       <span className="flex items-center gap-2">
                         {template.name === 'investment' ? <TrendingUp size={14} /> : <Sparkles size={14} />}
-                        {template.display_name}
+                        {templateDisplayName(template, t)}
                       </span>
                     </button>
                   ))}
@@ -868,29 +805,29 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {paramOptions.length && (
                     <div className="mt-3 flex flex-wrap items-center gap-4">
                       <label className="flex items-center gap-2 text-xs text-zinc-400">
-                        {paramOptions.length.label_zh || '摘要长度'}
+                        {localizedLabel(paramOptions.length, i18n.resolvedLanguage) || t("ui.summaryLength")}
                         <select
                           value={templateParams.length}
                           onChange={(e) => setTemplateParams(prev => ({ ...prev, length: e.target.value }))}
                           className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
                         >
-                          <option value="">跟随模板默认</option>
+                          <option value="">{t("ui.useTemplateDefault")}</option>
                           {(paramOptions.length.options || []).map(o => (
-                            <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                            <option key={o.value} value={o.value}>{localizedLabel(o, i18n.resolvedLanguage)}</option>
                           ))}
                         </select>
                       </label>
                       {paramOptions.language && (
                         <label className="flex items-center gap-2 text-xs text-zinc-400">
-                          {paramOptions.language.label_zh || '输出语言'}
+                          {localizedLabel(paramOptions.language, i18n.resolvedLanguage) || t("ui.outputLanguage")}
                           <select
                             value={templateParams.language}
                             onChange={(e) => setTemplateParams(prev => ({ ...prev, language: e.target.value }))}
                             className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500"
                           >
-                            <option value="">跟随模板默认</option>
+                            <option value="">{t("ui.useTemplateDefault")}</option>
                             {(paramOptions.language.options || []).map(o => (
-                              <option key={o.value} value={o.value}>{o.label_zh || o.label}</option>
+                              <option key={o.value} value={o.value}>{localizedLabel(o, i18n.resolvedLanguage)}</option>
                             ))}
                           </select>
                         </label>
@@ -904,10 +841,10 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                       onClick={() => generateSummary(true)}
                       disabled={!aiEnabled || loading}
                       className="flex items-center gap-1 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 text-zinc-400 hover:text-white rounded-lg transition-colors"
-                      title={aiEnabled ? '重新生成（忽略缓存）' : 'AI 分析已冻结'}
+                      title={aiEnabled ? t("ui.regenerateIgnoreCache") : t("ui.aIAnalysisDisabled")}
                     >
                       <Sparkles size={13} />
-                      {aiEnabled ? '重新生成' : '已冻结'}
+                      {aiEnabled ? t("ui.regenerate") : t("ui.disabled2")}
                     </button>
                   )}
                   {/* 有翻译时显示语言切换 */}
@@ -948,13 +885,13 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
               {error && (
                 <div className="flex items-center gap-2 text-red-400 px-4 py-2 bg-red-900/20 rounded-lg border border-red-800/50">
                   <AlertCircle size={16} />
-                  <span className="text-sm">{error}</span>
+                  <span className="text-sm">{localizeUiMessage(error, t)}</span>
                 </div>
               )}
               {successMsg && (
                 <div className="flex items-center gap-2 text-green-400 px-4 py-2 bg-green-900/20 rounded-lg border border-green-800/50">
                   <CheckCircle2 size={16} />
-                  <span className="text-sm">{successMsg}</span>
+                  <span className="text-sm">{localizeUiMessage(successMsg, t)}</span>
                 </div>
               )}
 
@@ -984,8 +921,8 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                           <div key={i} className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/50">
                             <div className="flex items-center gap-3 mb-2">
                               <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                (signal.type || signal.type_zh) === 'bullish' || signal.type_zh === '看多' ? 'bg-green-500/20 text-green-400' :
-                                (signal.type || signal.type_zh) === 'bearish' || signal.type_zh === '看空' ? 'bg-red-500/20 text-red-400' :
+                                (signal.type || signal.type_zh) === 'bullish' || signal.type_zh === t("ui.bullish") ? 'bg-green-500/20 text-green-400' :
+                                (signal.type || signal.type_zh) === 'bearish' || signal.type_zh === t("ui.bearish") ? 'bg-red-500/20 text-red-400' :
                                 'bg-yellow-500/20 text-yellow-400'
                               }`}>
                                 {(signal.type_zh || signal.type)?.toUpperCase()}
@@ -1082,7 +1019,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary?.core_content && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-3">
-                        {t('detail.coreContent') || '核心内容'}
+                        {t('detail.coreContent') || t("ui.coreContent")}
                       </h3>
                       <p className="text-zinc-300 leading-relaxed">{summary.core_content}</p>
                     </div>
@@ -1092,7 +1029,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.guest_background && summary.guest_background !== "No specific guest is interviewed in this transcript." && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-3">
-                        {t('detail.guestBackground') || '受访者背景'}
+                        {t('detail.guestBackground') || t("ui.guestBackground")}
                       </h3>
                       <p className="text-zinc-300 leading-relaxed">{summary.guest_background}</p>
                     </div>
@@ -1102,7 +1039,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.unique_insights?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
-                        {t('detail.uniqueInsights') || '独特见解'}
+                        {t('detail.uniqueInsights') || t("ui.distinctiveInsights")}
                       </h3>
                       <div className="space-y-3">
                         {summary.unique_insights.map((insight, i) => (
@@ -1121,7 +1058,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.action_items?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
-                        {t('detail.actionItems') || '行动建议'}
+                        {t('detail.actionItems') || t("ui.actionItems")}
                       </h3>
                       <ul className="space-y-2">
                         {summary.action_items.map((item, i) => (
@@ -1138,7 +1075,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.key_concepts?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
-                        {t('detail.keyConcepts') || '核心概念'}
+                        {t('detail.keyConcepts') || t("ui.keyConcepts")}
                       </h3>
                       <div className="space-y-3">
                         {summary.key_concepts.map((concept, i) => (
@@ -1159,7 +1096,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.examples?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
-                        {t('detail.examples') || '案例举例'}
+                        {t('detail.examples') || t("ui.examples")}
                       </h3>
                       <div className="space-y-2">
                         {summary.examples.map((example, i) => (
@@ -1175,7 +1112,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {summary.resources?.length > 0 && (
                     <div>
                       <h3 className="text-zinc-400 font-semibold uppercase tracking-wider text-xs mb-4">
-                        {t('detail.resources') || '推荐资源'}
+                        {t('detail.resources') || t("ui.recommendedResources")}
                       </h3>
                       <div className="space-y-2">
                         {summary.resources.map((resource, i) => (
@@ -1209,17 +1146,18 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                   {isCurrentlySummarizing ? (
                     <TaskProgress
                       taskType="summarize"
-                      episodeId={episode.id}
+                      taskId={summarizeTaskId}
                       onComplete={handleSummarizeComplete}
                       onError={handleTaskError}
+                      onCancelled={handleTaskCancelled}
                     />
                   ) : (
                     <button
                       onClick={() => generateSummary()}
-                      disabled={!aiEnabled || loading || isCurrentlySummarizing || !selectedTemplate}
+                      disabled={!canSummarize || loading || isCurrentlySummarizing || !selectedTemplate}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {!aiEnabled ? 'AI 分析已冻结' : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
+                      {!canSummarize ? actionReasons[episode.actions?.summarize?.reason_code] : (loading ? t('detail.generating') : t('detail.generateSummaryAI'))}
                     </button>
                   )}
                 </div>
@@ -1257,7 +1195,7 @@ const EpisodeDetailView = ({ episode: episodeProp, onBack, onRefresh, onPlay }) 
                 </div>
                 <div>
                   <span className="text-zinc-500 text-xs">{t('detail.publishDate')}</span>
-                  <p className="text-zinc-300">{episode.published_at ? new Date(episode.published_at).toLocaleDateString() : t('episode.unknown')}</p>
+                  <p className="text-zinc-300">{episode.published_at ? formatUiDate(episode.published_at, i18n.resolvedLanguage) : t('episode.unknown')}</p>
                 </div>
                 {episode.link && (
                   <div className="col-span-2">

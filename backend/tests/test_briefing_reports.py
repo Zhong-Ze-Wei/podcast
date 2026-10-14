@@ -222,7 +222,7 @@ def test_user_generation_queues_once_and_preserves_topic_and_selected_interests(
             pytest.fail("HTTP request must queue, not call model inline")
 
     class Queue:
-        def get_all_tasks(self, task_type=None):
+        def get_all_tasks(self, task_type=None, status=None, limit=0):
             return []
 
         def submit(self, **kwargs):

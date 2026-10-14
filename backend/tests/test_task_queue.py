@@ -5,6 +5,8 @@ from bson import ObjectId
 from app.services.task_queue import TaskQueue
 from app.models.episode import Episode
 from tests.conftest import MockDB
+from threading import Event
+import pytest
 
 
 def test_task_queue_runs_tasks_inside_flask_app_context():
@@ -24,6 +26,88 @@ def test_task_queue_runs_tasks_inside_flask_app_context():
     assert task["result"] == "available"
 
 
+def test_cancelling_queued_task_prevents_execution_and_persists_cancelled():
+    queue = TaskQueue(max_workers=1)
+    db = MockDB()
+    queue.set_db(db)
+    started, release = Event(), Event()
+    calls = []
+
+    def blocker(progress_callback=None):
+        started.set()
+        assert release.wait(5)
+
+    def queued(progress_callback=None):
+        calls.append("executed")
+
+    try:
+        queue.submit("blocker", blocker)
+        assert started.wait(5)
+        task_id = queue.submit("probe", queued)
+        assert queue.cancel(task_id)
+        assert queue.cancel(task_id)  # Repeated cancellation is idempotent.
+    finally:
+        release.set()
+        queue.shutdown()
+
+    assert calls == []
+    assert queue.get_status(task_id)["status"] == "cancelled"
+    assert db.tasks.find_one({"task_id": task_id})["status"] == "cancelled"
+
+
+def test_running_task_cannot_be_reported_as_cancelled():
+    queue = TaskQueue(max_workers=1)
+    started, release = Event(), Event()
+
+    def running(progress_callback=None):
+        started.set()
+        assert release.wait(5)
+        return "finished"
+
+    try:
+        task_id = queue.submit("probe", running)
+        assert started.wait(5)
+        assert queue.cancel(task_id) is False
+        assert queue.get_status(task_id)["status"] == "processing"
+    finally:
+        release.set()
+        queue.shutdown()
+    assert queue.get_status(task_id)["status"] == "completed"
+
+
+def test_terminal_task_ignores_late_progress_and_status_updates():
+    queue = TaskQueue(max_workers=1)
+    task_id = queue.submit("probe", lambda progress_callback=None: "done")
+    queue.shutdown()
+    completed = queue.get_status(task_id)
+    queue._update_progress(task_id, (12, "late progress"))
+    queue._update_status(task_id, "processing")
+    assert queue.get_status(task_id) == completed
+
+
+def test_cancelled_download_restores_episode_to_retryable_state():
+    queue = TaskQueue(max_workers=1)
+    db = MockDB()
+    queue.set_db(db)
+    episode_id = db.episodes.insert_one({"status": "downloading"}).inserted_id
+    started, release = Event(), Event()
+
+    def blocker(progress_callback=None):
+        started.set()
+        assert release.wait(5)
+
+    try:
+        queue.submit("blocker", blocker)
+        assert started.wait(5)
+        task_id = queue.submit("download", lambda progress_callback=None: None,
+                               episode_id=str(episode_id))
+        assert queue.cancel(task_id)
+        assert db.episodes.find_one({"_id": episode_id})["status"] == "new"
+    finally:
+        release.set()
+        queue.shutdown()
+
+
 def test_task_queue_calls_failure_callback_when_task_fails():
     queue = TaskQueue(max_workers=1)
     failures = []
@@ -41,6 +125,33 @@ def test_task_queue_calls_failure_callback_when_task_fails():
     assert task["status"] == "failed"
     assert task["error_message"] == "boom"
     assert failures == ["boom"]
+
+
+@pytest.mark.parametrize("task_type,status,artifacts,expected", [
+    ("download", "downloading", {"local_path": "saved.mp3"}, "downloaded"),
+    ("transcribe", "transcribing", {"has_transcript": True}, "transcribed"),
+    ("summarize", "summarizing", {"has_summary": True, "has_transcript": True}, "summarized"),
+])
+def test_cancelled_reprocessing_preserves_the_saved_artifact_state(task_type, status, artifacts, expected):
+    queue = TaskQueue(max_workers=1)
+    db = MockDB()
+    queue.set_db(db)
+    episode_id = db.episodes.insert_one({"status": status, **artifacts}).inserted_id
+    started, release = Event(), Event()
+
+    def blocker(progress_callback=None):
+        started.set()
+        assert release.wait(5)
+
+    try:
+        queue.submit("blocker", blocker)
+        assert started.wait(5)
+        task_id = queue.submit(task_type, lambda progress_callback=None: None, episode_id=str(episode_id))
+        assert queue.cancel(task_id)
+        assert db.episodes.find_one({"_id": episode_id})["status"] == expected
+    finally:
+        release.set()
+        queue.shutdown()
 
 
 def test_task_queue_recovers_interrupted_processing_tasks():
@@ -108,6 +219,21 @@ def test_briefing_period_is_persisted_without_being_forwarded_to_worker():
     assert queue.get_status(task_id)["status"] == "completed"
     assert stored["report_period"] == {"type": "month", "start": "2026-10-01"}
     assert stored["result"] == "october"
+
+
+def test_briefing_context_is_persisted_without_being_forwarded_or_mutated():
+    db = MockDB()
+    queue = TaskQueue(max_workers=1)
+    queue.set_db(db)
+    context = {"kind": "reading", "source_id": "ep-source"}
+    task_id = queue.submit("briefing-report", lambda progress_callback=None: "reading",
+                           report_context=context)
+    queue.shutdown()
+    context["source_id"] = "changed"
+    task = queue.get_status(task_id)
+    assert task["status"] == "completed"
+    assert task["report_context"] == {"kind": "reading", "source_id": "ep-source"}
+    assert db.tasks.find_one({"task_id": task_id})["report_context"] == task["report_context"]
 
 
 def test_unlimited_memory_task_listing_keeps_active_tasks_beyond_default_page():

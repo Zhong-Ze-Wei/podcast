@@ -10,7 +10,7 @@ from .briefing_modes_service import BriefingModesService
 from .briefing_report_service import BriefingReportService
 from .briefing_scope_service import BriefingScopeService, HONG_KONG, calendar_period
 from .task_queue import task_queue
-from .briefing_task_service import report_task_conflicts
+from .briefing_task_service import report_task_conflicts, report_submission_lock, submit_report_task
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,11 @@ class BriefingAutoReporter:
                 if task and task["status"] == "completed":
                     self.db.briefing_auto_runs.update_one({"_id": run_id}, {"$set": {"status": "completed"}})
                     continue
+                if task and task["status"] == "cancelled":
+                    self.db.briefing_auto_runs.update_one({"_id": run_id}, {"$set": {
+                        "status": "cancelled", "cancelled_at": utc_now, "updated_at": utc_now,
+                    }})
+                    continue
                 if task and task["status"] in ("pending", "processing"):
                     continue
                 if run["lease_until"] > utc_now:
@@ -75,22 +80,36 @@ class BriefingAutoReporter:
             self.db.briefing_auto_runs.update_one({"_id": run_id}, {"$setOnInsert": {
                 "owner_id": owner, "period": period, "status": "ready", "attempts": 0, "next_retry_at": utc_now,
             }}, upsert=True)
-            claimed = self.db.briefing_auto_runs.find_one_and_update(
-                {"_id": run_id, "status": {"$in": ["ready", "failed"]}, "attempts": {"$lt": 3}, "next_retry_at": {"$lte": utc_now}},
-                {"$set": {"status": "queued", "lease_until": utc_now + timedelta(hours=1), "updated_at": utc_now}, "$inc": {"attempts": 1}},
-                return_document=ReturnDocument.AFTER,
-            )
-            if claimed is None:
-                continue
-            task_id = self.queue.submit(
-                task_type="briefing-report", owner_id=owner, func=self._generate,
-                report_period=period,
-                run_id=run_id, user_id=user["_id"], period=period,
-                on_failure=lambda error, identifier=run_id: self._failed(identifier, error),
-            )
-            self.db.briefing_auto_runs.update_one({"_id": run_id}, {"$set": {"task_id": task_id}})
-            submitted.append(task_id)
+            with report_submission_lock:
+                claimed = self.db.briefing_auto_runs.find_one_and_update(
+                    {"_id": run_id, "status": {"$in": ["ready", "failed"]}, "attempts": {"$lt": 3}, "next_retry_at": {"$lte": utc_now}},
+                    {"$set": {"status": "queued", "lease_until": utc_now + timedelta(hours=1), "updated_at": utc_now}, "$inc": {"attempts": 1}},
+                    return_document=ReturnDocument.AFTER,
+                )
+                if claimed is None:
+                    continue
+                try:
+                    task_id = submit_report_task(
+                        self.queue, owner_id=owner, func=self._generate,
+                        report_period=period, report_context={"kind": "modes", "mode": "all"},
+                        run_id=run_id, user_id=user["_id"], period=period,
+                        on_failure=lambda error, identifier=run_id: self._failed(identifier, error),
+                    )
+                except Exception:
+                    self._release_claim(run_id, utc_now)
+                    raise
+                if task_id is None:
+                    self._release_claim(run_id, utc_now)
+                    continue
+                self.db.briefing_auto_runs.update_one({"_id": run_id}, {"$set": {"task_id": task_id}})
+                submitted.append(task_id)
         return submitted
+
+    def _release_claim(self, run_id, now):
+        # 尚未入队不算一次生成，撤销租约后允许下次检查再次提交。
+        self.db.briefing_auto_runs.update_one({"_id": run_id, "status": "queued"}, {
+            "$set": {"status": "ready", "next_retry_at": now, "lease_until": now}, "$inc": {"attempts": -1},
+        })
 
     def _services(self, owner):
         report = BriefingReportService(owner_id=owner)

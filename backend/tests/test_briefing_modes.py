@@ -4,7 +4,7 @@ from copy import deepcopy
 import pytest
 
 from app.api import briefing_reports as api
-from app.services.briefing_modes_service import BriefingModesService, MODES, validate_mode
+from app.services.briefing_modes_service import BriefingModesService, MODES, validate_mode, validate_compact_modes
 from app.services.briefing_reading_service import BriefingReadingService
 from app.services.briefing_report_service import BriefingReportService
 from app.services.briefing_report_pdf import _candidates, _document
@@ -37,6 +37,17 @@ def test_core_keeps_exact_source_evidence_and_tags_not_model_source_fields(tmp_p
     assert item["start"] == cards[0]["start"]
     assert item["evidence"][0]["quote"] == cards[0]["quote"]
     assert item["topic_tags"] == ["编程"]
+
+
+def test_combined_selection_reuses_original_text_and_keeps_other_modes_on_error(tmp_path):
+    service = modes_service(tmp_path)
+    corpus, cards, _ = service._material()
+    response = {"core": results(cards)["core"]["items"], "quotes": [cards[0]["id"], "invented"], "concepts": [], "resources": []}
+    value = validate_compact_modes(response, [mode["id"] for mode in MODES], cards, corpus)
+    assert value["core"]["items"]
+    assert value["quotes"]["items"][0]["quote"] == cards[0]["quote"]
+    assert value["connections"]["rejected_items"]
+    assert len(value["quotes"]["rejected_items"]) == 1
 
 
 def test_connection_requires_two_sources_and_valid_relation(tmp_path):
@@ -87,13 +98,14 @@ def test_quote_mode_rejects_rewrite_and_retains_only_actual_original(tmp_path):
 
 
 @pytest.mark.parametrize("tag", [[], ["技术"], ["AI", "AI"], ["AI", "商业", "管理"]])
-def test_topic_tags_use_closed_nonduplicated_content_vocabulary(tmp_path, tag):
+def test_optional_legacy_tags_never_reject_valid_evidence(tmp_path, tag):
     service = modes_service(tmp_path)
     corpus, cards, _ = service._material()
     data = results(cards)["core"]
     data["items"][0]["topic_tags"] = tag
-    with pytest.raises(ValueError, match="主题标签"):
-        validate_mode(data, "core", cards, corpus)
+    result = validate_mode(data, "core", cards, corpus)
+    assert len(result["items"]) == 1
+    assert all(tag in ("AI", "编程", "商业", "管理", "历史", "科学") for tag in result["items"][0]["topic_tags"])
 
 
 def test_resource_and_concept_types_cannot_be_invented_from_quote_candidate(tmp_path):
