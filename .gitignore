@@ -111,3 +111,4 @@ backups/
 
 # Local AI research snapshots (full transcripts and cache records)
 docs/ai/data/
+codex-rename-probe-*.done
