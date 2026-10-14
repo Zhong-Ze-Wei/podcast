@@ -46,13 +46,13 @@ python -m http.server 3008 --directory frontend/public/product
 
 ## GitHub Pages
 
-工作流在 [`.github/workflows/product-pages.yml`](../.github/workflows/product-pages.yml)。仅发布 `frontend/public/product` 目录；修改展示页或工作流并合并到 `master` 后自动发布，也支持手动触发。应用业务代码或 README 单独变更不会触发部署。
+工作流在 [`.github/workflows/product-pages.yml`](../.github/workflows/product-pages.yml)。仅发布 `frontend/public/product` 目录；修改展示页或工作流并合并到 `main` 后自动发布，也支持手动触发。应用业务代码或 README 单独变更不会触发部署。
 
 此仓库的展示地址为 **https://zhong-ze-wei.github.io/podcast/**，部署记录见 **[Publish product page](https://github.com/Zhong-Ze-Wei/podcast/actions/workflows/product-pages.yml)**。仓库 **Settings → Pages → Source** 使用 **GitHub Actions**。
 
 1. 更新静态页面、截图或交互，先在本地预览。
-2. 按项目分支规范提交，合并到 `master` 并推送。
-3. 查看自动部署结果；需要重新发布时，在 **Actions → Publish product page → Run workflow** 选择 `master`。
+2. 按项目分支规范提交，合并到 `main` 并推送。
+3. 查看自动部署结果；需要重新发布时，在 **Actions → Publish product page → Run workflow** 选择 `main`。
 
 发布状态以工作流结果为准。工作流先检查演示 JavaScript 语法，再上传静态文件，无需安装应用依赖或启动后端。动作版本与权限参考 [GitHub Pages 官方工作流说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
 
