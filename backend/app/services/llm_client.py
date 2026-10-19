@@ -4,11 +4,14 @@ LLM 客户端封装
 支持 OpenAI 兼容接口 (LiteLLM 代理)
 """
 
+import ipaddress
 import json
 import logging
+import os
 from typing import Optional
 from datetime import datetime
 
+import httpx
 import openai
 import requests
 
@@ -32,6 +35,60 @@ class EmptyLLMResponse(ValueError):
         self.response = response
 
 
+def normalize_llm_proxy(value: str) -> str:
+    """规范化 LLM_PROXY：裸 IPv6（如 ::1:7890）补方括号和协议，避免 httpx 报 Invalid port。"""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    candidate, prefix = value, ""
+    if "://" in candidate:
+        prefix, _, candidate = candidate.partition("://")
+        prefix += "://"
+    else:
+        prefix = "http://"
+
+    def _bracket(host, port):
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            return None
+        rebuilt = f"{prefix}[{host}]:{port}" if port else f"{prefix}[{host}]"
+        try:
+            httpx.URL(rebuilt)
+        except httpx.InvalidURL:
+            return None
+        return rebuilt
+
+    # host:port 且 host 是裸 IPv6（::1:7890，按 curl 惯例末段作端口），要求完整消耗原串
+    host, sep, port = candidate.rpartition(":")
+    if sep and host and port.isdigit():
+        rebuilt = _bracket(host, port)
+        if rebuilt:
+            return rebuilt
+    # 整体就是裸 IPv6（::1 / fe80::1）
+    rebuilt = _bracket(candidate, "")
+    if rebuilt:
+        return rebuilt
+    # 其余写法（域名、IPv4、已带方括号）原样保留，仅补协议后校验
+    try:
+        httpx.URL(value if "://" in value else f"{prefix}{candidate}")
+    except httpx.InvalidURL:
+        return value  # 交给客户端构造阶段报出可读错误
+    return value if "://" in value else f"{prefix}{candidate}"
+
+
+def build_llm_http_client(proxy: Optional[str] = None) -> httpx.Client:
+    """LLM 专用 HTTP 客户端：不读取环境/系统代理（Clash 等开关切换会导致调用时好时坏），代理仅来自 LLM_PROXY。"""
+    if proxy is None:
+        proxy = normalize_llm_proxy(getattr(config, "LLM_PROXY", "") or os.getenv("LLM_PROXY", ""))
+    try:
+        return httpx.Client(trust_env=False, proxy=proxy or None)
+    except httpx.InvalidURL as error:
+        raise ValueError(
+            f"LLM_PROXY 配置无效：{proxy!r}（IPv6 地址需加方括号，例如 http://[::1]:7890）"
+        ) from error
+
+
 class LLMClient:
     """LLM 调用客户端"""
 
@@ -53,9 +110,29 @@ class LLMClient:
         self.api_format = api_format or default_api_format
         self.supports_streaming = supports_streaming
 
+        # LLM 流量不跟随系统/环境代理，需要代理时显式配置 LLM_PROXY。
+        self.proxy = normalize_llm_proxy(getattr(config, "LLM_PROXY", "") or os.getenv("LLM_PROXY", ""))
+        self._requests_proxies = (
+            {"http": self.proxy, "https": self.proxy} if self.proxy else {"http": None, "https": None}
+        )
         self.client = None
+        self._http_client = None
         if self.api_format == self.API_FORMAT_OPENAI:
-            self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+            self._http_client = build_llm_http_client(self.proxy)
+            self.client = openai.OpenAI(
+                api_key=self.api_key, base_url=self.base_url, http_client=self._http_client
+            )
+
+    def close(self):
+        if self._http_client is not None:
+            self._http_client.close()
+            self._http_client = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def chat(
         self,
@@ -208,6 +285,7 @@ class LLMClient:
             },
             json=payload,
             timeout=120,
+            proxies=self._requests_proxies,
         )
         response.raise_for_status()
         body = response.json()

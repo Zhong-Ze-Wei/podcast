@@ -297,7 +297,7 @@ def test_llm_test_uses_stored_provider_key_when_model_id_is_sent(monkeypatch):
         completions = FakeCompletions()
 
     class FakeOpenAI:
-        def __init__(self, api_key, base_url):
+        def __init__(self, api_key, base_url, http_client=None):
             created["api_key"] = api_key
             created["base_url"] = base_url
             self.chat = FakeChat()

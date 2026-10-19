@@ -85,9 +85,10 @@ def test_openai_compatible_client_uses_openai_sdk(monkeypatch):
     created = {}
 
     class FakeOpenAI:
-        def __init__(self, api_key, base_url):
+        def __init__(self, api_key, base_url, http_client=None):
             created["api_key"] = api_key
             created["base_url"] = base_url
+            created["http_client"] = http_client
 
     monkeypatch.setattr(llm_module.openai, "OpenAI", FakeOpenAI)
 
@@ -99,10 +100,11 @@ def test_openai_compatible_client_uses_openai_sdk(monkeypatch):
     )
 
     assert client.api_format == "openai_compatible"
-    assert created == {
-        "api_key": "secret",
-        "base_url": "https://api-inference.modelscope.cn/v1",
-    }
+    assert created["api_key"] == "secret"
+    assert created["base_url"] == "https://api-inference.modelscope.cn/v1"
+    # 专用 http 客户端：LLM 流量不受环境/系统代理影响
+    assert created["http_client"] is not None
+    assert created["http_client"]._trust_env is False
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "low"])
@@ -120,11 +122,12 @@ def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch, reasonin
                 "model": "claude-test",
             }
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, headers, json, timeout, proxies=None):
         requests["url"] = url
         requests["headers"] = headers
         requests["json"] = json
         requests["timeout"] = timeout
+        requests["proxies"] = proxies
         return FakeResponse()
 
     monkeypatch.setattr(llm_module.requests, "post", fake_post)
@@ -153,6 +156,8 @@ def test_anthropic_messages_client_calls_messages_endpoint(monkeypatch, reasonin
     assert requests["json"]["messages"] == [{"role": "user", "content": "Ping"}]
     assert requests["json"]["max_tokens"] == 32
     assert requests["json"]["temperature"] == 0.1
+    # 不继承环境代理：显式覆盖 http/https（None=直连），环境变量无法再插手
+    assert requests["proxies"] == {"http": None, "https": None}
     if reasoning_effort is not None:
         assert requests["json"]["output_config"]["effort"] == "low"
     else:
@@ -228,3 +233,52 @@ def test_unknown_cache_usage_is_not_reported_as_zero(monkeypatch):
     monkeypatch.setattr(client.client.chat.completions, "create", lambda **kwargs: response)
     result = client.chat(messages=[])
     assert "cached_tokens" not in result["usage"] and "reasoning_tokens" not in result["usage"]
+
+
+def test_normalize_llm_proxy_bare_ipv6_forms():
+    from app.services.llm_client import normalize_llm_proxy
+
+    assert normalize_llm_proxy("") == ""
+    assert normalize_llm_proxy("   ") == ""
+    # 裸 IPv6：按 curl 惯例末段作端口，补方括号和协议
+    assert normalize_llm_proxy("::1:7890") == "http://[::1]:7890"
+    assert normalize_llm_proxy("::1") == "http://[::1]"
+    assert normalize_llm_proxy("[::1]:7890") == "http://[::1]:7890"
+    assert normalize_llm_proxy("http://::1:7890") == "http://[::1]:7890"
+    assert normalize_llm_proxy("socks5://::1:7890") == "socks5://[::1]:7890"
+    # 非 IPv6 写法原样保留，仅补协议
+    assert normalize_llm_proxy("http://127.0.0.1:7890") == "http://127.0.0.1:7890"
+    assert normalize_llm_proxy("127.0.0.1:7890") == "http://127.0.0.1:7890"
+    assert normalize_llm_proxy("http://proxy.internal:8080") == "http://proxy.internal:8080"
+    # 修不动的写法原样返回，交给客户端构造阶段报出可读错误
+    assert normalize_llm_proxy("http://::1]") == "http://::1]"
+
+
+def test_llm_client_ignores_environment_proxy(monkeypatch):
+    # 回归：畸形系统代理（未加方括号的 IPv6）曾让 AI 简报任务以 Invalid port: ':1]' 失败
+    monkeypatch.setenv("ALL_PROXY", "http://::1]")
+    monkeypatch.setenv("HTTP_PROXY", "::1")
+    monkeypatch.setenv("HTTPS_PROXY", "::1")
+    monkeypatch.setenv("http_proxy", "::1")
+    monkeypatch.setenv("https_proxy", "::1")
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    try:
+        assert client.client is not None
+    finally:
+        client.close()
+
+
+def test_llm_client_rejects_invalid_llm_proxy_with_clear_message(monkeypatch):
+    monkeypatch.setattr(llm_module.config, "LLM_PROXY", "http://::1]", raising=False)
+    with pytest.raises(ValueError, match="LLM_PROXY"):
+        LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+
+
+def test_llm_client_uses_normalized_llm_proxy(monkeypatch):
+    monkeypatch.setattr(llm_module.config, "LLM_PROXY", "::1:7890", raising=False)
+    client = LLMClient(base_url="https://example.com/v1", api_key="k", model="test-model")
+    try:
+        assert client.proxy == "http://[::1]:7890"
+        assert client._requests_proxies == {"http": "http://[::1]:7890", "https": "http://[::1]:7890"}
+    finally:
+        client.close()

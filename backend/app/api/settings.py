@@ -203,7 +203,10 @@ def test_llm_connection():
 
         from openai import OpenAI
 
-        client = OpenAI(base_url=base_url, api_key=api_key or "sk-placeholder")
+        from ..services.llm_client import build_llm_http_client
+
+        client = OpenAI(base_url=base_url, api_key=api_key or "sk-placeholder",
+                        http_client=build_llm_http_client())
 
         # 发送简单测试请求
         response = client.chat.completions.create(
