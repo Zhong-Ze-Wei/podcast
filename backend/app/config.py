@@ -66,6 +66,8 @@ class Config:
     LLM_API_FORMAT = os.getenv("LLM_API_FORMAT", "openai_compatible")
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+    # LLM 出口代理：默认不走系统/环境代理（Clash 等开关切换会让调用时好时坏），需要时在此显式指定
+    LLM_PROXY = os.getenv("LLM_PROXY", "").strip()
 
     @classmethod
     def init_dirs(cls):
