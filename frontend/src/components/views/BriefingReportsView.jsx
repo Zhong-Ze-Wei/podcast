@@ -1,10 +1,10 @@
 import i18n from '../../i18n';
 import { localizeUiMessage, formatUiDate, formatPeriodLabel } from '../../utils/localization';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  AlertCircle, ArrowLeft, Check, ChevronDown, Download, ExternalLink,
+  AlertCircle, ArrowLeft, Check, Download, ExternalLink,
   Heart, Info, Loader2, Menu, MoreHorizontal, X,
 } from 'lucide-react';
 import { briefingReportsApi, tasksApi } from '../../services/api';
@@ -49,6 +49,25 @@ function readStored(storage, key, fallback) {
   try { return JSON.parse(stored); } catch { storage.removeItem(key); return fallback; }
 }
 function usableUrl(url) { return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null; }
+// 瀑布流列数随窗口宽度变化,默认宽屏 4 列
+const masonryColumnCount = () => (window.innerWidth >= 1500 ? 4 : window.innerWidth >= 1100 ? 3 : window.innerWidth >= 760 ? 2 : 1);
+function useMasonryColumnCount() {
+  const [count, setCount] = useState(masonryColumnCount);
+  useEffect(() => {
+    const onResize = () => setCount(masonryColumnCount());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return count;
+}
+// 瀑布流落位用的高度估算:标题/正文/证据条数粗略折算,只为均衡不需要精确
+function estimateCardHeight(card) {
+  const title = (card.title || '').length;
+  const body = (card.text || card.quote || card.brief || '').length;
+  return 110 + title * 9 + body * 2.2 + (card.evidence?.length || 0) * 30;
+}
+const INITIAL_CARDS = 16;
+const SCROLL_BATCH = 12;
 function coverUrl(url) { return usableUrl(url) || (typeof url === 'string' && /^\/api\/media\/covers\/[^/]+\.(?:jpe?g|png|webp)(?:[?#].*)?$/i.test(url) ? url : null); }
 function itemsIn(report) { return (report?.sections || []).flatMap(section => section.items || []); }
 async function errorText(error, fallback) {
@@ -228,7 +247,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const [layoutError, setLayoutError] = useState('');
   const [mode, setMode] = useState('core');
   const savedOnly = section === 'saved';
-  const [showAll, setShowAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_CARDS);
   const [periodScope, setPeriodScope] = useState({ owner: userId, type: 'week', start: null });
   const [interests, setInterests] = useState([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]);
   const [materialsOpen, setMaterialsOpen] = useState(false);
@@ -281,7 +300,23 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const hasUnfinishedAnalysis = report?.analysis?.partial && (failedEpisodeCount > 0 || report.analysis.skipped_chunks > 0);
   const isSaved = card => savedQuotes.includes(card.id);
   const filteredItems = allItems.filter(card => !savedOnly || isSaved(card));
-  const visibleItems = showAll ? filteredItems : filteredItems.slice(0, 6);
+  const visibleItems = filteredItems.slice(0, visibleCount);
+  const hasMore = visibleItems.length < filteredItems.length;
+  const hasMoreRef = useRef(false);
+  hasMoreRef.current = hasMore;
+  const sentinelRef = useRef(null);
+  const masonryColumnCountValue = useMasonryColumnCount();
+  const masonryColumns = useMemo(() => {
+    const columns = Array.from({ length: masonryColumnCountValue }, () => []);
+    const heights = new Array(masonryColumnCountValue).fill(0);
+    for (const card of visibleItems) {
+      let shortest = 0;
+      for (let i = 1; i < columns.length; i++) if (heights[i] < heights[shortest]) shortest = i;
+      columns[shortest].push(card);
+      heights[shortest] += estimateCardHeight(card);
+    }
+    return columns;
+  }, [visibleItems, masonryColumnCountValue]);
   const matchingSourceCount = new Set(filteredItems.flatMap(card => [card.source_id, ...(card.source_ids || []), ...(card.evidence || []).map(quote => quote.source_id)]).filter(Boolean)).size;
   const period = snapshot?.period;
   const periodKey = !loading && period ? `${period.type}:${period.start}` : null;
@@ -297,7 +332,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     });
   }, [userId]);
   const hasMaterials = (period?.transcript_count ?? sources.length) > 0;
-  const readingContext = () => ({ owner: userId, periodType: period?.type || periodScope.type, periodStart: period?.start || periodScope.start, mode, selectedTag: '', showAll, readingSource, reportScrollTop: readingScrollRef.current, scroll: captureReadingPosition(viewRef.current) });
+  const readingContext = () => ({ owner: userId, periodType: period?.type || periodScope.type, periodStart: period?.start || periodScope.start, mode, selectedTag: '', readingSource, reportScrollTop: readingScrollRef.current, scroll: captureReadingPosition(viewRef.current) });
   const publishContext = () => onNavigationStateChange(readingContext());
   useEffect(() => {
     publishContext();
@@ -305,7 +340,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       const context = readingContext();
       window.history.replaceState({ ...window.history.state, briefingContext: context }, '', briefingPath(savedOnly ? 'saved' : 'reports', context));
     }
-  }, [periodScope.type, period?.start, mode, showAll, readingSource, loading, savedOnly, onNavigationStateChange]);
+  }, [periodScope.type, period?.start, mode, readingSource, loading, savedOnly, onNavigationStateChange]);
   const closeSource = useCallback(() => setSelection(null), []);
   const closePreview = useCallback(() => setPreview(false), []);
   const closeEvidence = useCallback(() => setEvidenceSelection(null), []);
@@ -327,14 +362,34 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   useLayoutEffect(() => { viewRef.current?.scrollTo({ top: readingSource ? 0 : readingScrollRef.current }); }, [readingSource]);
   useLayoutEffect(() => {
     if (loading || !pendingRestoreRef.current || (readingSource && (readingLoading || !readings[readingSource]))) return;
-    restoreReadingPosition(viewRef.current, pendingRestoreRef.current);
+    const position = pendingRestoreRef.current;
+    // 恢复位置落在未加载的卡片上时,先补齐该卡所在批次,下一轮再恢复滚动
+    if (position.itemId) {
+      const index = filteredItems.findIndex(card => card.id === position.itemId);
+      if (index >= 0 && index >= visibleCount) {
+        setVisibleCount(Math.ceil((index + 1 + SCROLL_BATCH) / SCROLL_BATCH) * SCROLL_BATCH);
+        return;
+      }
+    }
+    restoreReadingPosition(viewRef.current, position);
     pendingRestoreRef.current = null;
     publishContext();
-  }, [loading, readingSource, readingLoading, readings, report?.id, showAll]);
+  }, [loading, readingSource, readingLoading, readings, report?.id, visibleCount, filteredItems]);
+  // 列表内容变化时回到首批,滚动接近底部时按批续载
+  useEffect(() => { setVisibleCount(INITIAL_CARDS); }, [report?.id, mode, layout]);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return undefined;
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMoreRef.current) setVisibleCount(count => count + SCROLL_BATCH);
+    }, { rootMargin: '500px 0px' });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [report?.id, savedOnly]);
 
   useEffect(() => {
     readingScrollRef.current = 0;
-    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setShowAll(false);
+    setLoading(true); setSnapshot(null); setReadingSource(null); setReadings({}); setError(''); setPreview(false); setSelection(null); setProgress(null); setPollError(''); setSubmissions({}); setReadingLoading(false); setDownloading(false); setExportError(''); setEvidenceSelection(null); setMaterialsOpen(false); setVisibleCount(INITIAL_CARDS);
     setLayout('paper'); setMaterialsLayout('gallery');
     const storedMode = localStorage.getItem(`${storagePrefix}:mode`);
     const initialMode = MODES.some(item => item.id === storedMode) ? storedMode : 'core';
@@ -347,7 +402,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     const queryStart = query.get('period_start');
     const validQuery = ['week', 'month'].includes(queryType) && /^\d{4}-\d{2}-\d{2}$/.test(queryStart || '') && Number.isFinite(Date.parse(queryStart)) && new Date(queryStart).toISOString().slice(0, 10) === queryStart;
     if (restore || query.has('mode')) setMode((restore || routeContext).mode);
-    setShowAll(Boolean((restore || routeContext).showAll));
     setReadingSource((restore || routeContext).readingSource || null);
     readingScrollRef.current = restore?.reportScrollTop || 0;
     pendingRestoreRef.current = restore?.scroll || (window.history.state?.briefingContext?.owner === userId ? window.history.state.briefingContext.scroll : null);
@@ -360,10 +414,10 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     if (!navigation) return;
     setSelection(null); setEvidenceSelection(null); setPreview(false);
     if (navigation.restore) {
-      setReadingSource(navigation.readingSource || null); setShowAll(Boolean(navigation.showAll));
+      setReadingSource(navigation.readingSource || null);
       readingScrollRef.current = navigation.reportScrollTop || 0;
       pendingRestoreRef.current = navigation.scroll;
-    } else { setReadingSource(navigation.readingSource || null); setShowAll(Boolean(navigation.showAll)); viewRef.current?.scrollTo({ top: 0 }); }
+    } else { setReadingSource(navigation.readingSource || null); viewRef.current?.scrollTo({ top: 0 }); }
     if (MODES.some(item => item.id === navigation.mode)) setMode(navigation.mode);
     if (['week', 'month'].includes(navigation.periodType)) {
       const start = navigation.periodStart || null;
@@ -546,10 +600,12 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
         {!['paper', 'newspaper'].includes(layout) && <header className="br-mode-intro"><h2>{info.name}</h2>{info.description && <p>{info.description}</p>}</header>}
         <section className={`br-quote-layout br-layout-${layout}`} aria-label={t("ui.valueValueLayout", { value1: info.name, value2: LAYOUTS.find(item => item.id === layout).name })}>
           {['paper', 'newspaper'].includes(layout) && <header className="br-paper-heading"><div><span>{t("ui.podMasterAIBriefing")}</span><h2>{info.name}</h2></div><span>{formatPeriodLabel(period, i18n.resolvedLanguage) || dateText(report.generated_at)}</span></header>}
-          <ExcerptItems layout={layout}>{visibleItems.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</ExcerptItems>
+          <ExcerptItems layout={layout}>{layout === 'columns'
+            ? <div className="br-masonry">{masonryColumns.map((column, columnIndex) => <div className="br-masonry-col" key={columnIndex}>{column.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</div>)}</div>
+            : visibleItems.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</ExcerptItems>
           {['paper', 'newspaper'].includes(layout) && <footer className="br-paper-footer">{t("ui.includes")} {sources.length} {t("ui.transcriptsShowing")} {visibleItems.length} {t("ui.itemsOf")} {filteredItems.length} {t("ui.itemsSourcesAvailableForAll")}</footer>}
         </section>
-        {filteredItems.length > 6 && <div className="br-expand-more"><button className="br-button" aria-expanded={showAll} onClick={() => setShowAll(current => !current)}>{showAll ? t("ui.collapseToTheFirst6Items") : t("ui.showValueMoreItems", { value1: filteredItems.length - 6 })}<ChevronDown size={14} /></button></div>}
+        {hasMore && <div ref={sentinelRef} className="br-scroll-sentinel" aria-hidden="true" />}
         {!filteredItems.length && <div className="br-empty"><h2>{savedOnly ? t("ui.noSavedItemsMatchThisFilter") : t("ui.noContentMatchesTheCurrentInterests")}</h2><p>{savedOnly ? t("ui.clickTheHeartBelowAnItemTo") : t("ui.adjustYourInterestsInSettingsAtThe")}</p></div>}
         <footer className="br-edition-footer">
           <span className="br-edition-meta">{t("ui.generatedOn")} {dateText(report.generated_at)}
