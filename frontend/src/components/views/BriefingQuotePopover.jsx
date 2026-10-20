@@ -39,6 +39,9 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   const ref = useRef(null);
   const cardRef = useRef(null);
   const boardRef = useRef(null);
+  const stageRef = useRef(null);
+  const scrubRef = useRef(null);
+  const scrubReadoutRef = useRef(null);
   const bodyRef = useRef(null);
   const readingRef = useRef(null);
   const quoteRef = useRef(null);
@@ -61,11 +64,90 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
     setAtEnd(body.scrollHeight - body.scrollTop <= body.clientHeight + 1);
   };
   const spreadMeta = useMemo(() => quotes.map((_, i) => ({
-    tilt: (jitter(i, 1) - 0.5) * 10,
+    tilt: (jitter(i, 1) - 0.5) * 8,
     zoom: 0.88 + jitter(i, 2) * 0.26,
     wide: jitter(i, 3) > 0.72,
   })), [quotes]);
   const canSpread = quotes.length > 1;
+
+  // 铺开舞台动效：滚动时卡片随速度回摆（--sway），指针移动时卡片朝光标轻微
+  // 扭转（--wx/--wy，距离越近越明显）。每帧只写 CSS 变量，不动布局。
+  useEffect(() => {
+    if (!spread) return undefined;
+    const board = boardRef.current;
+    const stage = stageRef.current;
+    if (!board || !stage) return undefined;
+    const motion = { mx: 0, my: 0, active: false, mix: 0, sway: 0, swayTarget: 0, lastTop: board.scrollTop };
+    let raf = 0;
+    const readout = () => {
+      const total = quotes.length;
+      const max = Math.max(0, board.scrollHeight - board.clientHeight);
+      if (scrubRef.current) {
+        scrubRef.current.max = max;
+        scrubRef.current.disabled = max <= 0;
+        scrubRef.current.value = board.scrollTop;
+      }
+      if (scrubReadoutRef.current && total) {
+        const progress = max > 0 ? board.scrollTop / max : 0;
+        const perScreen = Math.max(1, Math.round(board.clientHeight / Math.max(1, board.scrollHeight / total)));
+        const first = Math.min(total, Math.floor(progress * total) + 1);
+        const last = Math.min(total, first + perScreen - 1);
+        scrubReadoutRef.current.textContent = `${first}–${last} / ${total}`;
+      }
+    };
+    const onScroll = () => {
+      const top = board.scrollTop;
+      motion.swayTarget = Math.max(-12, Math.min(12, (motion.lastTop - top) * 0.5));
+      motion.lastTop = top;
+      readout();
+    };
+    const onPointerMove = event => { motion.mx = event.clientX; motion.my = event.clientY; motion.active = true; };
+    const onPointerLeave = () => { motion.active = false; };
+    const tick = () => {
+      motion.swayTarget *= 0.94;
+      motion.sway += (motion.swayTarget - motion.sway) * 0.1;
+      motion.mix += ((motion.active ? 1 : 0) - motion.mix) * 0.1;
+      const rect = stage.getBoundingClientRect();
+      const nx = motion.mix ? ((motion.mx - rect.left) / rect.width - 0.5) * motion.mix : 0;
+      const ny = motion.mix ? ((motion.my - rect.top) / rect.height - 0.5) * motion.mix : 0;
+      const idle = motion.mix < 0.02 && Math.abs(motion.sway) < 0.05;
+      const cards = board.querySelectorAll('.br-spread-card');
+      if (!idle) {
+        cards.forEach(card => {
+          const c = card.getBoundingClientRect();
+          const cx = (c.left + c.width / 2 - rect.left) / rect.width - 0.5;
+          const cy = (c.top + c.height / 2 - rect.top) / rect.height - 0.5;
+          const dx = nx - cx;
+          const dy = ny - cy;
+          const falloff = Math.max(0.3, 1 - Math.hypot(dx, dy) * 1.6);
+          card.style.setProperty('--wy', Math.max(-5, Math.min(5, dx * 14 * falloff)).toFixed(2) + 'deg');
+          card.style.setProperty('--wx', Math.max(-4, Math.min(4, -dy * 11 * falloff)).toFixed(2) + 'deg');
+          card.style.setProperty('--sway', motion.sway.toFixed(2) + 'deg');
+        });
+      } else {
+        cards.forEach(card => {
+          card.style.setProperty('--wx', '0deg');
+          card.style.setProperty('--wy', '0deg');
+          card.style.setProperty('--sway', '0deg');
+        });
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    const onScrubInput = event => { board.scrollTop = Number(event.target.value); };
+    board.addEventListener('scroll', onScroll, { passive: true });
+    stage.addEventListener('pointermove', onPointerMove);
+    stage.addEventListener('pointerleave', onPointerLeave);
+    scrubRef.current?.addEventListener('input', onScrubInput);
+    if (!reducedMotion()) raf = requestAnimationFrame(tick);
+    readout();
+    return () => {
+      cancelAnimationFrame(raf);
+      board.removeEventListener('scroll', onScroll);
+      stage.removeEventListener('pointermove', onPointerMove);
+      stage.removeEventListener('pointerleave', onPointerLeave);
+      scrubRef.current?.removeEventListener('input', onScrubInput);
+    };
+  }, [spread, quotes.length]);
 
   useEffect(() => {
     setZhMap({});
@@ -299,20 +381,26 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
       <div className="br-quote-attribution"><div className="br-quote-byline"><strong>{card.feed || source.feed}</strong>{card.speaker && <span>{card.speaker}</span>}</div><span title={card.source_title || source.title}>{card.source_title || source.title}</span></div>
       <footer className="br-quote-popover-footer"><div className="br-quote-links">{onRead && <button className="br-text-button" onClick={() => act(() => onRead(card.source_id))}>{t("ui.readEpisode")}</button>}{episodeId && onListen && <button className="br-text-button" onClick={() => act(() => onListen({ ...card, episode_id: episodeId, original_url: source.original_url || source.url || source.link }))}><Headphones size={14} />{t("ui.listenAt", { time: timeText(card.start) || t("ui.theBeginning") })}</button>}{onSource && <button className="br-text-button" onClick={() => act(() => onSource(card))}>{t("ui.viewInTranscript")}</button>}</div><div className="br-quote-pagination"><button className="br-icon-button" disabled={index === 0} aria-label={t("ui.previousQuotation")} onClick={() => navigate(-1)}><ArrowLeft size={17} /></button><span aria-live="polite">{index + 1} / {quotes.length}</span><button className="br-icon-button" disabled={index === quotes.length - 1} aria-label={t("ui.nextQuotation")} onClick={() => navigate(1)}><ArrowRight size={17} /></button></div></footer>
       </article>
-      {spread && <div className="br-spread-board custom-scrollbar" ref={boardRef} role="group" aria-label={t("ui.spreadReview")}>
-        <div className="br-spread-toolbar">
-          <div className="br-spread-caption"><strong>{t("ui.spreadReview")}</strong><span>{t("ui.spreadCardHint")}</span></div>
-          <button className="br-button br-spread-gather" onClick={() => collapseSpread(index)}><Minimize2 size={15} />{t("ui.gatherCards")}</button>
+      {spread && <div className="br-spread-stage" ref={stageRef}>
+        <div className="br-spread-board custom-scrollbar" ref={boardRef} role="group" aria-label={t("ui.spreadReview")}>
+          <div className="br-spread-toolbar">
+            <div className="br-spread-caption"><strong>{t("ui.spreadReview")}</strong><span>{t("ui.spreadCardHint")}</span></div>
+            <button className="br-button br-spread-gather" onClick={() => collapseSpread(indexRef.current)}><Minimize2 size={15} />{t("ui.gatherCards")}</button>
+          </div>
+          {quotes.map((item, i) => {
+            const meta = spreadMeta[i] || { tilt: 0, zoom: 1 };
+            const origin = sources.find(entry => entry.id === item.source_id) || {};
+            return <button key={`${item.id || 'q'}:${i}`} className={`br-spread-card ${meta.wide ? 'is-wide' : ''}`} style={{ '--tilt': `${meta.tilt.toFixed(2)}deg`, '--zoom': meta.zoom.toFixed(3), '--zoom-base': meta.zoom.toFixed(3) }} onClick={() => collapseSpread(i)}>
+              <span className="br-spread-source"><strong>{item.feed || origin.feed}</strong>{(item.source_title || origin.title) && <em>{item.source_title || origin.title}</em>}</span>
+              <p className="br-spread-text">{zhText(item) || item.quote}</p>
+              <span className="br-spread-index" aria-hidden="true">{i + 1}</span>
+            </button>;
+          })}
         </div>
-        {quotes.map((item, i) => {
-          const meta = spreadMeta[i] || { tilt: 0, zoom: 1 };
-          const origin = sources.find(entry => entry.id === item.source_id) || {};
-          return <button key={`${item.id || 'q'}:${i}`} className={`br-spread-card ${meta.wide ? 'is-wide' : ''}`} style={{ '--tilt': `${meta.tilt.toFixed(2)}deg`, '--zoom': meta.zoom.toFixed(3) }} onClick={() => collapseSpread(i)}>
-            <span className="br-spread-source"><strong>{item.feed || origin.feed}</strong>{(item.source_title || origin.title) && <em>{item.source_title || origin.title}</em>}</span>
-            <p className="br-spread-text">{zhText(item) || item.quote}</p>
-            <span className="br-spread-index" aria-hidden="true">{i + 1}</span>
-          </button>;
-        })}
+        <div className="br-spread-scrubber">
+          <span className="br-spread-scrub-readout" ref={scrubReadoutRef} aria-live="off">1–{Math.min(quotes.length, 4)} / {quotes.length}</span>
+          <input ref={scrubRef} type="range" min={0} max={0} step={1} defaultValue={0} disabled aria-label={t("ui.spreadScrubber")} />
+        </div>
       </div>}
     </section>
   </div>, document.body);
