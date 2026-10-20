@@ -1,56 +1,118 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Check, ChevronLeft, ChevronRight, ExternalLink, FileText, Search, Sparkles, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, ExternalLink, FileText, RotateCcw, Search, Sparkles, X } from 'lucide-react';
 import './briefing-materials.css';
 
 function plainDescription(html) {
   return new DOMParser().parseFromString(html || '', 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
 }
 
-function EpisodeCard({ material, feeds, CoverComponent, expanded, onExpand, onRead, onOpenEpisode, dateText }) {
+const DRAG_THRESHOLD = 8;
+const EXCLUDE_ZONE_HEIGHT = 96;
+
+function EpisodeCard({ material, feeds, CoverComponent, expanded, onExpand, onRead, onOpenEpisode, dateText, excluded, onDragStart, onDragMove, onDragEnd, dragging, dragActive }) {
   const { t } = useTranslation();
   const label = key => t(`briefingMaterials.${key}`);
   const contentId = `material-${material.episode_id}`;
   const overview = material.analysis_preview || plainDescription(material.description);
-  return <article className={`bm-card${expanded ? ' is-open' : ''}`} data-episode-id={material.episode_id}>
+  return <article className={`bm-card${expanded ? ' is-open' : ''}${excluded ? ' is-excluded' : ''}${dragging ? ' is-dragging' : ''}`} data-episode-id={material.episode_id}
+    onPointerDown={event => { if (event.button !== 0 || event.target.closest('.bm-card-actions, .bm-scroll.is-open, .bm-feed-chip, a, input')) return; onDragStart(event, material); }}
+    onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}>
     <button className="bm-art" onClick={onExpand} aria-expanded={expanded} aria-controls={contentId} aria-label={`${label('preview')}: ${material.title}`}>
       <span className="bm-art-ambient" aria-hidden="true"><CoverComponent source={material} feeds={feeds} /></span>
       <CoverComponent source={material} feeds={feeds} />
       <span className="bm-art-cue">{expanded ? <X size={14} /> : <ChevronRight size={14} />}</span>
     </button>
     <div className="bm-card-copy">
-      <div className="bm-byline"><span>{material.feed}</span><time dateTime={material.published_at}>{dateText(material.published_at)}</time></div>
+      <div className="bm-byline">
+        <button type="button" className="bm-feed-chip" draggable={false} title={label('dragFeedHint')}
+          onPointerDown={event => { event.stopPropagation(); if (event.button !== 0) return; onDragStart(event, material, true); }}>{material.feed}</button>
+        <time dateTime={material.published_at}>{dateText(material.published_at)}</time>
+      </div>
       <div id={contentId} className={`bm-scroll custom-scrollbar${expanded ? ' is-open' : ''}`} tabIndex={expanded ? 0 : undefined}>
         <h3><button onClick={onExpand} aria-expanded={expanded} aria-controls={contentId}>{material.title}</button></h3>
         {(overview || expanded) && <p className="bm-description">{overview ? <><span className="bm-preview-label">{label(material.analysis_preview ? 'aiOverview' : 'episodeDescription')} · </span>{overview}</> : label('noDescription')}</p>}
-        {expanded && material.selected === false && material.relevance_reason && <p className="bm-screening-reason">{material.relevance_reason}</p>}
+        {expanded && excluded && <p className="bm-screening-reason">{label('excludedByYou')}</p>}
+        {expanded && !excluded && material.selected === false && material.relevance_reason && <p className="bm-screening-reason">{material.relevance_reason}</p>}
       </div>
-      <div className="bm-status"><span><FileText size={12} />{label(material.has_transcript ? 'transcript' : 'noTranscript')}</span>{material.analysis_status === 'completed' ? <span className="is-complete"><Check size={12} />{label('analyzed')}</span> : material.selected === true && <span className="is-complete">{label('included')}</span>}</div>
+      <div className="bm-status"><span><FileText size={12} />{label(material.has_transcript ? 'transcript' : 'noTranscript')}</span>{excluded ? <span className="is-excluded-tag">{label('excludedByYou')}</span> : material.analysis_status === 'completed' ? <span className="is-complete"><Check size={12} />{label('analyzed')}</span> : material.selected === true && <span className="is-complete">{label('included')}</span>}</div>
       <div className="bm-card-actions">{material.has_transcript && material.source_id && <button className="bm-analysis" onClick={() => onRead(material.source_id)}><Sparkles size={13} />{label(material.analysis_status === 'completed' ? 'readAnalysis' : 'episodeAnalysis')}</button>}<button className="bm-open-episode" onClick={() => onOpenEpisode(material.episode_id)}>{label('openEpisode')}<ExternalLink size={12} /></button></div>
     </div>
   </article>;
 }
 
-export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gallery', dialogRef, CoverComponent, periodLabel, onClose, onRead, onOpenEpisode }) {
+export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gallery', dialogRef, CoverComponent, periodLabel, onClose, onRead, onOpenEpisode, excludedEpisodeIds = [], excludedFeedIds = [], onExclude = () => {}, onRestore = () => {} }) {
   const { t, i18n } = useTranslation();
   const label = key => t(`briefingMaterials.${key}`);
   const [query, setQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [drag, setDrag] = useState(null);
+  const [overZone, setOverZone] = useState(false);
   const dragStart = useRef(null);
   const dragged = useRef(false);
   const galleryRef = useRef(null);
   const previousCardRects = useRef(null);
   const thumbnailsRef = useRef(null);
+  const dragPointer = useRef(null);
   const language = i18n.resolvedLanguage || i18n.language;
   const dateText = value => value ? new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', timeZone: 'Asia/Hong_Kong' }).format(new Date(value)) : '';
   const materials = snapshot.materials || [];
   const search = query.trim().toLocaleLowerCase();
   const episodes = materials.filter(material => !search || `${material.title} ${material.feed}`.toLocaleLowerCase().includes(search));
   const index = Math.min(activeIndex, Math.max(0, episodes.length - 1));
+  const excludedEpisodes = useMemo(() => new Set(excludedEpisodeIds), [excludedEpisodeIds]);
+  const excludedFeeds = useMemo(() => new Set(excludedFeedIds), [excludedFeedIds]);
+  const isExcluded = material => excludedEpisodes.has(material.episode_id) || (material.feed_id && excludedFeeds.has(material.feed_id));
+  const excludedList = materials.filter(isExcluded);
   const move = direction => { setActiveIndex(Math.max(0, Math.min(episodes.length - 1, index + direction))); setExpandedId(null); };
   const jump = nextIndex => { setActiveIndex(nextIndex); setExpandedId(null); };
+
+  // 拖拽排除：拖动卡片=排除单集，拖动播客名=排除该播客；松手时若指针落在底部排除区则生效
+  const startDrag = (event, material, wholeFeed = false) => {
+    if (event.button !== 0) return;
+    dragPointer.current = { x: event.clientX, y: event.clientY, id: event.pointerId, wholeFeed, material, started: false };
+    // 捕获指针，保证快速拖拽到窗口底部时事件不丢
+    try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* 某些环境不支持 */ }
+  };
+  const moveDrag = event => {
+    const state = dragPointer.current;
+    if (!state || state.id !== event.pointerId) return;
+    if (!state.started) {
+      if (Math.hypot(event.clientX - state.x, event.clientY - state.y) < DRAG_THRESHOLD) return;
+      state.started = true;
+      setDrag({ material: state.material, wholeFeed: state.wholeFeed, x: event.clientX, y: event.clientY });
+    }
+    event.preventDefault();
+    const nearBottom = event.clientY > window.innerHeight - EXCLUDE_ZONE_HEIGHT;
+    setOverZone(nearBottom);
+    setDrag(current => current && { ...current, x: event.clientX, y: event.clientY });
+  };
+  const endDrag = event => {
+    const state = dragPointer.current;
+    dragPointer.current = null;
+    if (!state || !state.started) { setDrag(null); setOverZone(false); return; }
+    const dropped = event.clientY > window.innerHeight - EXCLUDE_ZONE_HEIGHT;
+    setDrag(null); setOverZone(false);
+    if (!dropped) return;
+    event.preventDefault();
+    if (state.wholeFeed && state.material.feed_id) onExclude({ feedId: state.material.feed_id, feed: state.material.feed });
+    else onExclude({ episodeId: state.material.episode_id, title: state.material.title });
+  };
+  React.useEffect(() => {
+    if (!drag && !dragPointer.current) return undefined;
+    const onMove = event => { moveDrag(event); };
+    const onUp = event => { endDrag(event); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const strip = thumbnailsRef.current;
     const thumbnail = strip?.children[index];
@@ -91,20 +153,33 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
     }
     return () => animations.forEach(animation => animation.cancel());
   }, [expandedId, query, layout]);
-  const episodeCard = material => <EpisodeCard key={material.episode_id} material={material} feeds={feeds} CoverComponent={CoverComponent} dateText={dateText} expanded={expandedId === material.episode_id} onExpand={() => expand(material.episode_id)} onRead={read} onOpenEpisode={openEpisode} />;
+  const episodeCard = material => <EpisodeCard key={material.episode_id} material={material} feeds={feeds} CoverComponent={CoverComponent} dateText={dateText} expanded={expandedId === material.episode_id} onExpand={() => expand(material.episode_id)} onRead={read} onOpenEpisode={openEpisode}
+    excluded={isExcluded(material)} dragging={drag?.material.episode_id === material.episode_id} dragActive={Boolean(drag)}
+    onDragStart={startDrag} onDragMove={moveDrag} onDragEnd={endDrag} />;
   const peek = (material, direction) => <button className={`bm-peek ${direction < 0 ? 'is-left' : 'is-right'}`} onClick={() => move(direction)} aria-label={`${label(direction < 0 ? 'previous' : 'next')}: ${material.title}`}><div className="bm-peek-art"><CoverComponent source={material} feeds={feeds} /></div><span>{material.feed}</span><strong>{material.title}</strong></button>;
+  const restoreFeed = feedId => onRestore({ feedId });
+  const restoreEpisode = episodeId => onRestore({ episodeId });
+  const excludedFeedsList = [...new Map(excludedList.filter(item => item.feed_id && excludedFeeds.has(item.feed_id)).map(item => [item.feed_id, item])).values()];
 
   return createPortal(<div className="br-modal-backdrop bm-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className={`bm-modal bm-${layout}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="bm-title">
-    <header className="bm-heading"><div><span className="bm-period">{periodLabel || snapshot.period.label}</span><h2 id="bm-title">{label('title')}</h2><p>{t('briefingMaterials.count', { total: materials.length, transcripts: materials.filter(material => material.has_transcript).length })}</p></div><button className="bm-close" aria-label={label('close')} onClick={onClose}><X size={19} /></button></header>
+    <header className="bm-heading"><div><span className="bm-period">{periodLabel || snapshot.period.label}</span><h2 id="bm-title">{label('title')}</h2><p>{t('briefingMaterials.count', { total: materials.length, transcripts: materials.filter(material => material.has_transcript).length })}{excludedList.length > 0 && <span className="bm-excluded-count"> · {t('briefingMaterials.excludedCount', { count: excludedList.length })}</span>}</p></div><button className="bm-close" aria-label={label('close')} onClick={onClose}><X size={19} /></button></header>
     <div className="bm-toolbar"><label className="bm-search"><Search size={15} /><input type="search" value={query} onChange={event => { setQuery(event.target.value); setActiveIndex(0); setExpandedId(null); }} placeholder={label('search')} aria-label={label('search')} /></label>{query && <span className="bm-search-count" role="status">{t('briefingMaterials.results', { count: episodes.length })}</span>}</div>
     <div className="bm-body custom-scrollbar">{!episodes.length ? <div className="bm-empty">{label(materials.length ? 'noResults' : 'empty')}</div> : layout === 'stack' ? <div className="bm-stack-content">
       <div className="bm-deck" tabIndex={0} aria-label={label('dragHint')} onDragStart={event => event.preventDefault()} onKeyDown={event => { if (event.target.closest('input,.bm-scroll.is-open') || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); move(event.key === 'ArrowLeft' ? -1 : 1); }}
-        onPointerDown={event => { dragged.current = false; if (event.button !== 0 || !event.target.closest('.bm-current') || event.target.closest('.bm-card-actions,.bm-scroll.is-open')) return; dragStart.current = { x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerDown={event => { dragged.current = false; if (event.button !== 0 || !event.target.closest('.bm-current') || event.target.closest('.bm-card-actions,.bm-scroll.is-open,.bm-feed-chip')) return; dragStart.current = { x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerUp={event => { if (!dragStart.current) return; const dx = event.clientX - dragStart.current.x; const dy = event.clientY - dragStart.current.y; dragStart.current = null; if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) { dragged.current = true; move(dx > 0 ? -1 : 1); } }}
         onPointerCancel={() => { dragStart.current = null; }} onClickCapture={event => { if (dragged.current) { event.preventDefault(); event.stopPropagation(); dragged.current = false; } }}>
         {index > 0 && peek(episodes[index - 1], -1)}{index + 1 < episodes.length && peek(episodes[index + 1], 1)}<div className="bm-current">{episodeCard(episodes[index])}</div>
       </div><div className="bm-deck-controls"><button onClick={() => move(-1)} disabled={index === 0} aria-label={label('previous')}><ChevronLeft size={18} /></button><span aria-live="polite">{index + 1} / {episodes.length}</span><button onClick={() => move(1)} disabled={index === episodes.length - 1} aria-label={label('next')}><ChevronRight size={18} /></button></div><p className="bm-deck-hint">{label('dragHint')}</p>
     </div> : <div className="bm-gallery-grid" ref={galleryRef}>{episodes.map(episodeCard)}</div>}</div>
+    {drag && <div className={`bm-drag-ghost${overZone ? ' is-targeting' : ''}`} style={{ left: drag.x + 14, top: drag.y + 14 }} aria-hidden="true">{drag.wholeFeed ? `🏷 ${drag.material.feed}` : drag.material.title}</div>}
+    <footer className={`bm-exclude-zone${overZone ? ' is-over' : ''}${drag ? ' is-dragging' : ''}`}>
+      <div className="bm-exclude-hint">{drag ? label(overZone ? 'dropToExclude' : 'dragToExclude') : label('excludeHint')}</div>
+      {excludedList.length > 0 && <div className="bm-exclude-chips custom-scrollbar">
+        {excludedFeedsList.map(item => <span className="bm-exclude-chip is-feed" key={`feed:${item.feed_id}`}><button type="button" onClick={() => restoreFeed(item.feed_id)} title={label('restore')}>{item.feed}<RotateCcw size={11} /></button></span>)}
+        {excludedList.filter(item => !(item.feed_id && excludedFeeds.has(item.feed_id))).map(item => <span className="bm-exclude-chip" key={`ep:${item.episode_id}`}><button type="button" onClick={() => restoreEpisode(item.episode_id)} title={label('restore')}>{item.title}<RotateCcw size={11} /></button></span>)}
+      </div>}
+    </footer>
     {layout === 'stack' && episodes.length > 0 && <nav className="bm-quicknav" aria-label={label('quickNavigation')}><div className="bm-thumbnails custom-scrollbar" ref={thumbnailsRef} onKeyDown={event => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
@@ -112,6 +187,6 @@ export default function BriefingMaterialsDialog({ snapshot, feeds, layout = 'gal
       const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? episodes.length - 1 : Math.max(0, Math.min(episodes.length - 1, focusedIndex + (event.key === 'ArrowLeft' ? -1 : 1)));
       jump(nextIndex);
       event.currentTarget.children[nextIndex].focus({ preventScroll: true });
-    }}>{episodes.map((material, position) => <button key={material.episode_id} className={`bm-thumbnail${position === index ? ' is-active' : ''}`} aria-current={position === index ? 'true' : undefined} aria-label={`${position + 1}. ${material.title}`} title={`${material.feed} · ${material.title}`} onClick={() => jump(position)}><CoverComponent source={material} feeds={feeds} /><span aria-hidden="true">{position + 1}</span></button>)}</div></nav>}
+    }}>{episodes.map((material, position) => <button key={material.episode_id} className={`bm-thumbnail${position === index ? ' is-active' : ''}${isExcluded(material) ? ' is-excluded' : ''}`} aria-current={position === index ? 'true' : undefined} aria-label={`${position + 1}. ${material.title}`} title={`${material.feed} · ${material.title}`} onClick={() => jump(position)}><CoverComponent source={material} feeds={feeds} /><span aria-hidden="true">{position + 1}</span></button>)}</div></nav>}
   </section></div>, document.body);
 }

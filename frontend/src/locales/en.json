@@ -28,7 +28,14 @@
     "savedToAccount": "Saved to your account and shared by weekly and monthly reports.",
     "aiOverview": "AI overview",
     "episodeDescription": "Episode description",
-    "quickNavigation": "Quick episode navigation"
+    "quickNavigation": "Quick episode navigation",
+    "excludedByYou": "Excluded",
+    "excludedCount": "{{count}} excluded",
+    "excludeHint": "Drag an episode card here to exclude it, or drag a podcast name to exclude the whole show",
+    "dragToExclude": "Drag up to the exclusion zone and release",
+    "dropToExclude": "Release to exclude",
+    "restore": "Click to restore",
+    "dragFeedHint": "Drag to exclude this whole podcast"
   },
   "briefing": {
     "reportInfo": "About this report",
