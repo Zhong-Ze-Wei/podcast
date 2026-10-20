@@ -14,6 +14,64 @@ import { briefingTaskLabel, getBriefingTaskPeriod } from '../../utils/briefingTa
 import { getTaskNavigation } from '../../utils/taskNavigation';
 import { isActiveTask, isTerminalTask, canCancelTask } from '../../utils/taskActions';
 import { subscriptionProgress } from '../../utils/subscriptionTask';
+import { briefingReportsApi } from '../../services/api';
+
+const QUEUE_POLL_MS = 5000;
+
+function describeEta(seconds, t) {
+  if (seconds == null) return t('tasks.queue.nextUp');
+  if (seconds <= 0) return t('tasks.queue.verySoon');
+  if (seconds < 60) return t('tasks.queue.inSeconds', { count: Math.round(seconds) });
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return t('tasks.queue.inMinutes', { count: minutes });
+  return t('tasks.queue.inHours', { count: Math.round(minutes / 6) / 10 });
+}
+
+function TranscriptQueueCard({ queue, onOpenSettings, onClear }) {
+  const { t } = useTranslation();
+  if (!queue || (!queue.queued_count && !queue.active)) return null;
+  const active = queue.active;
+  const pending = queue.pending || [];
+  return (
+    <article className="mx-3 mt-3 overflow-hidden rounded-xl border border-amber-500/25 bg-amber-950/20">
+      <div className="flex items-start justify-between gap-3 px-3.5 pt-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-amber-300/80">
+            <FileText size={12} />{t('tasks.queue.title')}
+          </p>
+          <p className="mt-1 text-sm font-medium text-zinc-100">
+            {t('tasks.queue.summary', { count: queue.queued_count, minutes: queue.interval_minutes })}
+          </p>
+        </div>
+        <button type="button" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-amber-300/80 hover:bg-amber-500/15 hover:text-amber-200" onClick={onOpenSettings}>
+          {t('tasks.queue.adjust')}
+        </button>
+      </div>
+      {active && (
+        <div className="mx-3.5 mt-2.5 rounded-lg border border-sky-500/25 bg-sky-950/30 px-2.5 py-2">
+          <p className="text-[11px] text-sky-300/80">{t('tasks.queue.fetchingNow')}</p>
+          <p className="mt-0.5 truncate text-xs font-medium text-zinc-100" title={active.title}>{active.title}</p>
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="mt-2 max-h-40 overflow-y-auto custom-scrollbar">
+          {pending.slice(0, 12).map(item => (
+            <div key={item.episode_id} className="mx-3.5 flex items-center gap-2 border-b border-zinc-800/60 py-1.5 last:border-0">
+              <span className="shrink-0 rounded bg-zinc-800/80 px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-400">{item.position}</span>
+              <p className="min-w-0 flex-1 truncate text-xs text-zinc-300" title={item.title}>{item.title}</p>
+              <span className="shrink-0 text-[10px] text-zinc-500">{describeEta(item.eta_seconds, t)}</span>
+            </div>
+          ))}
+          {pending.length > 12 && <p className="px-3.5 py-1.5 text-[11px] text-zinc-500">{t('tasks.queue.more', { count: pending.length - 12 })}</p>}
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 border-t border-amber-500/15 px-3.5 py-2">
+        <span className="text-[11px] text-zinc-500">{t('tasks.queue.stats', { done: queue.stats?.completed || 0, throttled: queue.stats?.throttled || 0 })}</span>
+        <button type="button" className="text-[11px] text-zinc-400 hover:text-red-300" onClick={onClear}>{t('tasks.queue.clear')}</button>
+      </div>
+    </article>
+  );
+}
 
 const TASK_PANEL_SIZE_KEY = 'podcast_task_panel_size';
 const DEFAULT_PANEL_SIZE = { width: 352, height: 480 };
@@ -51,6 +109,7 @@ const TaskPanel = ({
   const [isOpen, setIsOpen] = useState(defaultOpen && !mobile);
   const panelRef = useRef(null);
   const [activeTab, setActiveTab] = useState('active');
+  const [transcriptQueue, setTranscriptQueue] = useState(null);
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [panelSize, setPanelSize] = useState(readPanelSize);
   const panelSizeRef = useRef(panelSize);
@@ -74,6 +133,27 @@ const TaskPanel = ({
   }, [defaultOpen, mobile]);
   useEffect(() => { if (mobile) setIsOpen(false); }, [mobile]);
   useEffect(() => { if (openRequest) { refresh(); setIsOpen(true); } }, [openRequest, refresh]);
+
+  // 字幕抓取队列：打开面板时轮询，展示排队位置与预计时间
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let active = true;
+    const load = () => {
+      briefingReportsApi.transcriptQueue()
+        .then(response => { if (active) setTranscriptQueue(response.data || response); })
+        .catch(() => { /* 队列接口不可用时静默降级 */ });
+    };
+    load();
+    const timer = setInterval(load, QUEUE_POLL_MS);
+    return () => { active = false; clearInterval(timer); };
+  }, [isOpen]);
+
+  const clearTranscriptQueue = async () => {
+    try {
+      await briefingReportsApi.clearTranscriptQueue();
+      setTranscriptQueue(current => current && { ...current, pending: [], queued_count: 0, active: null });
+    } catch { /* 忽略：下次轮询会恢复真实状态 */ }
+  };
 
   const closePanel = () => {
     if (activeTasks.length > 0) {
@@ -385,6 +465,7 @@ const TaskPanel = ({
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
             {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{localizeUiMessage(requestError, t)}</div>}
+            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'briefing' })} onClear={clearTranscriptQueue} />}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (

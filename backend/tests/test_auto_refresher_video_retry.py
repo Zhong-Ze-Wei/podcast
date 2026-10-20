@@ -77,7 +77,10 @@ def test_refresh_selection_retries_errors_but_respects_interval_and_paused(monke
     assert set(selected) == {active_old["_id"], error_old["_id"], active_none["_id"], error_missing["_id"]}
 
 
-def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(monkeypatch):
+def test_auto_youtube_refresh_discovers_video_and_queues_transcripts(monkeypatch):
+    """刷新只负责列表同步；字幕进全局队列，新剧集插到历史积压之前。"""
+    from app.services import transcript_queue_service
+
     db = make_db(monkeypatch)
     reject_rss(monkeypatch)
     feed = add_feed(db, Feed.TYPE_YOUTUBE, Feed.STATUS_ERROR)
@@ -88,8 +91,9 @@ def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(mon
     monkeypatch.setattr(YouTubeService, "fetch_channel_videos", classmethod(lambda cls, channel: (videos, None)))
     monkeypatch.setattr(YouTubeService, "fetch_metadata", classmethod(lambda cls, vid: (
         {"title": vid, "duration": 120, "uploader": "Channel", "thumbnail": ""}, None)))
-    monkeypatch.setattr(YouTubeService, "fetch_transcript", classmethod(lambda cls, vid: (
-        {"text": f"Full transcript for {vid}", "segments": [], "language": "en"}, None)))
+
+    queue = transcript_queue_service.TranscriptQueue(db=db)
+    monkeypatch.setattr(transcript_queue_service, "_queue_instance", queue)
 
     FeedAutoRefresher(db, queue=ImmediateQueue())._check_and_refresh_feeds()
 
@@ -98,11 +102,11 @@ def test_auto_youtube_refresh_discovers_video_and_backfills_missing_subtitle(mon
     assert stored["check_error"] is None
     assert stored["episode_count"] == 2
     assert db.episodes.count_documents({"feed_id": feed["_id"]}) == 2
-    for vid in ("old", "new"):
-        episode = db.episodes.find_one({"guid": f"youtube:{vid}"})
-        assert episode["status"] == "transcribed"
-        assert episode["owner_id"] == "user-1"
-        assert db.transcripts.find_one({"episode_id": episode["_id"]})["source"] == "youtube"
+    pending = queue.snapshot()["pending"]
+    assert {item["title"] for item in pending} == {"old", "new"}
+    # 新发现的一期排在最前（priority 0），历史积压在后
+    assert pending[0]["title"] == "new"
+    assert pending[0]["priority"] == 0
 
 
 def test_manual_bilibili_refresh_backfills_without_refetching_existing_transcript(monkeypatch):

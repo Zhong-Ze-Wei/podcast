@@ -320,7 +320,21 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     },
-    "retrySubscription": "Retry subscription"
+    "retrySubscription": "Retry subscription",
+    "queue": {
+      "title": "Transcript queue",
+      "summary": "{{count}} episodes waiting · one per {{minutes}} min",
+      "adjust": "Adjust",
+      "fetchingNow": "Fetching now",
+      "nextUp": "Next up",
+      "verySoon": "Very soon",
+      "inSeconds": "in ~{{count}}s",
+      "inMinutes": "in ~{{count}} min",
+      "inHours": "in ~{{count}} h",
+      "more": "{{count}} more in queue",
+      "stats": "{{done}} done · {{throttled}} throttled",
+      "clear": "Clear backlog"
+    }
   },
   "settings": {
     "title": "Settings",

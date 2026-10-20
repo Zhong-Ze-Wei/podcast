@@ -292,9 +292,11 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=tas
         raise ValueError(error)
 
     new_count = 0
+    new_guids = []
     for video in videos:
+        guid = f"youtube:{video['video_id']}"
         created = _upsert_video_episode(
-            db, feed, f"youtube:{video['video_id']}", video["title"],
+            db, feed, guid, video["title"],
             duration=video.get("duration") or 0,
             link=f"https://www.youtube.com/watch?v={video['video_id']}",
             image=video.get("thumbnail", ""),
@@ -303,6 +305,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=tas
         )
         if created == "created":
             new_count += 1
+            new_guids.append(guid)
 
     total = db.episodes.count_documents({"feed_id": feed["_id"]})
     db.feeds.update_one({"_id": feed["_id"]}, {"$set": {
@@ -313,18 +316,22 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=tas
         "episode_count": total,
         "youtube_recent_video_ids": [f"youtube:{video['video_id']}" for video in videos],
     }})
-    transcript_task_id = None
-    if _pending_youtube_episodes(db, feed):
-        transcript_task_id = queue.submit_unique(
-            "fetch_transcripts",
-            lambda progress_callback=None: _enrich_youtube_episodes(db, feed, progress_callback),
-            dedup_key=f"youtube-transcripts:{feed['_id']}",
-            feed_id=str(feed["_id"]), owner_id=feed.get("owner_id"),
-        )
+    # 字幕统一走全局节流队列：新剧集插队优先抓，历史积压排在后面慢慢消化
+    from .transcript_queue_service import get_transcript_queue, PRIORITY_HISTORY, PRIORITY_NEW_EPISODE
+    transcript_queue = get_transcript_queue(db, queue)
+    if new_guids:
+        fresh = list(db.episodes.find({"feed_id": feed["_id"], "guid": {"$in": new_guids},
+                                      "has_transcript": {"$ne": True}}))
+        transcript_queue.enqueue(fresh, priority=PRIORITY_NEW_EPISODE, feed_id=str(feed["_id"]))
+    backlog = [episode for episode in _pending_youtube_episodes(db, feed)
+               if episode.get("guid") not in new_guids]
+    if backlog:
+        transcript_queue.enqueue(backlog, priority=PRIORITY_HISTORY, feed_id=str(feed["_id"]))
+    queued = transcript_queue.pending_count()
     if progress_callback:
-        progress_callback((100, f"视频列表已更新：新增 {new_count} 期"))
+        progress_callback((100, f"视频列表已更新：新增 {new_count} 期，字幕队列待抓 {queued} 期"))
     return {"new_episodes": new_count, "total_episodes": total,
-            "transcript_task_id": transcript_task_id}
+            "transcript_task_id": None, "transcript_queue_depth": queued}
 
 
 def _enrich_youtube_episodes(db, feed, progress_callback=None):

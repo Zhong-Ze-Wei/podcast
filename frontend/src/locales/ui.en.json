@@ -524,5 +524,11 @@
   },
   "officialTranscriptAvailable": "The official site provides a full transcript — click \"Fetch transcript\" above to load it.",
   "exclusionSaved": "Exclusion saved",
-  "couldNotSaveExclusion": "Could not save exclusion, please retry"
+  "couldNotSaveExclusion": "Could not save exclusion, please retry",
+  "transcriptQueueTitle": "Transcript queue",
+  "transcriptQueueDescription": "New episodes join a queue and are fetched one at a time at the interval below, which avoids YouTube throttling. Newly published episodes jump to the front.",
+  "transcriptQueueInterval": "Interval per episode",
+  "transcriptQueueFastest": "1 min",
+  "transcriptQueueSlowest": "300 min",
+  "transcriptQueueBacklog": "{{count}} episodes queued, about {{duration}} to finish."
 }
