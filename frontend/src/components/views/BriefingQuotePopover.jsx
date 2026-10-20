@@ -33,6 +33,7 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   const [dragOffset, setDragOffset] = useState(0);
   const [liftOffset, setLiftOffset] = useState(0);
   const [spread, setSpread] = useState(false);
+  const [swap, setSwap] = useState(0);
   // 原文依据多为英文逐字引文：打开时对缺 translation 的条目按需补译（后端按引文哈希缓存）
   const [zhMap, setZhMap] = useState({});
   const gesture = useRef(null);
@@ -40,8 +41,7 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   const cardRef = useRef(null);
   const boardRef = useRef(null);
   const stageRef = useRef(null);
-  const scrubRef = useRef(null);
-  const scrubReadoutRef = useRef(null);
+  const swapTimer = useRef(null);
   const bodyRef = useRef(null);
   const readingRef = useRef(null);
   const quoteRef = useRef(null);
@@ -49,6 +49,8 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   const gatherTargetRef = useRef(null);
   const indexRef = useRef(index);
   indexRef.current = index;
+  const spreadRef = useRef(spread);
+  spreadRef.current = spread;
   const quotes = selection.quotes;
   const card = quotes[index];
   const zhText = item => item.translation || zhMap[item.id] || '';
@@ -57,7 +59,21 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   const text = original ? card.quote : (zhText(card) || card.quote);
   const underlineKey = `${index}:${original ? 'original' : 'reading'}`;
   const underline = underlines[underlineKey];
-  const navigate = step => setIndex(current => evidenceIndex(current, step, quotes.length));
+  // 切换的 Q 弹入场：方向决定主卡从哪侧弹入，邻居卡轻微上浮错峰跟随
+  const playSwap = dir => {
+    if (!dir || reducedMotion()) return;
+    setSwap(dir);
+    clearTimeout(swapTimer.current);
+    swapTimer.current = setTimeout(() => setSwap(0), 560);
+  };
+  const navigate = step => { playSwap(step); setIndex(current => evidenceIndex(current, step, quotes.length)); };
+  const scrubTo = value => {
+    const next = evidenceIndex(Number(value) || 0, 0, quotes.length);
+    if (next === index) return;
+    playSwap(next > index ? 1 : -1);
+    setIndex(next);
+  };
+  useEffect(() => () => clearTimeout(swapTimer.current), []);
   const measureScroll = () => {
     const body = bodyRef.current;
     setScrollable(body.scrollHeight > body.clientHeight + 1);
@@ -79,27 +95,10 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
     if (!board || !stage) return undefined;
     const motion = { mx: 0, my: 0, active: false, mix: 0, sway: 0, swayTarget: 0, lastTop: board.scrollTop };
     let raf = 0;
-    const readout = () => {
-      const total = quotes.length;
-      const max = Math.max(0, board.scrollHeight - board.clientHeight);
-      if (scrubRef.current) {
-        scrubRef.current.max = max;
-        scrubRef.current.disabled = max <= 0;
-        scrubRef.current.value = board.scrollTop;
-      }
-      if (scrubReadoutRef.current && total) {
-        const progress = max > 0 ? board.scrollTop / max : 0;
-        const perScreen = Math.max(1, Math.round(board.clientHeight / Math.max(1, board.scrollHeight / total)));
-        const first = Math.min(total, Math.floor(progress * total) + 1);
-        const last = Math.min(total, first + perScreen - 1);
-        scrubReadoutRef.current.textContent = `${first}–${last} / ${total}`;
-      }
-    };
     const onScroll = () => {
       const top = board.scrollTop;
       motion.swayTarget = Math.max(-12, Math.min(12, (motion.lastTop - top) * 0.5));
       motion.lastTop = top;
-      readout();
     };
     const onPointerMove = event => { motion.mx = event.clientX; motion.my = event.clientY; motion.active = true; };
     const onPointerLeave = () => { motion.active = false; };
@@ -133,21 +132,44 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
       }
       raf = requestAnimationFrame(tick);
     };
-    const onScrubInput = event => { board.scrollTop = Number(event.target.value); };
     board.addEventListener('scroll', onScroll, { passive: true });
     stage.addEventListener('pointermove', onPointerMove);
     stage.addEventListener('pointerleave', onPointerLeave);
-    scrubRef.current?.addEventListener('input', onScrubInput);
     if (!reducedMotion()) raf = requestAnimationFrame(tick);
-    readout();
     return () => {
       cancelAnimationFrame(raf);
       board.removeEventListener('scroll', onScroll);
       stage.removeEventListener('pointermove', onPointerMove);
       stage.removeEventListener('pointerleave', onPointerLeave);
-      scrubRef.current?.removeEventListener('input', onScrubInput);
     };
-  }, [spread, quotes.length]);
+  }, [spread]);
+
+  // 弹窗本体跟随指针轻微倾斜（--br-tilt-x/y），高光（--br-light-x/y）同步游走
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return undefined;
+    const onMove = event => {
+      if (spreadRef.current || reducedMotion() || !cardRef.current) return;
+      const rect = dialog.getBoundingClientRect();
+      const nx = Math.max(-0.5, Math.min(0.5, (event.clientX - rect.left) / rect.width - 0.5));
+      const ny = Math.max(-0.5, Math.min(0.5, (event.clientY - rect.top) / rect.height - 0.5));
+      const card = cardRef.current;
+      card.style.setProperty('--br-tilt-y', (nx * 5).toFixed(2) + 'deg');
+      card.style.setProperty('--br-tilt-x', (-ny * 4).toFixed(2) + 'deg');
+      card.style.setProperty('--br-light-x', ((nx + 0.5) * 100).toFixed(1) + '%');
+      card.style.setProperty('--br-light-y', ((ny + 0.5) * 100).toFixed(1) + '%');
+    };
+    const onLeave = () => {
+      cardRef.current?.style.setProperty('--br-tilt-y', '0deg');
+      cardRef.current?.style.setProperty('--br-tilt-x', '0deg');
+    };
+    dialog.addEventListener('pointermove', onMove);
+    dialog.addEventListener('pointerleave', onLeave);
+    return () => {
+      dialog.removeEventListener('pointermove', onMove);
+      dialog.removeEventListener('pointerleave', onLeave);
+    };
+  }, []);
 
   useEffect(() => {
     setZhMap({});
@@ -240,9 +262,9 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
     const dx = (target.left + target.width / 2) - (rect.left + rect.width / 2);
     const dy = (target.top + target.height / 2) - (rect.top + rect.height / 2);
     cardEl.animate([
-      { transform: `translate(${dx}px, ${dy}px) translateX(0) scale(.55)`, opacity: .2 },
-      { transform: 'translateX(0)', opacity: 1 },
-    ], { duration: 280, easing: 'cubic-bezier(.2, .9, .3, 1)' });
+      { translate: `${dx}px ${dy}px`, scale: .55, opacity: .2 },
+      { translate: '0px 0px', scale: 1, opacity: 1 },
+    ], { duration: 300, easing: 'cubic-bezier(.34, 1.56, .64, 1)' });
   }, [spread]);
 
   useEffect(() => {
@@ -358,9 +380,9 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
   };
 
   return createPortal(<div className="br-modal-backdrop br-quote-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) { event.preventDefault(); if (spread) collapseSpread(); else onClose(); } }}>
-    <section className={`br-quote-carousel ${quotes.length > 1 ? 'has-neighbors' : ''} ${spread ? 'is-spread' : ''}`} ref={ref} role="dialog" aria-modal="true" aria-labelledby="br-quote-popover-title">
+    <section className={`br-quote-carousel ${quotes.length > 1 ? 'has-neighbors' : ''} ${spread ? 'is-spread' : ''} ${swap ? 'is-swapping' : ''}`} ref={ref} role="dialog" aria-modal="true" aria-labelledby="br-quote-popover-title">
       {neighbor(-1)}{neighbor(1)}
-      <article className={`br-quote-popover ${(dragOffset || liftOffset) ? 'is-dragging' : ''}`} ref={cardRef} style={{ '--br-drag-x': `${dragOffset}px`, '--br-lift-y': `${liftOffset}px` }} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={event => {
+      <article className={`br-quote-popover ${(dragOffset || liftOffset) ? 'is-dragging' : ''} ${swap > 0 ? 'is-swap-next' : swap < 0 ? 'is-swap-prev' : ''}`} ref={cardRef} style={{ '--br-drag-x': `${dragOffset}px`, '--br-lift-y': `${liftOffset}px` }} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={event => {
         // Touch implicitly captures its starting child. Transferring capture to
         // this card emits a bubbling lost event from that child, not a cancel.
         if (event.target === event.currentTarget) { gesture.current = null; setDragOffset(0); setLiftOffset(0); }
@@ -379,6 +401,10 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
       </div>
       <div className="br-quote-scroll-hint" aria-hidden={!scrollable}>{scrollable && t("ui.scrollToReadTheFullQuotation")}</div>
       <div className="br-quote-attribution"><div className="br-quote-byline"><strong>{card.feed || source.feed}</strong>{card.speaker && <span>{card.speaker}</span>}</div><span title={card.source_title || source.title}>{card.source_title || source.title}</span></div>
+      {quotes.length > 1 && <div className="br-quote-scrub-row">
+        <input type="range" min={0} max={quotes.length - 1} step={1} value={index} aria-label={t("ui.spreadScrubber")} onChange={event => scrubTo(event.target.value)} />
+        <span className="br-quote-scrub-count" aria-live="off">{index + 1} / {quotes.length}</span>
+      </div>}
       <footer className="br-quote-popover-footer"><div className="br-quote-links">{onRead && <button className="br-text-button" onClick={() => act(() => onRead(card.source_id))}>{t("ui.readEpisode")}</button>}{episodeId && onListen && <button className="br-text-button" onClick={() => act(() => onListen({ ...card, episode_id: episodeId, original_url: source.original_url || source.url || source.link }))}><Headphones size={14} />{t("ui.listenAt", { time: timeText(card.start) || t("ui.theBeginning") })}</button>}{onSource && <button className="br-text-button" onClick={() => act(() => onSource(card))}>{t("ui.viewInTranscript")}</button>}</div><div className="br-quote-pagination"><button className="br-icon-button" disabled={index === 0} aria-label={t("ui.previousQuotation")} onClick={() => navigate(-1)}><ArrowLeft size={17} /></button><span aria-live="polite">{index + 1} / {quotes.length}</span><button className="br-icon-button" disabled={index === quotes.length - 1} aria-label={t("ui.nextQuotation")} onClick={() => navigate(1)}><ArrowRight size={17} /></button></div></footer>
       </article>
       {spread && <div className="br-spread-stage" ref={stageRef}>
@@ -396,10 +422,6 @@ export default function BriefingQuotePopover({ selection, sources, onClose, onRe
               <span className="br-spread-index" aria-hidden="true">{i + 1}</span>
             </button>;
           })}
-        </div>
-        <div className="br-spread-scrubber">
-          <span className="br-spread-scrub-readout" ref={scrubReadoutRef} aria-live="off">1–{Math.min(quotes.length, 4)} / {quotes.length}</span>
-          <input ref={scrubRef} type="range" min={0} max={0} step={1} defaultValue={0} disabled aria-label={t("ui.spreadScrubber")} />
         </div>
       </div>}
     </section>
