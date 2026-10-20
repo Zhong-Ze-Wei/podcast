@@ -320,7 +320,21 @@
       "failed": "失败",
       "cancelled": "已取消"
     },
-    "retrySubscription": "重试添加"
+    "retrySubscription": "重试添加",
+    "queue": {
+      "title": "字幕排队中",
+      "summary": "{{count}} 期等待抓取 · 每 {{minutes}} 分钟一期",
+      "adjust": "调节",
+      "fetchingNow": "正在抓取",
+      "nextUp": "即将开始",
+      "verySoon": "马上",
+      "inSeconds": "约 {{count}} 秒",
+      "inMinutes": "约 {{count}} 分钟",
+      "inHours": "约 {{count}} 小时",
+      "more": "另有 {{count}} 期在队列中",
+      "stats": "已完成 {{done}} 期 · 被限流 {{throttled}} 次",
+      "clear": "清空积压"
+    }
   },
   "settings": {
     "title": "设置",

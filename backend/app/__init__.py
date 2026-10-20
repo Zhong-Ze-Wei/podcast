@@ -65,6 +65,11 @@ def create_app():
 
     start_auto_reporter(app)
 
+    # 全局字幕抓取队列：单通道 + 可调节流，新剧集插队，历史积压按时间顺序消化
+    from .services.transcript_queue_service import start_transcript_queue
+
+    start_transcript_queue(app.db, task_queue)
+
     # 注册蓝图
     register_media_routes(app)
     register_blueprints(app)

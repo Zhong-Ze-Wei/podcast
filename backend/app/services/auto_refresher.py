@@ -119,13 +119,13 @@ class FeedAutoRefresher:
             logger.info("Trash purge: %d 个过期桶已物理清除", purged)
 
     def _maybe_sweep_transcripts(self, limit=8):
-        """每 self.transcript_sweep_minutes 顺手补捞 limit 个无字幕 YouTube 剧集。
+        """每 self.transcript_sweep_minutes 把一批无字幕 YouTube 剧集送进抓取队列。
 
         存量剧集大多在频道 RSS 最近 15 条窗口外，常规刷新永远不碰；
-        这里走完整降级链（主库→watch页签名→yt-dlp+POT），默认代理通道
-        被 429/掐线时会自动轮换 Clash 出口节点，慢慢把存量啃干净。
+        抓取本身由 transcript_queue_service 统一节流（默认 2 分钟一期），
+        这里只负责把积压按发布时间排序投递。
         """
-        from .youtube_service import YouTubeService, persist_transcript
+        from .transcript_queue_service import get_transcript_queue, PRIORITY_HISTORY
 
         now = datetime.utcnow()
         if self._last_transcript_sweep and now - self._last_transcript_sweep < self.transcript_sweep_interval:
@@ -137,30 +137,12 @@ class FeedAutoRefresher:
              "guid": {"$regex": "^youtube:"},
              # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube
              "$nor": [{"transcript_fetch_error": {"$regex": "No subtitles|No transcript"}}]},
-            {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1},
-        ).limit(limit))
+            {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1, "feed_id": 1, "published": 1},
+        ).sort("published", 1).limit(limit))
         if not stuck:
             return
-
-        # 先探路：默认通道被掐/429 时换节点直到 watch 页可达（最多 6 个出口），找不到就跳过本轮
-        if not self._ensure_youtube_exit(max_rotations=6):
-            logger.warning("Transcript sweep skipped: no working YouTube exit this round")
-            return
-
-        ok = 0
-        for episode in stuck:
-            video_id = episode["guid"].replace("youtube:", "")
-            transcript, error = YouTubeService.fetch_transcript(video_id)
-            if transcript and persist_transcript(self.db, episode, transcript):
-                ok += 1
-                logger.info("Transcript sweep ✓ %s", episode.get("title", "")[:40])
-            else:
-                self.db.episodes.update_one(
-                    {"_id": episode["_id"]},
-                    {"$set": {"transcript_fetch_error": str(error or "")[:120]}},
-                )
-            time.sleep(4)
-        logger.info("Transcript sweep done: %d/%d 成功", ok, len(stuck))
+        get_transcript_queue(self.db, self.queue).enqueue(stuck, priority=PRIORITY_HISTORY)
+        logger.info("已投递 %d 期历史字幕到抓取队列", len(stuck))
 
     def _check_and_refresh_feeds(self):
         """检查并刷新需要更新的订阅源"""

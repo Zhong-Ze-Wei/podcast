@@ -169,6 +169,34 @@ def preferences():
     return success_response(result)
 
 
+@briefing_reports_bp.route("/transcript-queue", methods=["GET", "PUT", "DELETE"])
+@require_auth
+def transcript_queue():
+    """字幕抓取队列：查看排队、调节每集间隔、清空积压。"""
+    from ..services.transcript_queue_service import (
+        MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES, get_transcript_queue,
+    )
+
+    queue = get_transcript_queue()
+    if request.method == "GET":
+        return success_response(queue.snapshot())
+    if request.method == "DELETE":
+        return success_response({"cleared": queue.clear()})
+    options = request.get_json(silent=True)
+    if not isinstance(options, dict) or "interval_minutes" not in options:
+        return error_response("请提供 interval_minutes", "INVALID_QUEUE_INTERVAL", 400)
+    try:
+        minutes = float(options["interval_minutes"])
+    except (TypeError, ValueError):
+        return error_response("间隔必须是数字", "INVALID_QUEUE_INTERVAL", 400)
+    if not MIN_INTERVAL_MINUTES <= minutes <= MAX_INTERVAL_MINUTES:
+        return error_response(f"间隔需在 {MIN_INTERVAL_MINUTES}–{MAX_INTERVAL_MINUTES} 分钟之间",
+                              "INVALID_QUEUE_INTERVAL", 400)
+    applied = queue.set_interval_minutes(minutes)
+    queue.save_interval_to_db(applied)
+    return success_response(queue.snapshot())
+
+
 @briefing_reports_bp.route("/sources/<source_id>", methods=["GET"])
 @require_auth
 def source(source_id):

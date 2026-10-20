@@ -99,6 +99,9 @@ export const briefingReportsApi = {
   generateReading: (sourceId, options) => api.post(`/briefing-reports/reading/${sourceId}/generate`, options),
   // 原文依据（逐字英文引文）按需中译，后端按引文哈希缓存
   translateEvidence: (sourceId, quotes) => api.post(`/briefing-reports/reading/${sourceId}/translate-evidence`, { quotes }),
+  transcriptQueue: () => api.get('/briefing-reports/transcript-queue'),
+  setTranscriptQueueInterval: (minutes) => api.put('/briefing-reports/transcript-queue', { interval_minutes: minutes }),
+  clearTranscriptQueue: () => api.delete('/briefing-reports/transcript-queue'),
   snapshot: () => api.get('/briefing-reports'),
   generate: (options) => api.post('/briefing-reports/generate', options),
   task: (id) => api.get(`/briefing-reports/tasks/${id}`),
