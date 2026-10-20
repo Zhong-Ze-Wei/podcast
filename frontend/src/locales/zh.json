@@ -189,7 +189,8 @@
   },
   "common": {
     "loading": "加载中...",
-    "fetchUnavailable": "暂时无法获取"
+    "fetchUnavailable": "暂时无法获取",
+    "saving": "保存中…"
   },
   "favorites": {
     "title": "我的喜欢",
@@ -311,7 +312,8 @@
       "episodeDetailsDone": "节目资料更新完成；新增文稿 {{count}} 期，暂不可用 {{failed}} 期",
       "subscriptionResolving": "正在识别订阅来源",
       "subscriptionSaved": "订阅已保存，正在获取频道封面",
-      "subscriptionDone": "订阅已添加，正在后台更新节目"
+      "subscriptionDone": "订阅已添加，正在后台更新节目",
+      "videosQueued": "视频列表已更新：新增 {{count}} 期，字幕队列待抓 {{queued}} 期"
     },
     "status": {
       "pending": "等待中",
@@ -334,6 +336,12 @@
       "more": "另有 {{count}} 期在队列中",
       "stats": "已完成 {{done}} 期 · 被限流 {{throttled}} 次",
       "clear": "清空积压"
+    },
+    "autoDaily": {
+      "title": "今日自动更新",
+      "summary": "已完成 {{done}}/{{total}} 更新",
+      "failed": "其中 {{count}} 个源失败，将在下一轮重试",
+      "latest": "最近完成：{{title}}"
     }
   },
   "settings": {
@@ -456,6 +464,33 @@
         "1440": "最近 24 小时",
         "10080": "最近 7 天"
       }
+    },
+    "refresh": {
+      "title": "订阅更新",
+      "description": "所有更新间隔都在这里统一调节，保存后立即生效，无需重启后端。后台按你设定的节奏静默刷新，不会出现在任务列表里。",
+      "enabled": "启用后台自动更新",
+      "feedInterval": "订阅更新间隔",
+      "feedIntervalHint": "YouTube 与 RSS 共用：每 {{min}}–{{max}} 小时检查一次单个源",
+      "checkInterval": "巡检频率",
+      "checkIntervalHint": "后台多久看一次有没有到期源（{{min}}–{{max}} 分钟）",
+      "feedsPerTick": "每轮刷新源数",
+      "feedsPerTickHint": "每次巡检最多处理几个源，避免同一时刻一起请求（{{min}}–{{max}} 个）",
+      "transcriptInterval": "字幕抓取间隔",
+      "transcriptIntervalHint": "每期节目的字幕抓取间隔，防限流（{{min}}–{{max}} 分钟）",
+      "sweepInterval": "存量字幕补捞间隔",
+      "sweepIntervalHint": "多久找一批缺字幕的历史节目（{{min}}–{{max}} 分钟）",
+      "sweepBatch": "每批补捞期数",
+      "sweepBatchHint": "每次最多投递几期历史节目（{{min}}–{{max}} 期）",
+      "units": {
+        "hours": "小时",
+        "minutes": "分钟",
+        "feeds": "个/期"
+      },
+      "queueDepth": "字幕队列待抓 {{count}} 期",
+      "todayDone": "今天自动更新 {{done}}/{{total}} 个源，失败 {{failed}} 个",
+      "loading": "正在读取订阅更新设置…",
+      "loadError": "订阅更新设置暂时无法读取",
+      "saveError": "保存失败，请重试"
     }
   }
 }

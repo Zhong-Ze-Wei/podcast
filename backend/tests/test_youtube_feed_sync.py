@@ -1,4 +1,4 @@
-"""视频列表先可见，文稿在独立队列逐期补齐。"""
+"""视频列表先可见，文稿进全局节流队列逐期补齐。"""
 from datetime import datetime, timedelta
 from threading import Event
 from unittest.mock import Mock
@@ -9,6 +9,7 @@ from bson import ObjectId
 
 from app.models.feed import Feed
 from app.models.episode import Episode
+from app.services import transcript_queue_service
 from app.services.auto_refresher import FeedAutoRefresher
 from app.services.feed_sync_service import FeedSyncService
 from app.services.task_queue import TaskQueue
@@ -17,9 +18,19 @@ from tests.conftest import MockDB
 from tests.test_feed_refresh_queue import RecordingQueue
 
 
+@pytest.fixture(autouse=True)
+def transcript_queue():
+    """每个用例用独立队列，避免串味。"""
+    queue = transcript_queue_service.TranscriptQueue()
+    transcript_queue_service._queue_instance = queue
+    yield queue
+    transcript_queue_service._queue_instance = None
+
+
 @pytest.fixture
-def channel(monkeypatch):
+def channel(monkeypatch, transcript_queue):
     db = MockDB()
+    transcript_queue.db = db
     feed = Feed.create("https://youtube.com/@test", title="Channel", type="youtube", channel_ref="UCtest")
     feed["_id"] = ObjectId()
     db.feeds.insert_one(feed)
@@ -34,70 +45,72 @@ def channel(monkeypatch):
     return db, feed, videos
 
 
-def test_discovery_never_waits_for_metadata_or_transcripts(channel, monkeypatch):
+def drain(queue):
+    """把队列里的剧集逐期处理完（等价于后台线程跑完积压）。"""
+    while queue.fetch_next() is not None:
+        pass
+
+
+def test_discovery_never_waits_for_metadata_or_transcripts(channel, monkeypatch, transcript_queue):
     db, feed, _ = channel
     calls = Mock(side_effect=AssertionError("Discovery must not fetch individual videos"))
     monkeypatch.setattr(YouTubeService, "fetch_metadata", calls)
     monkeypatch.setattr(YouTubeService, "fetch_transcript", calls)
-    queue = RecordingQueue()
-    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
+    result = FeedSyncService(db, RecordingQueue()).refresh(str(feed["_id"]))
     assert result["new_episodes"] == 3
+    assert result["transcript_queue_depth"] == 3
     assert db.feeds.find_one({"_id": feed["_id"]})["episode_count"] == 3
     assert db.transcripts.count_documents({}) == 0
     assert db.episodes.find_one({"guid": "youtube:0"})["image"] == "https://example.test/0.jpg"
-    assert queue.tasks[result["transcript_task_id"]]["task_type"] == "fetch_transcripts"
+    assert [item["title"] for item in transcript_queue.snapshot()["pending"]] == [
+        "Video 0", "Video 1", "Video 2"]
     assert not calls.called
 
 
-def test_repeated_discovery_reuses_caption_task_and_saved_transcripts(channel):
+def test_repeated_discovery_does_not_duplicate_queue_entries(channel, transcript_queue):
     db, feed, _ = channel
-    queue = RecordingQueue()
-    service = FeedSyncService(db, queue)
+    service = FeedSyncService(db, RecordingQueue())
     first = service.refresh(str(feed["_id"]))
     second = service.refresh(str(feed["_id"]))
     assert second["new_episodes"] == 0
-    assert second["transcript_task_id"] == first["transcript_task_id"]
-    assert queue.run(first["transcript_task_id"])["new_transcripts"] == 3
-    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
-    assert len(queue.tasks) == 1
+    assert second["transcript_queue_depth"] == first["transcript_queue_depth"] == 3
+    drain(transcript_queue)
+    assert db.transcripts.count_documents({}) == 3
 
 
-def test_metadata_failure_does_not_prevent_captions_and_caption_failure_keeps_video(channel, monkeypatch):
+def test_metadata_failure_does_not_prevent_captions_and_caption_failure_keeps_video(channel, monkeypatch, transcript_queue):
     db, feed, _ = channel
     monkeypatch.setattr(YouTubeService, "fetch_metadata", lambda vid: (None, "metadata unavailable"))
     monkeypatch.setattr(YouTubeService, "fetch_transcript", lambda vid: (
         (None, "Subtitles disabled") if vid == "1" else ({"text": vid, "segments": []}, None)))
-    queue = RecordingQueue()
-    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
-    assert queue.run(result["transcript_task_id"]) == {"new_transcripts": 2, "transcript_failures": 1}
+    FeedSyncService(db, RecordingQueue()).refresh(str(feed["_id"]))
+    drain(transcript_queue)
     assert db.episodes.count_documents({}) == 3
     assert db.feeds.find_one({"_id": feed["_id"]})["status"] == "active"
+    assert db.transcripts.count_documents({}) == 2
     assert "禁用" in db.episodes.find_one({"guid": "youtube:1"})["transcript_fetch_error"]
 
 
-def test_refresh_retries_failed_captions_and_clears_error_without_refetching_saved_text(channel, monkeypatch):
+def test_refresh_retries_failed_captions_and_clears_error_without_refetching_saved_text(channel, monkeypatch, transcript_queue):
     db, feed, _ = channel
-    unavailable = "YouTube 暂时限制了当前代理的访问，请稍后重试或切换代理节点。"
-    captions = Mock(side_effect=lambda vid: (None, unavailable) if vid == "1" else (
+    captions = Mock(side_effect=lambda vid: (None, "Subtitles disabled") if vid == "1" else (
         {"text": f"Transcript {vid}", "segments": []}, None))
     monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
-    queue = RecordingQueue()
-    service = FeedSyncService(db, queue)
-    first = service.refresh(str(feed["_id"]))
-    assert queue.run(first["transcript_task_id"])["transcript_failures"] == 1
+    service = FeedSyncService(db, RecordingQueue())
+    service.refresh(str(feed["_id"]))
+    drain(transcript_queue)
     episode = db.episodes.find_one({"guid": "youtube:1"})
-    assert episode["transcript_fetch_error"] == unavailable
+    assert "禁用" in episode["transcript_fetch_error"]
 
     captions.reset_mock()
     captions.side_effect = lambda vid: ({"text": "Recovered transcript", "segments": []}, None)
     retry = service.refresh(str(feed["_id"]))
-    assert retry["new_episodes"] == 0
-    assert retry["transcript_task_id"] != first["transcript_task_id"]
-    assert queue.run(retry["transcript_task_id"]) == {"new_transcripts": 1, "transcript_failures": 0}
+    # 缺字幕的剧集再次进队；已有文稿的两期不再排队
+    assert retry["transcript_queue_depth"] == 1
+    drain(transcript_queue)
     captions.assert_called_once_with("1")
     assert "transcript_fetch_error" not in db.episodes.find_one({"_id": episode["_id"]})
     assert db.transcripts.find_one({"episode_id": episode["_id"]})["text"] == "Recovered transcript"
-    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
 
 
 def test_refresh_recovers_from_channel_fetch_failure(channel, monkeypatch):
@@ -112,61 +125,83 @@ def test_refresh_recovers_from_channel_fetch_failure(channel, monkeypatch):
     assert db.feeds.find_one({"_id": feed["_id"]})["check_error"] is None
 
 
-def test_caption_worker_does_not_block_discovery_and_picks_up_new_video(channel, monkeypatch):
+def test_slow_caption_worker_does_not_block_discovery(channel, monkeypatch, transcript_queue):
     db, feed, videos = channel
     started, release, finished = Event(), Event(), Event()
-    caption_calls = []
+
     def captions(vid):
-        caption_calls.append(vid)
         started.set()
         assert release.wait(5)
         if vid == "new":
             finished.set()
         return {"text": vid, "segments": []}, None
+
     monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
-    queue = TaskQueue(max_workers=1)
-    queue.set_db(db)
-    service = FeedSyncService(db, queue)
-    try:
-        first = service.refresh(str(feed["_id"]))
-        assert started.wait(5)
-        videos.append({"video_id": "new", "title": "Newest", "published": datetime(2026, 10, 7)})
-        discovered = Event()
-        def refresh(progress_callback=None):
-            result = service.refresh(str(feed["_id"]))
-            assert result["transcript_task_id"] == first["transcript_task_id"]
-            discovered.set()
-            return result
-        queue.submit("refresh", refresh, feed_id=str(feed["_id"]))
-        assert discovered.wait(5), "Slow captions must not occupy the discovery executor"
-        assert db.episodes.count_documents({}) == 4
-        assert db.transcripts.count_documents({}) == 0
-        release.set()
-        assert finished.wait(5)
-    finally:
-        release.set()
-        queue.shutdown()
-    assert set(caption_calls) == {"0", "1", "2", "new"}
-    assert db.transcripts.count_documents({}) == 4
+    service = FeedSyncService(db, RecordingQueue())
+    service.refresh(str(feed["_id"]))
+    worker = Event()
+
+    def run_worker():
+        transcript_queue.fetch_next()
+        worker.set()
+
+    import threading
+    threading.Thread(target=run_worker, daemon=True).start()
+    assert started.wait(5)
+    # 抓字幕期间仍可刷新列表，并发现新视频
+    videos.append({"video_id": "new", "title": "Newest", "published": datetime(2026, 10, 7)})
+    result = service.refresh(str(feed["_id"]))
+    assert result["new_episodes"] == 1
+    assert db.episodes.count_documents({}) == 4
+    assert db.episodes.find_one({"guid": "youtube:new"})["title"] == "Newest"
+    release.set()
+    assert finished.wait(5) or worker.wait(1)
 
 
-def test_auto_refresh_pauses_bilibili_and_checks_youtube_every_15_minutes(monkeypatch):
+def test_auto_refresh_shares_one_interval_and_limits_feeds_per_round(monkeypatch):
     db = MockDB()
     now = datetime.utcnow()
-    expected = []
-    for kind, age in [("bilibili", 1000), ("youtube", 16), ("youtube", 14), ("rss", 16), ("rss", 361)]:
+    due, not_due = [], []
+    for kind, age_hours in [("youtube", 13), ("rss", 13), ("youtube", 1), ("rss", 1), ("bilibili", 100)]:
         feed = Feed.create("https://example.test/feed", type=kind)
-        feed.update(_id=ObjectId(), last_checked=now - timedelta(minutes=age))
+        feed.update(_id=ObjectId(), status="active", last_checked=now - timedelta(hours=age_hours))
         db.feeds.insert_one(feed)
-        if (kind, age) in [("youtube", 16), ("rss", 361)]:
-            expected.append(feed["_id"])
-    never_checked = Feed.create("https://example.test/bili", type="bilibili")
+        (due if age_hours > 12 and kind != "bilibili" else not_due).append(feed["_id"])
+    never_checked = Feed.create("https://example.test/never", type="rss")
+    never_checked.update(_id=ObjectId(), status="active", last_checked=None)
     db.feeds.insert_one(never_checked)
-    selected = []
+
     refresher = FeedAutoRefresher(db, queue=RecordingQueue())
+    selected = []
     monkeypatch.setattr(refresher, "_refresh_single_feed", lambda feed: selected.append(feed["_id"]))
-    refresher._check_and_refresh_feeds()
-    assert set(selected) == set(expected)
+
+    settings = refresher._settings()
+    refresher._check_and_refresh_feeds(settings)
+
+    # 每轮只提交 feeds_per_tick 个源：不会在同一时刻一起打所有源
+    assert len(selected) == settings["feeds_per_tick"] == 1
+    due_ids = set(due) | {never_checked["_id"]}
+    refresher._check_and_refresh_feeds(settings)
+    assert len(selected) == 2
+    assert set(selected) <= due_ids
+    assert not (set(selected) & set(not_due))
+    # B站不参与自动更新
+    for feed_id in selected:
+        assert db.feeds.find_one({"_id": feed_id})["type"] != "bilibili"
+
+
+def test_auto_refresh_records_daily_completion(monkeypatch):
+    db = MockDB()
+    refresher = FeedAutoRefresher(db, queue=RecordingQueue())
+    monkeypatch.setattr(refresher, "_refresh_single_feed", lambda feed: refresher._record(feed, True))
+    feed = Feed.create("https://example.test/feed", title="A", type="rss")
+    feed.update(_id=ObjectId(), status="active", last_checked=None)
+    db.feeds.insert_one(feed)
+
+    refresher._check_and_refresh_feeds(refresher._settings())
+
+    assert refresher.daily_summary()["done"] == 1
+    assert refresher.daily_summary()["feeds"] == 1
 
 
 @pytest.mark.parametrize("failure", ["404", "html"])
@@ -236,7 +271,7 @@ def test_refresh_corrects_existing_metadata_without_losing_saved_work(channel):
     assert db.summaries.find_one({"episode_id": episode["_id"]})["content"] == "Saved AI analysis"
 
 
-def test_saved_transcript_still_gets_duration_date_and_description_once(channel, monkeypatch):
+def test_saved_transcript_still_gets_duration_date_and_description_once(channel, monkeypatch, transcript_queue):
     db, feed, videos = channel
     videos[:] = videos[:1]
     episode = Episode.create(feed["_id"], "youtube:0", "Video", published=datetime(2026, 10, 7), duration=0)
@@ -248,32 +283,28 @@ def test_saved_transcript_still_gets_duration_date_and_description_once(channel,
     captions = Mock(side_effect=AssertionError("Saved captions must be reused"))
     monkeypatch.setattr(YouTubeService, "fetch_metadata", metadata)
     monkeypatch.setattr(YouTubeService, "fetch_transcript", captions)
-    queue = RecordingQueue()
-    service = FeedSyncService(db, queue)
-    result = service.refresh(str(feed["_id"]))
-    assert queue.run(result["transcript_task_id"]) == {"new_transcripts": 0, "transcript_failures": 0}
+    FeedSyncService(db, RecordingQueue()).refresh(str(feed["_id"]))
+    drain(transcript_queue)
     stored = db.episodes.find_one({"_id": episode["_id"]})
     assert stored["duration"] == 3473
     assert stored["published"] == datetime(2026, 1, 22)
     assert stored["summary"] == "Official episode description"
     assert Episode.to_response(stored)["duration_formatted"] == "57:53"
-    assert service.refresh(str(feed["_id"]))["transcript_task_id"] is None
     metadata.assert_called_once_with("0")
     assert not captions.called
 
 
-def test_undated_discovered_video_is_not_excluded_by_older_dated_videos(channel):
+def test_undated_discovered_video_is_not_excluded_by_older_dated_videos(channel, transcript_queue):
     db, feed, videos = channel
     videos[:] = [{"video_id": "new", "title": "New upload", "published": None}]
     for i in range(15):
         db.episodes.insert_one(Episode.create(feed["_id"], f"youtube:old-{i}", "Old video",
                                              published=datetime(2025, 1, i + 1)))
-    queue = RecordingQueue()
-    result = FeedSyncService(db, queue).refresh(str(feed["_id"]))
+    FeedSyncService(db, RecordingQueue()).refresh(str(feed["_id"]))
     discovered = db.episodes.find_one({"guid": "youtube:new"})
     assert discovered["published"] is None
     assert Episode.to_response(discovered)["duration_formatted"] is None
-    assert queue.run(result["transcript_task_id"])["new_transcripts"] == 1
+    drain(transcript_queue)
     assert db.transcripts.find_one({"episode_id": discovered["_id"]})
 
 

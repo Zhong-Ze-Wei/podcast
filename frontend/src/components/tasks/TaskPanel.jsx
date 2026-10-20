@@ -94,6 +94,30 @@ function readPanelSize() {
   }
 }
 
+function DailyAutoRefreshCard({ daily, onOpenSettings }) {
+  const { t } = useTranslation();
+  if (!daily || !daily.feeds) return null;
+  return (
+    <article className="mx-3 mt-3 overflow-hidden rounded-xl border border-zinc-700/60 bg-zinc-950/50">
+      <div className="flex items-start justify-between gap-3 px-3.5 py-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-400">
+            <RefreshCw size={12} />{t('tasks.autoDaily.title')}
+          </p>
+          <p className="mt-1 text-sm font-medium text-zinc-100">
+            {t('tasks.autoDaily.summary', { done: daily.done, total: daily.feeds })}
+          </p>
+          {daily.failed > 0 && <p className="mt-1 text-[11px] text-amber-400/80">{t('tasks.autoDaily.failed', { count: daily.failed })}</p>}
+          {daily.last_feed && <p className="mt-1 truncate text-[11px] text-zinc-500" title={daily.last_feed}>{t('tasks.autoDaily.latest', { title: daily.last_feed })}</p>}
+        </div>
+        <button type="button" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" onClick={onOpenSettings}>
+          {t('tasks.queue.adjust')}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 const TaskPanel = ({
   onRetrySubscription,
   onNavigate,
@@ -102,7 +126,7 @@ const TaskPanel = ({
   openRequest = 0
 }) => {
   const { t, i18n } = useTranslation();
-  const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh } = useTasks();
+  const { activeTasks, historyTasks: allHistoryTasks, error: requestError, cancel, refresh, autoRefreshDaily } = useTasks();
   const historyCutoff = Date.now() - historyWindowMinutes * 60 * 1000;
   const historyTasks = allHistoryTasks.filter(task => task.completed_at && new Date(task.completed_at).getTime() > historyCutoff);
   const mobile = useMediaQuery('(max-width: 767px)');
@@ -465,7 +489,8 @@ const TaskPanel = ({
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
             {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{localizeUiMessage(requestError, t)}</div>}
-            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'briefing' })} onClear={clearTranscriptQueue} />}
+            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} onClear={clearTranscriptQueue} />}
+            {activeTab === 'history' && <DailyAutoRefreshCard daily={autoRefreshDaily} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} />}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (

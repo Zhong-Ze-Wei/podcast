@@ -100,7 +100,13 @@ def list_tasks():
     target_maps = _build_task_target_maps(db, tasks)
     data = [_format_task(task, target_maps) for task in tasks]
 
-    return paginated_response(data, page, per_page, total)
+    # 后台自动刷新不生成任务记录，但面板要能看到今天完成了多少个源的更新
+    from ..services.auto_refresher import get_auto_refresher
+
+    refresher = get_auto_refresher()
+    meta = {"auto_refresh_daily": refresher.daily_summary() if refresher else None}
+
+    return paginated_response(data, page, per_page, total, meta=meta)
 
 
 @tasks_bp.route("/<task_id>", methods=["GET"])

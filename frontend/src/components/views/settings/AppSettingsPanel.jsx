@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Activity, Check, Clock3, PanelRightOpen } from 'lucide-react';
+import SubscriptionUpdatePanel from './SubscriptionUpdatePanel';
 
 export const AUTO_REFRESH_KEY = 'podcast_auto_refresh_minutes';
 export const TASK_POLL_KEY = 'podcast_task_poll_seconds';
@@ -83,7 +84,9 @@ const AppSettingsPanel = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-2xl space-y-7">
+        <div className="max-w-3xl space-y-7">
+          <SubscriptionUpdatePanel />
+
           <SettingRow
             icon={RefreshCw}
             title={t('settings.app.autoRefreshTitle')}

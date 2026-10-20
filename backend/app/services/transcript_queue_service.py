@@ -55,24 +55,34 @@ class TranscriptQueue:
         return self.interval_minutes()
 
     def load_interval_from_db(self):
-        """从用户偏好恢复节流间隔；没有记录时用默认值。"""
+        """从统一更新配置恢复节流间隔；没有记录时用默认值。"""
         if self.db is None:
             return
-        doc = self.db.briefing_preferences.find_one({"key": "transcript_queue"}) or {}
-        value = doc.get("interval_minutes")
-        if value:
-            with self._lock:
-                self._interval_seconds = max(MIN_INTERVAL_MINUTES, min(MAX_INTERVAL_MINUTES, float(value))) * 60
+        from . import refresh_settings
+
+        value = refresh_settings.get_settings(self.db)["transcript_interval_minutes"]
+        with self._lock:
+            self._interval_seconds = max(MIN_INTERVAL_MINUTES, min(MAX_INTERVAL_MINUTES, float(value))) * 60
 
     def save_interval_to_db(self, minutes):
         if self.db is None:
             return
-        self.db.briefing_preferences.update_one(
-            {"key": "transcript_queue"},
-            {"$set": {"key": "transcript_queue", "interval_minutes": minutes,
-                      "updated_at": datetime.utcnow()}},
-            upsert=True,
-        )
+        from . import refresh_settings
+
+        refresh_settings.save_settings(self.db, {"transcript_interval_minutes": minutes})
+
+    def sync_interval_from_settings(self):
+        """每轮抓取前对齐设置页的改动（进程内缓存会过期）。"""
+        if self.db is None:
+            return
+        from . import refresh_settings
+
+        minutes = refresh_settings.get_settings(self.db)["transcript_interval_minutes"]
+        seconds = max(MIN_INTERVAL_MINUTES, min(MAX_INTERVAL_MINUTES, float(minutes))) * 60
+        with self._lock:
+            if seconds != self._interval_seconds:
+                self._interval_seconds = seconds
+                self._wake.notify_all()
 
     # ---- 队列操作 ----
     def enqueue(self, episodes, priority=PRIORITY_HISTORY, feed_id=None):
@@ -184,6 +194,7 @@ class TranscriptQueue:
 
     def _run_loop(self):
         while self._running:
+            self.sync_interval_from_settings()
             with self._lock:
                 while self._running and not self._items:
                     self._wake.wait(timeout=30)
@@ -194,31 +205,46 @@ class TranscriptQueue:
                     # 等待期间若有人插队或改间隔，会被 notify 唤醒后重算
                     self._wake.wait(timeout=min(wait_seconds, 30))
                     continue
-                item = self._items.pop(0)
-                item["started_at"] = datetime.utcnow()
-                self._active = item
-            try:
-                self._fetch_one(item)
-            except Exception as error:  # 单期失败不能拖垮队列
-                logger.error("字幕队列抓取失败 %s: %s", item.get("title", ""), error)
-                self._stats["failed"] += 1
-            finally:
-                with self._lock:
-                    self._last_fetch_at = datetime.utcnow()
-                    self._active = None
+            self.fetch_next()
+
+    def fetch_next(self):
+        """同步抓一期队首（队列线程与测试共用）；没有待抓时返回 None。"""
+        with self._lock:
+            if not self._items:
+                return None
+            item = self._items.pop(0)
+            item["started_at"] = datetime.utcnow()
+            self._active = item
+        try:
+            self._fetch_one(item)
+        except Exception as error:  # 单期失败不能拖垮队列
+            logger.error("字幕队列抓取失败 %s: %s", item.get("title", ""), error)
+            self._stats["failed"] += 1
+        finally:
+            with self._lock:
+                self._last_fetch_at = datetime.utcnow()
+                self._active = None
+        return item
 
     def _fetch_one(self, item):
-        """抓一期字幕：成功写库，429/无字幕写回错误原因。"""
+        """抓一期字幕：先补元数据，再抓字幕；429/无字幕写回错误原因。"""
         from bson import ObjectId
+
+        from .feed_sync_service import _humanize_subtitle_error, _needs_youtube_metadata, enrich_video_metadata
         from .youtube_service import YouTubeService, persist_transcript
 
         db = self.db
         episode = db.episodes.find_one({"_id": ObjectId(item["episode_id"])})
         if episode is None:
             return
-        if episode.get("has_transcript"):
-            return
         video_id = item["guid"].removeprefix("youtube:")
+        # 列表同步只拿到标题，时长/真实发布日期/简介要在这里按节流补一次
+        if _needs_youtube_metadata(episode):
+            enrich_video_metadata(db, episode)
+            episode = db.episodes.find_one({"_id": episode["_id"]}) or episode
+        # 标记缺失但字幕已在库（历史残留）时不重复请求平台
+        if episode.get("has_transcript") or db.transcripts.find_one({"episode_id": episode["_id"]}):
+            return
         started = time.time()
         transcript, error = YouTubeService.fetch_transcript(video_id)
         elapsed = time.time() - started
@@ -243,7 +269,7 @@ class TranscriptQueue:
             return
         self._stats["failed"] += 1
         db.episodes.update_one({"_id": episode["_id"]},
-                               {"$set": {"transcript_fetch_error": message[:200]}})
+                               {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
 
 
 _queue_instance = None

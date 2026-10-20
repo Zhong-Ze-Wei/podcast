@@ -121,6 +121,18 @@ class TaskQueue:
                     return task["task_id"]
             return self.submit(task_type, func, *args, dedup_key=dedup_key, **kwargs)
 
+    def submit_silent(self, task_type: str, func: Callable, *args, dedup_key: str, **kwargs) -> str:
+        """后台维护类任务：与 submit_unique 同样去重，但不进任务库、不出现在任务面板。
+
+        定时刷新每十几分钟就会跑一次，写进 tasks 只会把用户自己的操作历史淹掉；
+        进度仍留在内存里，供「更新动态」读取。
+        """
+        with self._lock:
+            for task in self.tasks.values():
+                if task.get("dedup_key") == dedup_key and task["status"] in {"pending", "processing"}:
+                    return task["task_id"]
+            return self.submit(task_type, func, *args, dedup_key=dedup_key, silent=True, **kwargs)
+
     def submit(
         self,
         task_type: str,
@@ -129,10 +141,12 @@ class TaskQueue:
         feed_id: str = None,
         owner_id: str = None,
         on_failure: Optional[Callable[[Exception], Any]] = None,
+        on_success: Optional[Callable[[Any], Any]] = None,
         *args,
         report_period: dict = None,
         report_context: dict = None,
         dedup_key: str = None,
+        silent: bool = False,
         **kwargs
     ) -> str:
         """
@@ -172,6 +186,8 @@ class TaskQueue:
             task_info["report_context"] = _to_mongo_safe(report_context)
         if dedup_key is not None:
             task_info["dedup_key"] = dedup_key
+        if silent:
+            task_info["silent"] = True
 
         # 包装函数以更新状态
         def wrapper():
@@ -198,6 +214,15 @@ class TaskQueue:
                     result=result,
                     completed_at=datetime.utcnow()
                 )
+                if on_success is not None:
+                    try:
+                        if self._app is not None:
+                            with self._app.app_context():
+                                on_success(result)
+                        else:
+                            on_success(result)
+                    except Exception:
+                        logger.exception(f"Success callback for task {task_id} failed")
                 return result
             except Exception as e:
                 logger.exception(f"Task {task_id} failed: {e}")
@@ -220,7 +245,7 @@ class TaskQueue:
 
         # 注册 Future 与任务状态必须在同一个锁内，避免取消与开始执行竞争。
         with self._lock:
-            if self._db is not None:
+            if self._db is not None and not silent:
                 self._db.tasks.insert_one(task_info.copy())
             self.tasks[task_id] = task_info
             try:
@@ -252,7 +277,7 @@ class TaskQueue:
                 return False
             update_doc = {"status": status, **kwargs}
             task.update(update_doc)
-            if self._db is not None:
+            if self._db is not None and not task.get("silent"):
                 self._db.tasks.update_one({"task_id": task_id}, {"$set": update_doc})
             return True
 
@@ -269,7 +294,7 @@ class TaskQueue:
             if message is not None:
                 updates["progress_message"] = message
             task.update(updates)
-            if self._db is not None:
+            if self._db is not None and not task.get("silent"):
                 self._db.tasks.update_one({"task_id": task_id}, {"$set": updates})
 
     def get_status(self, task_id: str) -> Optional[dict]:

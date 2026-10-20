@@ -189,7 +189,8 @@
   },
   "common": {
     "loading": "Loading...",
-    "fetchUnavailable": "Temporarily unavailable"
+    "fetchUnavailable": "Temporarily unavailable",
+    "saving": "Saving…"
   },
   "favorites": {
     "title": "Favorites",
@@ -311,7 +312,8 @@
       "episodeDetailsDone": "Episode details updated: {{count}} new transcripts, {{failed}} unavailable",
       "subscriptionResolving": "Identifying the subscription source",
       "subscriptionSaved": "Subscription saved · fetching the channel cover",
-      "subscriptionDone": "Subscription added · updating episodes in the background"
+      "subscriptionDone": "Subscription added · updating episodes in the background",
+      "videosQueued": "Video list updated: {{count}} new episodes, {{queued}} queued for transcripts"
     },
     "status": {
       "pending": "Pending",
@@ -334,6 +336,12 @@
       "more": "{{count}} more in queue",
       "stats": "{{done}} done · {{throttled}} throttled",
       "clear": "Clear backlog"
+    },
+    "autoDaily": {
+      "title": "Auto-updated today",
+      "summary": "{{done}}/{{total}} updates completed",
+      "failed": "{{count}} feeds failed and will retry next round",
+      "latest": "Latest: {{title}}"
     }
   },
   "settings": {
@@ -456,6 +464,33 @@
         "1440": "Last 24 hours",
         "10080": "Last 7 days"
       }
+    },
+    "refresh": {
+      "title": "Subscription updates",
+      "description": "Every update interval lives here and takes effect immediately once saved — no backend restart. Refreshes run silently in the background and never appear in the task list.",
+      "enabled": "Enable background auto-update",
+      "feedInterval": "Feed refresh interval",
+      "feedIntervalHint": "Shared by YouTube and RSS: check each feed every {{min}}–{{max}} hours",
+      "checkInterval": "Check frequency",
+      "checkIntervalHint": "How often the background checks for due feeds ({{min}}–{{max}} minutes)",
+      "feedsPerTick": "Feeds per round",
+      "feedsPerTickHint": "At most this many feeds per check, so they never fire at once ({{min}}–{{max}})",
+      "transcriptInterval": "Transcript interval",
+      "transcriptIntervalHint": "Gap between transcript fetches to avoid throttling ({{min}}–{{max}} minutes)",
+      "sweepInterval": "Backlog sweep interval",
+      "sweepIntervalHint": "How often to look for episodes still missing transcripts ({{min}}–{{max}} minutes)",
+      "sweepBatch": "Episodes per sweep",
+      "sweepBatchHint": "How many backlog episodes to enqueue each sweep ({{min}}–{{max}})",
+      "units": {
+        "hours": "hours",
+        "minutes": "minutes",
+        "feeds": "episodes"
+      },
+      "queueDepth": "{{count}} episodes queued for transcripts",
+      "todayDone": "Auto-updated {{done}}/{{total}} feeds today, {{failed}} failed",
+      "loading": "Loading subscription update settings…",
+      "loadError": "Could not load subscription update settings",
+      "saveError": "Could not save, please retry"
     }
   }
 }

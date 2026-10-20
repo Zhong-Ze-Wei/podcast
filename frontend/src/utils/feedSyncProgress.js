@@ -1,5 +1,7 @@
 const patterns = [
   [/^视频列表已更新：新增 (\d+) 期$/, 'videos', ['count']],
+  // 字幕现在进全局节流队列，列表刷新只报告排队深度
+  [/^视频列表已更新：新增 (\d+) 期，字幕队列待抓 (\d+) 期$/, 'videosQueued', ['count', 'queued']],
   [/^后台获取文稿 (\d+)\/(\d+)$/, 'transcripts', ['done', 'total']],
   [/^文稿已更新：(\d+) 期，暂不可用 (\d+) 期$/, 'transcriptsDone', ['count', 'failed']],
   [/^后台补齐节目资料 (\d+)\/(\d+)$/, 'episodeDetails', ['done', 'total']],

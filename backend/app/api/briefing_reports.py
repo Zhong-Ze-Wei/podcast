@@ -193,7 +193,9 @@ def transcript_queue():
         return error_response(f"间隔需在 {MIN_INTERVAL_MINUTES}–{MAX_INTERVAL_MINUTES} 分钟之间",
                               "INVALID_QUEUE_INTERVAL", 400)
     applied = queue.set_interval_minutes(minutes)
-    queue.save_interval_to_db(applied)
+    from ..services import refresh_settings
+
+    refresh_settings.save_settings(current_app.db, {"transcript_interval_minutes": applied})
     return success_response(queue.snapshot())
 
 

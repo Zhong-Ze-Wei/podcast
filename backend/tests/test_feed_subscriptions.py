@@ -28,6 +28,15 @@ def _add_feed(db, feed_type, channel_ref, title="Channel"):
     return db.feeds._data[-1]
 
 
+def _use_queue(db):
+    """订阅测试走独立的字幕队列，并把队列接到这份 db 上。"""
+    from app.services import transcript_queue_service
+
+    queue = transcript_queue_service.TranscriptQueue(db=db)
+    transcript_queue_service._queue_instance = queue
+    return queue
+
+
 def _yt_video(vid):
     from datetime import datetime as _dt
     return {"video_id": vid, "title": f"Video {vid}", "published": _dt(2026, 9, 1)}
@@ -53,15 +62,20 @@ def test_refresh_youtube_channel_feed_creates_transcribed_episodes(monkeypatch):
                              "language": "en"}, None) if vid == "aaa11111111" else (None, "no transcript")))
 
     with app.app_context():
-        queue = RecordingQueue()
-        result = _refresh_youtube_channel_feed(app.db, feed, queue=queue)
+        _use_queue(app.db)
+        result = _refresh_youtube_channel_feed(app.db, feed, queue=RecordingQueue())
 
     assert result["new_episodes"] == 2
     assert app.db.transcripts.count_documents({}) == 0
     assert app.db.episodes.count_documents({"feed_id": feed["_id"]}) == 2
-    enrichment = queue.run(result["transcript_task_id"])
-    assert enrichment["new_transcripts"] == 1
-    assert enrichment["transcript_failures"] == 1
+    # 字幕进节流队列，由后台逐期处理
+    assert result["transcript_queue_depth"] == 2
+
+    from app.services.transcript_queue_service import get_transcript_queue
+
+    queue = get_transcript_queue()
+    while queue.fetch_next() is not None:
+        pass
 
     with_sub = app.db.episodes.find_one({"guid": "youtube:aaa11111111"})
     assert with_sub["status"] == "transcribed"
@@ -70,6 +84,7 @@ def test_refresh_youtube_channel_feed_creates_transcribed_episodes(monkeypatch):
 
     without_sub = app.db.episodes.find_one({"guid": "youtube:bbb22222222"})
     assert without_sub["status"] == "new"
+    assert without_sub["transcript_fetch_error"]
 
 
 def test_refresh_youtube_channel_feed_marks_feed_error_on_failure(monkeypatch):
@@ -211,7 +226,10 @@ def test_subtitle_error_is_humanized_on_episode(monkeypatch):
                         classmethod(lambda cls, vid: (None, "No transcript available: Subtitles are disabled for this video")))
 
     with app.app_context():
+        queue = _use_queue(app.db)
         _refresh_youtube_channel_feed(app.db, feed, queue=ImmediateQueue())
+        while queue.fetch_next() is not None:
+            pass
 
     ep = app.db.episodes.find_one({"guid": "youtube:ccc33333333"})
     assert "禁用" in (ep.get("transcript_fetch_error") or "")

@@ -153,7 +153,7 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 
 共享内容任务全员可读，briefing-report/briefing-lab仅本人可读，数据库回退读取也验证归属。`can_cancel` 结合真实Future、请求角色与提交者；写接口再次校验，不能以展示能力代替权限判断。
 
-## Settings — `/api/settings`（13 路由）
+## Settings — `/api/settings`（15 路由）
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
@@ -165,6 +165,8 @@ completed 任务 7 天 TTL 自动清理；后端重启会把孤儿 running 任�
 | POST | `/settings/tavily/test` | 测试 Tavily | admin |
 | GET / PUT | `/settings/prompts/search-query` | 自定义搜索片段 | admin |
 | GET / PUT | `/settings/ai-analysis` | AI 功能总开关 `{enabled}` | admin |
+| GET | `/settings/refresh` | 订阅更新节奏：当前配置、各参数边界、今日自动更新统计、字幕队列状态 | 登录 |
+| PUT | `/settings/refresh` | 调整订阅更新节奏（间隔/巡检频率/每轮源数/字幕抓取与补捞），即时生效；越界值自动夹到边界 | user+ |
 | GET | `/settings/bilibili-status` | B站登录态（实时校验 SESSDATA 有效性） | 登录 |
 
 ```json
