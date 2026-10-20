@@ -45,6 +45,20 @@
   .br-layout-columns, .br-layout-notes, .br-newspaper-items { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* 瀑布流不是网格：卡片按内容自然撑高，不参与 subgrid 的跨行布局 */
+.br-quote-layout .br-masonry .br-mode-card {
+  display: block;
+  grid-row: auto;
+  min-height: 0;
+  margin-bottom: 0;
+}
+.br-quote-layout .br-masonry .br-mode-card .br-excerpt-words { display: block; }
+.br-quote-layout .br-masonry .br-mode-card-title,
+.br-quote-layout .br-masonry .br-mode-card-text,
+.br-quote-layout .br-masonry .br-excerpt-words > .br-translation-label,
+.br-quote-layout .br-masonry .br-excerpt-words > blockquote { min-block-size: 0; }
+.br-quote-layout .br-masonry .br-excerpt-heading { min-height: 0; }
+
 /* Single-column phone reading should not reserve empty desktop-sized zones. */
 @media (max-width: 600px) {
   .br-quote-layout .br-mode-card .br-excerpt-words { display: block; }

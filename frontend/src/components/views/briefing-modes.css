@@ -366,8 +366,10 @@
 .br-quote-carousel.is-spread > .br-quote-popover, .br-quote-carousel.is-spread > .br-quote-neighbor { visibility: hidden; pointer-events: none; }
 .br-quote-spread-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid #3c3346; border-radius: 7px; background: #211d29; color: #c9b8dd; font-size: 13px; white-space: nowrap; }
 .br-quote-spread-trigger:hover { color: #e9def6; border-color: #6b5583; background: #2b2437; }
-/* 弹窗底部滑动条：快速拖动通览全部原话 */
-.br-quote-scrub-row { display: flex; align-items: center; gap: 14px; flex-shrink: 0; height: 36px; padding: 2px 28px 6px; }
+/* 弹窗底部滑动条：快速拖动通览全部原话（在三张卡下方整行居中） */
+.br-quote-scrub-row { position: absolute; left: 50%; bottom: 6px; z-index: 3; display: flex; align-items: center; gap: 14px; width: min(690px, calc(100% - 96px)); height: 30px; padding: 0 4px; transform: translateX(-50%); }
+.br-quote-carousel.has-neighbors { padding-bottom: 38px; }
+.br-quote-carousel.has-neighbors .br-quote-popover, .br-quote-carousel.has-neighbors .br-quote-neighbor { height: calc(100% - 38px); }
 .br-quote-scrub-count { min-width: 56px; color: #9b8eab; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .br-quote-scrub-row input[type='range'] { flex: 1; appearance: none; -webkit-appearance: none; height: 24px; margin: 0; background: transparent; cursor: pointer; }
 .br-quote-scrub-row input[type='range']:focus-visible { outline: 2px solid #c4a7dc; outline-offset: 3px; }
@@ -380,13 +382,18 @@
 .br-quote-neighbor-next { transform: translateX(-16%) scale(.9) rotate(4deg); }
 .br-quote-neighbor:hover { border-color: #9f84b4; }
 .br-quote-neighbor:focus-visible { outline: 2px solid #c4a7dc; outline-offset: 5px; }
-/* 宽屏：左右邻居完整展开、略微变淡，一行三卡 */
+/* 宽屏：左右邻居完整展开，一行三卡；两侧透明度一致，只用倾斜做折射感 */
 @media (min-width: 1250px) {
-  .br-quote-neighbor { left: 0; right: auto; width: min(560px, calc((100% - 740px) / 2)); height: 92%; opacity: .6; filter: brightness(.8) saturate(.92); }
+  .br-quote-neighbor { left: 0; right: auto; width: min(560px, calc((100% - 740px) / 2)); height: 92%; opacity: .72; transform-origin: center; background: repeating-linear-gradient(115deg, #ffffff04 0 2px, transparent 2px 7px), linear-gradient(155deg, #362b3b, #1c1722); box-shadow: 0 18px 60px #0007, inset 0 1px 0 #ffffff09, inset 0 0 80px #0000006b; }
   .br-quote-neighbor-next { left: auto; right: 0; }
-  .br-quote-neighbor-previous { transform: rotate(-2.4deg) scale(.97); }
-  .br-quote-neighbor-next { transform: rotate(2.4deg) scale(.97); }
-  .br-quote-neighbor:hover { opacity: .88; }
+  /* 透视折射：左右各朝外轻转，越靠边越薄，像夹在主卡两侧的玻璃片 */
+  .br-quote-neighbor-previous { transform: perspective(1600px) rotateY(7deg) rotate(-1.6deg) scale(.97); }
+  .br-quote-neighbor-next { transform: perspective(1600px) rotateY(-7deg) rotate(1.6deg) scale(.97); }
+  .br-quote-neighbor:hover { opacity: .92; }
+}
+/* 滑动条在三卡下方整行居中，不压在主卡内部 */
+@media (min-width: 1250px) {
+  .br-quote-carousel.has-neighbors .br-quote-scrub-row { width: min(690px, calc(100% - 96px)); }
 }
 .br-quote-neighbor-label { display: block; color: #bdaaca; font-size: 12px; }
 .br-quote-neighbor-text { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 7; -webkit-box-orient: vertical; font-size: 18px; line-height: 1.9; overflow-wrap: anywhere; }

@@ -60,7 +60,7 @@ function useMasonryColumnCount() {
   }, []);
   return count;
 }
-// 瀑布流落位用的高度估算:标题/正文/证据条数粗略折算,只为均衡不需要精确
+// 瀑布流落位用的高度估算:仅在首次测量前占位,渲染后改用实测高度
 function estimateCardHeight(card) {
   const title = (card.title || '').length;
   const body = (card.text || card.quote || card.brief || '').length;
@@ -305,17 +305,31 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const hasMoreRef = useRef(false);
   hasMoreRef.current = hasMore;
   const sentinelRef = useRef(null);
+  const masonryRef = useRef(null);
   const masonryColumnCountValue = useMasonryColumnCount();
+  // 实测高度（itemId → px）；卡片渲染后回填，下一轮按真实高度重新分列
+  const [measuredHeights, setMeasuredHeights] = useState({});
   const masonryColumns = useMemo(() => {
-    const columns = Array.from({ length: masonryColumnCountValue }, () => []);
-    const heights = new Array(masonryColumnCountValue).fill(0);
+    const count = Math.max(1, Math.min(masonryColumnCountValue, visibleItems.length));
+    const columns = Array.from({ length: count }, () => []);
+    const heights = new Array(count).fill(0);
     for (const card of visibleItems) {
       let shortest = 0;
       for (let i = 1; i < columns.length; i++) if (heights[i] < heights[shortest]) shortest = i;
       columns[shortest].push(card);
-      heights[shortest] += estimateCardHeight(card);
+      heights[shortest] += (measuredHeights[card.id] || estimateCardHeight(card)) + 15;
     }
     return columns;
+  }, [visibleItems, masonryColumnCountValue, measuredHeights]);
+  useLayoutEffect(() => {
+    const root = masonryRef.current;
+    if (!root) return;
+    const next = {};
+    root.querySelectorAll('[data-item-id]').forEach(el => { next[el.dataset.itemId] = el.getBoundingClientRect().height; });
+    setMeasuredHeights(current => {
+      const changed = Object.entries(next).some(([id, height]) => Math.abs((current[id] || 0) - height) > 2);
+      return changed ? { ...current, ...next } : current;
+    });
   }, [visibleItems, masonryColumnCountValue]);
   const matchingSourceCount = new Set(filteredItems.flatMap(card => [card.source_id, ...(card.source_ids || []), ...(card.evidence || []).map(quote => quote.source_id)]).filter(Boolean)).size;
   const period = snapshot?.period;
@@ -601,7 +615,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
         <section className={`br-quote-layout br-layout-${layout}`} aria-label={t("ui.valueValueLayout", { value1: info.name, value2: LAYOUTS.find(item => item.id === layout).name })}>
           {['paper', 'newspaper'].includes(layout) && <header className="br-paper-heading"><div><span>{t("ui.podMasterAIBriefing")}</span><h2>{info.name}</h2></div><span>{formatPeriodLabel(period, i18n.resolvedLanguage) || dateText(report.generated_at)}</span></header>}
           <ExcerptItems layout={layout}>{layout === 'columns'
-            ? <div className="br-masonry">{masonryColumns.map((column, columnIndex) => <div className="br-masonry-col" key={columnIndex}>{column.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</div>)}</div>
+            ? <div className="br-masonry" ref={masonryRef}>{masonryColumns.map((column, columnIndex) => <div className="br-masonry-col" key={columnIndex}>{column.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</div>)}</div>
             : visibleItems.map(card => <Excerpt key={`${report.id}:${card.id}`} card={card} {...excerptProps} />)}</ExcerptItems>
           {['paper', 'newspaper'].includes(layout) && <footer className="br-paper-footer">{t("ui.includes")} {sources.length} {t("ui.transcriptsShowing")} {visibleItems.length} {t("ui.itemsOf")} {filteredItems.length} {t("ui.itemsSourcesAvailableForAll")}</footer>}
         </section>
