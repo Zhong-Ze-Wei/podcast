@@ -26,17 +26,21 @@ class FeedAutoRefresher:
     - 使用后台线程，不阻塞主服务
     """
 
-    def __init__(self, db, interval_hours=5 / 60, stale_threshold_hours=6, queue=task_queue):
+    def __init__(self, db, interval_hours=5 / 60, stale_threshold_hours=6, youtube_stale_minutes=15, transcript_sweep_minutes=30, queue=task_queue):
         """
         Args:
             db: MongoDB数据库实例
             interval_hours: 检查间隔（小时）
-            stale_threshold_hours: 超过多久视为需要更新（小时）
+            stale_threshold_hours: RSS 超过多久视为需要更新（小时）
+            youtube_stale_minutes: YouTube 源超过多少分钟视为需要更新
+            transcript_sweep_minutes: 存量字幕补捞间隔（分钟）
         """
         self.db = db
         self.queue = queue
         self.interval_hours = interval_hours
         self.stale_threshold = timedelta(hours=stale_threshold_hours)
+        self.youtube_stale = timedelta(minutes=youtube_stale_minutes)
+        self.transcript_sweep_interval = timedelta(minutes=transcript_sweep_minutes)
         self._running = False
         self._thread = None
         self._last_transcript_sweep = None
@@ -49,10 +53,13 @@ class FeedAutoRefresher:
             return
 
         self._running = True
+        # 启动即视为刚扫过一轮：避免每次重启服务都立刻打一轮外部接口
+        self._last_transcript_sweep = datetime.utcnow()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info(
-            f"Feed auto-refresher started (interval: {self.interval_hours}h, stale: {self.stale_threshold})"
+            f"Feed auto-refresher started (interval: {self.interval_hours}h, stale: {self.stale_threshold}, "
+            f"youtube stale: {self.youtube_stale}, transcript sweep: {self.transcript_sweep_interval})"
         )
 
     def stop(self):
@@ -111,8 +118,8 @@ class FeedAutoRefresher:
         if purged:
             logger.info("Trash purge: %d 个过期桶已物理清除", purged)
 
-    def _maybe_sweep_transcripts(self, interval_minutes=30, limit=8):
-        """每 interval 分钟顺手补捞 limit 个无字幕 YouTube 剧集。
+    def _maybe_sweep_transcripts(self, limit=8):
+        """每 self.transcript_sweep_minutes 顺手补捞 limit 个无字幕 YouTube 剧集。
 
         存量剧集大多在频道 RSS 最近 15 条窗口外，常规刷新永远不碰；
         这里走完整降级链（主库→watch页签名→yt-dlp+POT），默认代理通道
@@ -121,7 +128,7 @@ class FeedAutoRefresher:
         from .youtube_service import YouTubeService, persist_transcript
 
         now = datetime.utcnow()
-        if self._last_transcript_sweep and now - self._last_transcript_sweep < timedelta(minutes=interval_minutes):
+        if self._last_transcript_sweep and now - self._last_transcript_sweep < self.transcript_sweep_interval:
             return
         self._last_transcript_sweep = now
 
@@ -161,7 +168,7 @@ class FeedAutoRefresher:
 
         now = datetime.utcnow()
         stale_time = now - self.stale_threshold
-        youtube_stale_time = now - timedelta(minutes=15)
+        youtube_stale_time = now - self.youtube_stale
 
         # 失败源也按同一间隔重试；None 同时匹配尚未检查和旧文档缺失字段。
         feeds_to_refresh = list(
@@ -223,20 +230,22 @@ class FeedAutoRefresher:
 _refresher_instance = None
 
 
-def start_auto_refresher(db, interval_hours=5 / 60, stale_threshold_hours=6):
+def start_auto_refresher(db, interval_hours=5 / 60, stale_threshold_hours=6, youtube_stale_minutes=15, transcript_sweep_minutes=30):
     """
     启动自动刷新服务
 
     Args:
         db: MongoDB数据库实例
         interval_hours: 检查间隔（小时），默认五分钟
-        stale_threshold_hours: 超过多久视为需要更新（小时），默认6小时
+        stale_threshold_hours: RSS 超过多久视为需要更新（小时），默认6小时
+        youtube_stale_minutes: YouTube 源刷新间隔（分钟），默认15分钟
+        transcript_sweep_minutes: 存量字幕补捞间隔（分钟），默认30分钟
     """
     global _refresher_instance
 
     if _refresher_instance is None:
         _refresher_instance = FeedAutoRefresher(
-            db, interval_hours, stale_threshold_hours
+            db, interval_hours, stale_threshold_hours, youtube_stale_minutes, transcript_sweep_minutes
         )
         _refresher_instance.start()
     else:
