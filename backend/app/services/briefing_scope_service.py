@@ -26,6 +26,20 @@ SCREENING_PROMPT = (
 )
 
 
+def _validate_object_ids(values, label):
+    """校验排除清单：只接受 24 位十六进制 id，去重并保持稳定顺序。"""
+    if not isinstance(values, list):
+        raise ValueError(f"{label}清单必须是数组")
+    result = []
+    for value in values:
+        text = str(value or "").strip()
+        if not re.fullmatch(r"[a-f0-9]{24}", text):
+            raise ValueError(f"{label}包含无效 id")
+        if text not in result:
+            result.append(text)
+    return result
+
+
 def validate_title_screening(data, materials, interests):
     if not isinstance(data, dict):
         raise ValueError("标题判定必须是JSON对象")
@@ -176,10 +190,12 @@ class BriefingScopeService:
         return {"interests": (user or {}).get("briefing_interests", [dict(item) for item in DEFAULT_INTERESTS]),
                 "auto_period": (user or {}).get("briefing_auto_period"), "auto_enabled_at": enabled_at,
                 "layout": (user or {}).get("briefing_layout", "paper"),
-                "materials_layout": (user or {}).get("briefing_materials_layout", "gallery")}
+                "materials_layout": (user or {}).get("briefing_materials_layout", "gallery"),
+                "excluded_episode_ids": [str(item) for item in (user or {}).get("briefing_excluded_episode_ids", [])],
+                "excluded_feed_ids": [str(item) for item in (user or {}).get("briefing_excluded_feed_ids", [])]}
 
-    def save_preferences(self, interests, auto_period=_UNSET, layout=_UNSET, materials_layout=_UNSET):
-        tags = validate_preferences(interests)
+    def save_preferences(self, interests=_UNSET, auto_period=_UNSET, layout=_UNSET, materials_layout=_UNSET,
+                         excluded_episode_ids=_UNSET, excluded_feed_ids=_UNSET):
         if self.owner_id is None:
             raise ValueError("请登录具体账号后保存关注话题")
         if auto_period is not _UNSET and auto_period not in (None, "week", "month"):
@@ -188,16 +204,23 @@ class BriefingScopeService:
             raise ValueError("请选择有效的简报阅读版式")
         if materials_layout is not _UNSET and materials_layout not in ("gallery", "stack"):
             raise ValueError("节目卡片请选择封面画廊或叠放翻阅")
-        changes = {"briefing_interests": tags}
+        changes = {}
+        if interests is not _UNSET:
+            changes["briefing_interests"] = validate_preferences(interests)
         if materials_layout is not _UNSET:
             changes["briefing_materials_layout"] = materials_layout
         if layout is not _UNSET:
             changes["briefing_layout"] = layout
+        if excluded_episode_ids is not _UNSET:
+            changes["briefing_excluded_episode_ids"] = _validate_object_ids(excluded_episode_ids, "排除的节目")
+        if excluded_feed_ids is not _UNSET:
+            changes["briefing_excluded_feed_ids"] = _validate_object_ids(excluded_feed_ids, "排除的播客")
         if auto_period is not _UNSET:
             changes["briefing_auto_period"] = auto_period
             if auto_period != self.preferences()["auto_period"]:
                 changes["briefing_auto_enabled_at"] = datetime.utcnow() if auto_period else None
-        self.db.users.update_one({"_id": ObjectId(self.owner_id)}, {"$set": changes})
+        if changes:
+            self.db.users.update_one({"_id": ObjectId(self.owner_id)}, {"$set": changes})
         return self.preferences()
 
     @staticmethod
@@ -274,6 +297,8 @@ class BriefingScopeService:
         if period["start"] not in {item["start"] for item in periods}:
             periods.append({**calendar_period(period_type, period["start"]), **counts.get(period["start"], {"total_count": 0, "transcript_count": 0})})
         materials, sources = [], []
+        excluded_episodes = {str(item) for item in preferences.get("excluded_episode_ids", [])}
+        excluded_feeds = {str(item) for item in preferences.get("excluded_feed_ids", [])}
         for copies in groups.values():
             within = [ep for ep in copies if period["start"] <= _published(ep["published"]).date().isoformat() < period["end"]]
             if not within:
@@ -286,10 +311,14 @@ class BriefingScopeService:
             source = _source(episode, feed, transcript) if transcript else None
             title_source = {"title": episode.get("title", ""), "feed": feed.get("title", ""), "description": _description(episode)}
             cached = self.cached_screening(title_source, interests)
+            # 用户手动排除优先于模型判定：单集或整个播客
+            user_excluded = str(episode["_id"]) in excluded_episodes or str(episode["feed_id"]) in excluded_feeds
             materials.append({"episode_id": str(episode["_id"]), "source_id": source["id"] if source else None, "title": episode.get("title", ""),
-                              "feed": feed.get("title", ""), "description": _description(episode), "published_at": _published(within[0]["published"]).isoformat(), "has_transcript": source is not None,
-                              "selected": cached["selected"] if cached else None, "topic_tags": cached["topic_tags"] if cached else [],
-                              "relevance_reason": cached["relevance_reason"] if cached else "", "screening_evidence": cached["evidence"] if cached else []})
+                              "feed": feed.get("title", ""), "feed_id": str(episode.get("feed_id") or ""), "description": _description(episode), "published_at": _published(within[0]["published"]).isoformat(), "has_transcript": source is not None,
+                              "selected": False if user_excluded else (cached["selected"] if cached else None),
+                              "excluded_by_user": user_excluded,
+                              "topic_tags": cached["topic_tags"] if cached else [],
+                              "relevance_reason": "已按你的排除设置跳过" if user_excluded else (cached["relevance_reason"] if cached else ""), "screening_evidence": cached["evidence"] if cached else []})
             if source:
                 sources.append(source)
         materials.sort(key=lambda item: item["published_at"], reverse=True)
@@ -308,6 +337,7 @@ class BriefingScopeService:
             item["analysis_status"] = "completed" if item["source_id"] in analyzed_ids else "not_started" if item["has_transcript"] else "no_transcript"
             item["analysis_preview"] = previews.get(item["source_id"], "")
         identity = {"analysis_policy": analysis_policy, "screening_prompt": SCREENING_PROMPT, "period": {key: period[key] for key in ("type", "start", "end")}, "interests": sorted(label.casefold() for label in interests),
+                    "excluded": sorted(excluded_episodes | excluded_feeds),
                     "material": [(item["episode_id"], item["has_transcript"], item["title"], item["description"]) for item in materials],
                     "text": [(source["episode_id"], hashlib.sha256(source["full_text"].encode()).hexdigest()) for source in sources]}
         selection_key = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:24]
@@ -349,7 +379,8 @@ class BriefingScopeService:
 
     def screen(self, scope, progress_callback=None):
         materials, interests = scope["materials"], scope["interests"]
-        pending = [item for item in materials if self.cached_screening(item, interests) is None]
+        # 用户手动排除的节目已有结论，不送模型；其余按缓存判定
+        pending = [item for item in materials if not item.get("excluded_by_user") and self.cached_screening(item, interests) is None]
         completed = len(materials) - len(pending)
         if progress_callback:
             progress_callback((5, f"收集材料：找到{len(materials)}期，已有正文{len(scope['corpus']['sources'])}期"))

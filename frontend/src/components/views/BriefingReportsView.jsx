@@ -234,6 +234,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
   const [periodScope, setPeriodScope] = useState({ owner: userId, type: 'week', start: null });
   const [interests, setInterests] = useState([{ label: 'AI', enabled: true }, { label: 'LLM', enabled: true }]);
   const [materialsOpen, setMaterialsOpen] = useState(false);
+  const [exclusions, setExclusions] = useState({ episodes: [], feeds: [] });
   const [materialsLayout, setMaterialsLayout] = useState('gallery');
   const [pdfStyle, setPdfStyle] = useState('paper');
   const [snapshot, setSnapshot] = useState(null);
@@ -423,7 +424,12 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     let active = true;
     setLayoutLoading(true); setLayoutSaving(false); setLayoutError('');
     briefingReportsApi.preferences().then(response => {
-      if (active) { setLayout(payload(response).layout || 'paper'); setMaterialsLayout(payload(response).materials_layout || 'gallery'); }
+      if (active) {
+        const data = payload(response);
+        setLayout(data.layout || 'paper');
+        setMaterialsLayout(data.materials_layout || 'gallery');
+        setExclusions({ episodes: data.excluded_episode_ids || [], feeds: data.excluded_feed_ids || [] });
+      }
     }).catch(err => { if (active) setLayoutError(err.message || t("ui.couldNotLoadYourReadingStyleSelect")); }).finally(() => { if (active) setLayoutLoading(false); });
     return () => { active = false; };
   }, [userId]);
@@ -541,6 +547,31 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     } finally { if (isCurrentOwner(owner)) setLayoutSaving(false); }
   };
   const openPreview = () => { setPdfStyle(layout === 'newspaper' ? 'newspaper' : 'paper'); setPreview(true); };
+  // 拖拽排除：写偏好后刷新快照，让弹窗与生成管线都用同一份排除清单
+  const persistExclusions = async next => {
+    const previous = exclusions;
+    setExclusions(next);
+    try {
+      await briefingReportsApi.savePreferences({ excluded_episode_ids: next.episodes, excluded_feed_ids: next.feeds });
+      setToast(t("ui.exclusionSaved"));
+      await reload();
+    } catch (err) {
+      setExclusions(previous);
+      setError(err.message || t("ui.couldNotSaveExclusion"));
+    }
+  };
+  const excludeMaterial = ({ episodeId, feedId }) => {
+    const next = { episodes: [...exclusions.episodes], feeds: [...exclusions.feeds] };
+    if (feedId && !next.feeds.includes(feedId)) next.feeds.push(feedId);
+    if (episodeId && !next.episodes.includes(episodeId)) next.episodes.push(episodeId);
+    persistExclusions(next);
+  };
+  const restoreMaterial = ({ episodeId, feedId }) => {
+    persistExclusions({
+      episodes: episodeId ? exclusions.episodes.filter(item => item !== episodeId) : exclusions.episodes,
+      feeds: feedId ? exclusions.feeds.filter(item => item !== feedId) : exclusions.feeds,
+    });
+  };
   const excerptProps = { canFavorite, savingFavorite: Boolean(savingFavorite), sources, feeds, onRead: readEpisode, onListen, onSource: setSelection, savedQuotes, onToggleQuote: toggleQuote, onCopy: copyQuote, onEvidence: item => setEvidenceSelection({ ...evidenceGallery(item, allItems), sources }) };
   const readingData = readingSource ? readings[readingSource] || { source: sources.find(source => source.id === readingSource) } : null;
 
@@ -593,7 +624,7 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
       </>)}
     </main>
     {evidenceSelection && <BriefingQuotePopover selection={evidenceSelection} sources={evidenceSelection.sources || sources} onClose={closeEvidence} onRead={readEpisode} onListen={onListen} onSource={setSelection} />}
-    {materialsOpen && snapshot && <MaterialsDialog snapshot={snapshot} feeds={feeds} layout={materialsLayout} onClose={closeMaterials} onRead={readEpisode} onOpenEpisode={onOpenEpisode} />}
+    {materialsOpen && snapshot && <MaterialsDialog snapshot={snapshot} feeds={feeds} layout={materialsLayout} onClose={closeMaterials} onRead={readEpisode} onOpenEpisode={onOpenEpisode} excludedEpisodeIds={exclusions.episodes} excludedFeedIds={exclusions.feeds} onExclude={excludeMaterial} onRestore={restoreMaterial} />}
     {selection && <SourceDrawer selection={selection} onClose={closeSource} onOpenEpisode={onOpenEpisode} onListen={onListen} />}
     {preview && report && <PdfPreview report={report} density={pdfDensity} onDensityChange={setPdfDensity} style={pdfStyle} onStyleChange={setPdfStyle} pages={pages} onPagesChange={setPages} onClose={closePreview} onDownload={download} downloading={downloading} exportError={localizeUiMessage(exportError, t)} />}
     {toast && <div className="br-toast" role="status"><Check size={16} />{localizeUiMessage(toast, t)}</div>}

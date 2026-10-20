@@ -490,3 +490,79 @@ def test_invalid_material_card_style_keeps_saved_style(client, style):
     response = http.put("/api/briefing-reports/preferences", headers=headers, json={"materials_layout": style})
     assert response.status_code == 400
     assert service.preferences()["materials_layout"] == "stack"
+
+
+def test_user_exclusions_are_saved_per_account_and_override_screening(client):
+    app, http, headers, service = client
+    initial = http.get("/api/briefing-reports/preferences", headers=headers).get_json()["data"]
+    assert initial["excluded_episode_ids"] == [] and initial["excluded_feed_ids"] == []
+    episode_id = "0123456789abcdef01234567"
+    feed_id = "89abcdef0123456789abcdef"
+    saved = http.put("/api/briefing-reports/preferences", headers=headers,
+                     json={"excluded_episode_ids": [episode_id], "excluded_feed_ids": [feed_id]}).get_json()["data"]
+    assert saved["excluded_episode_ids"] == [episode_id]
+    assert saved["excluded_feed_ids"] == [feed_id]
+    assert saved["interests"] == initial["interests"]
+    # 改其它偏好不应清空排除清单
+    changed = http.put("/api/briefing-reports/preferences", headers=headers, json={"auto_period": "week"}).get_json()["data"]
+    assert changed["excluded_episode_ids"] == [episode_id]
+    other = add_user(app.db, "other-exclusions@example.com")
+    assert http.get("/api/briefing-reports/preferences", headers=auth_headers(other)).get_json()["data"]["excluded_episode_ids"] == []
+
+
+@pytest.mark.parametrize("payload", [
+    {"excluded_episode_ids": "not-a-list"},
+    {"excluded_feed_ids": ["../../etc/passwd"]},
+    {"excluded_episode_ids": [""]},
+])
+def test_invalid_exclusion_ids_are_rejected(client, payload):
+    app, http, headers, service = client
+    response = http.put("/api/briefing-reports/preferences", headers=headers, json=payload)
+    assert response.status_code == 400
+    assert service.preferences()["excluded_episode_ids"] == []
+    assert service.preferences()["excluded_feed_ids"] == []
+
+
+def test_excluded_episode_is_marked_and_never_selected(tmp_path, monkeypatch):
+    service = scope_service(tmp_path)
+    episode, _ = add_episode(service.db, datetime(2026, 10, 14), "excluded-episode", TEXT)
+    kept, _ = add_episode(service.db, datetime(2026, 10, 15), "kept-episode", TEXT)
+    episode_id = str(episode["_id"])
+    service.db.users.update_one(
+        {"_id": __import__("bson").ObjectId(service.owner_id)},
+        {"$set": {"briefing_excluded_episode_ids": [episode_id]}},
+    )
+    scope = service.collect("week", "2026-10-12", ["AI"])
+    excluded = next(item for item in scope["materials"] if item["episode_id"] == episode_id)
+    assert excluded["selected"] is False
+    assert excluded["excluded_by_user"] is True
+    assert excluded["relevance_reason"] == "已按你的排除设置跳过"
+    assert excluded["feed_id"]
+    # 用户排除的节目不再进入模型筛选批次
+    screened = []
+    def fake_screen(batch, interests):
+        screened.extend(item["episode_id"] for item in batch)
+        for item in batch:
+            write_json(service._screen_path(item, interests) / "result.json", {
+                "selected": True, "decision": "include", "topic_tags": [], "relevance_reason": "",
+                "evidence": [], "chunks": 0, "interests": interests, "generated_at": "now",
+                "version": 2, "basis": "title_and_description", "model": "test", "batch_usage": {}})
+    monkeypatch.setattr(service, "_screen_batch", fake_screen)
+    service.screen(scope)
+    assert episode_id not in screened
+    assert str(kept["_id"]) in screened
+
+
+def test_excluded_feed_hides_all_its_episodes(tmp_path):
+    service = scope_service(tmp_path)
+    episode, feed = add_episode(service.db, datetime(2026, 10, 14), "feed-episode", TEXT)
+    other, _ = add_episode(service.db, datetime(2026, 10, 15), "other-episode", TEXT)
+    service.db.users.update_one(
+        {"_id": __import__("bson").ObjectId(service.owner_id)},
+        {"$set": {"briefing_excluded_feed_ids": [str(feed["_id"])]}},
+    )
+    scope = service.collect("week", "2026-10-12", ["AI"])
+    by_id = {item["episode_id"]: item for item in scope["materials"]}
+    assert by_id[str(episode["_id"])]["excluded_by_user"] is True
+    assert by_id[str(episode["_id"])]["selected"] is False
+    assert by_id[str(other["_id"])]["excluded_by_user"] is False

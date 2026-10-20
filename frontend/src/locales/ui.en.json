@@ -521,7 +521,8 @@
     "startup": "Startups & business",
     "learning": "Learning notes",
     "interview": "Interviews & stories"
-  }
-,
-  "officialTranscriptAvailable": "The official site provides a full transcript — click \"Fetch transcript\" above to load it."
+  },
+  "officialTranscriptAvailable": "The official site provides a full transcript — click \"Fetch transcript\" above to load it.",
+  "exclusionSaved": "Exclusion saved",
+  "couldNotSaveExclusion": "Could not save exclusion, please retry"
 }

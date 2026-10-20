@@ -149,16 +149,23 @@ def preferences():
     if not isinstance(options, dict):
         return error_response("请求必须是 JSON 对象", "INVALID_JSON", 400)
     try:
-        values = {"interests": options.get("interests", service.preferences()["interests"])}
+        values = {}
+        if "interests" in options:
+            values["interests"] = options["interests"]
         if "auto_period" in options:
             values["auto_period"] = options["auto_period"]
         if "layout" in options:
             values["layout"] = options["layout"]
         if "materials_layout" in options:
             values["materials_layout"] = options["materials_layout"]
+        # 拖拽排除：单集或整个播客，生成简报时跳过
+        if "excluded_episode_ids" in options:
+            values["excluded_episode_ids"] = options["excluded_episode_ids"]
+        if "excluded_feed_ids" in options:
+            values["excluded_feed_ids"] = options["excluded_feed_ids"]
         result = service.save_preferences(**values)
     except ValueError as error:
-        return error_response(str(error), "INVALID_INTERESTS", 400)
+        return error_response(str(error), "INVALID_PREFERENCES", 400)
     return success_response(result)
 
 

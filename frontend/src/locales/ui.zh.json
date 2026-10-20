@@ -521,7 +521,8 @@
     "startup": "创业与商业",
     "learning": "学习笔记",
     "interview": "访谈与故事"
-  }
-,
-  "officialTranscriptAvailable": "这集官网提供了完整文稿，点上方「获取文稿」一键拉取，无需本地转写。"
+  },
+  "officialTranscriptAvailable": "这集官网提供了完整文稿，点上方「获取文稿」一键拉取，无需本地转写。",
+  "exclusionSaved": "排除设置已保存",
+  "couldNotSaveExclusion": "排除设置保存失败，请重试"
 }

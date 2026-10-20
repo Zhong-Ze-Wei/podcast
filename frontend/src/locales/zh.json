@@ -28,7 +28,14 @@
     "savedToAccount": "按账号保存，周报和月报共用。",
     "aiOverview": "AI 导读",
     "episodeDescription": "节目简介",
-    "quickNavigation": "快速切换节目"
+    "quickNavigation": "快速切换节目",
+    "excludedByYou": "已排除",
+    "excludedCount": "已排除 {{count}} 期",
+    "excludeHint": "拖住节目卡片到此处排除单期；拖动播客名可排除整个播客",
+    "dragToExclude": "向上拖到下方排除区，松手即排除",
+    "dropToExclude": "松手排除",
+    "restore": "点击恢复",
+    "dragFeedHint": "拖动这里可排除整个播客"
   },
   "briefing": {
     "reportInfo": "报告说明",
