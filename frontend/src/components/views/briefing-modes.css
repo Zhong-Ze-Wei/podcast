@@ -507,19 +507,13 @@
 .briefing-reports-view .br-layout-paper .br-excerpt-footer { margin-top: 13px; gap: 11px; }
 .briefing-reports-view .br-card-evidence-quote { margin-bottom: 14px; padding-bottom: 12px; }
 .briefing-reports-view .br-paper-footer { padding-top: 16px; }
-/* 双栏（columns）屏显密度：宽度足够时自动排 3~4 列，稍紧但保持呼吸 */
-.briefing-reports-view .br-layout-columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 15px; }
-.briefing-reports-view .br-layout-columns:has(> .br-masonry) { display: block; }
-.briefing-reports-view .br-layout-columns .br-excerpt { padding: 18px 19px 16px; min-height: 205px; }
-.br-masonry .br-excerpt { min-height: 0; }
-.briefing-reports-view .br-layout-columns .br-excerpt-heading { min-height: 2.2em; margin-bottom: 7px; }
-.briefing-reports-view .br-layout-columns .br-excerpt-footer { margin-top: 12px; }
+/* 双栏屏显：保持两列排版，只压缩留白让单屏容纳更多内容 */
+.briefing-reports-view .br-layout-columns { gap: 16px; }
+.briefing-reports-view .br-layout-columns .br-excerpt { padding: 20px 21px 18px; }
+.briefing-reports-view .br-layout-columns .br-excerpt-heading { margin-bottom: 7px; }
+.briefing-reports-view .br-layout-columns .br-excerpt-footer { margin-top: 13px; }
 .briefing-reports-view .br-layout-columns .br-card-tags { margin-top: 12px; }
 .briefing-reports-view .br-layout-columns .br-mode-card-title { margin-bottom: 7px; }
-.briefing-reports-view .br-layout-columns .br-source-identity { min-height: 40px; }
-/* 瀑布流：卡片按最短列落位，滚动接近底部按批续载 */
-.br-masonry { display: flex; align-items: flex-start; gap: 15px; width: 100%; }
-.br-masonry-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 15px; }
 .br-scroll-sentinel { height: 2px; }
 @container (min-width: 1250px) {
   .briefing-reports-view .br-paper-items { column-gap: 34px; }
