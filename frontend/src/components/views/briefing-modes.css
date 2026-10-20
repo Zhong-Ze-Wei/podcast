@@ -222,7 +222,7 @@
 .br-reading-point-content p { margin: 0; color: #b0b0be; font-size: 17px; line-height: 1.85; }
 .br-reading-point-content > .br-evidence-toggle { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; padding: 4px 0; border: 0; background: none; color: #bda8df; font-size: 14px; }
 .br-quote-backdrop { justify-content: center; align-items: center; padding: 24px; background: #07070b75; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
-.br-quote-popover { --br-light-x: 50%; --br-light-y: 20%; --br-tilt-x: 0deg; --br-tilt-y: 0deg; position: relative; display: flex; flex-direction: column; width: min(650px, 100%); height: min(560px, calc(100dvh - 48px)); box-sizing: border-box; overflow: hidden; border: 1px solid #ffffff23; border-radius: 18px; background: #1c1b23e8; color: #ece8f3; box-shadow: 0 22px 90px #0009, inset 0 1px 0 #ffffff0c; backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); transform: perspective(1100px) rotateX(var(--br-tilt-x)) rotateY(var(--br-tilt-y)); transition: transform 140ms ease-out; animation: br-quote-arrive 180ms ease-out; }
+.br-quote-popover { --br-light-x: 50%; --br-light-y: 20%; --br-tilt-x: 0deg; --br-tilt-y: 0deg; position: relative; display: flex; flex-direction: column; width: min(690px, 100%); height: min(560px, calc(100dvh - 48px)); box-sizing: border-box; overflow: hidden; border: 1px solid #ffffff26; border-radius: 18px; background: repeating-linear-gradient(115deg, #ffffff05 0 2px, transparent 2px 7px), linear-gradient(160deg, #272430ee, #1a1722ee); color: #ece8f3; box-shadow: 0 26px 80px -18px #000a, 0 6px 18px #0006, inset 0 1px 0 #ffffff14, inset 0 -1px 0 #0008; backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); transform: perspective(1100px) rotateX(var(--br-tilt-x)) rotateY(var(--br-tilt-y)); transition: transform 140ms ease-out; animation: br-quote-arrive 180ms ease-out; }
 .br-quote-popover::before { position: absolute; content: ''; inset: 0; pointer-events: none; background: radial-gradient(250px circle at var(--br-light-x) var(--br-light-y), #ffffff0b, transparent 75%); }
 .br-quote-popover-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; height: 108px; box-sizing: border-box; padding: 20px 28px 16px; border-bottom: 1px solid #ffffff0d; }
 .br-quote-popover-heading > div { min-width: 0; }
@@ -349,13 +349,16 @@
 
 /* A shared evidence deck: neighboring cards stay visible as navigation affordances. */
 .br-quote-backdrop { overflow: hidden; }
-.br-quote-carousel { position: relative; width: min(1120px, 100%); height: min(600px, calc(100dvh - 64px)); isolation: isolate; }
-.br-quote-carousel .br-quote-popover { position: relative; z-index: 2; width: min(650px, calc(100% - 120px)); height: 100%; margin: 0 auto; background: #1c1b23; transform: translateX(var(--br-drag-x, 0px)); transition: transform 200ms ease-out; touch-action: pan-y; }
-.br-quote-carousel:not(.has-neighbors) .br-quote-popover { width: min(650px, 100%); }
-.br-quote-carousel .br-quote-popover.is-dragging { transition: none; user-select: none; }
-.br-quote-carousel.has-neighbors .br-quote-popover-heading { cursor: grab; user-select: none; }
+.br-quote-carousel { position: relative; width: min(1180px, 100%); height: min(620px, calc(100dvh - 64px)); isolation: isolate; }
+.br-quote-carousel .br-quote-popover { position: relative; z-index: 2; width: min(690px, calc(100% - 96px)); height: 100%; margin: 0 auto; background: repeating-linear-gradient(115deg, #ffffff05 0 2px, transparent 2px 7px), linear-gradient(160deg, #2a2733, #1b1822); transform: translateX(var(--br-drag-x, 0px)) translateY(var(--br-lift-y, 0px)); transition: transform 280ms cubic-bezier(.22, 1.05, .36, 1); touch-action: pan-y; }
+.br-quote-carousel:not(.has-neighbors) .br-quote-popover { width: min(690px, 100%); }
+.br-quote-carousel .br-quote-popover.is-dragging { transition: none; user-select: none; box-shadow: 0 36px 100px -18px #000c, 0 10px 26px #0008, inset 0 1px 0 #ffffff12, inset 0 -1px 0 #0008; }
+.br-quote-carousel.has-neighbors .br-quote-popover-heading { cursor: grab; user-select: none; touch-action: none; }
 .br-quote-carousel.has-neighbors .is-dragging .br-quote-popover-heading { cursor: grabbing; }
-.br-quote-neighbor { position: absolute; z-index: 1; display: flex; flex-direction: column; justify-content: space-between; top: 3%; left: 50%; width: min(650px, calc(100% - 120px)); height: 94%; padding: 28px; border: 1px solid #514657; border-radius: 18px; color: #b4a6c1; background: linear-gradient(155deg, #322837, #1b1722); box-shadow: 0 18px 60px #0006; text-align: left; transition: transform 200ms ease-out, border-color 150ms; }
+.br-quote-carousel.is-spread > .br-quote-popover, .br-quote-carousel.is-spread > .br-quote-neighbor { visibility: hidden; pointer-events: none; }
+.br-quote-spread-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid #3c3346; border-radius: 7px; background: #211d29; color: #c9b8dd; font-size: 13px; white-space: nowrap; }
+.br-quote-spread-trigger:hover { color: #e9def6; border-color: #6b5583; background: #2b2437; }
+.br-quote-neighbor { position: absolute; z-index: 1; display: flex; flex-direction: column; justify-content: space-between; top: 3%; left: 50%; width: min(690px, calc(100% - 96px)); height: 94%; padding: 28px; border: 1px solid #514657; border-radius: 18px; color: #b4a6c1; background: repeating-linear-gradient(115deg, #ffffff04 0 2px, transparent 2px 7px), linear-gradient(155deg, #362b3b, #1c1722); box-shadow: 0 18px 60px #0007, inset 0 1px 0 #ffffff09; text-align: left; transition: transform 240ms cubic-bezier(.22, 1.05, .36, 1), border-color 150ms; }
 .br-quote-neighbor-previous { transform: translateX(-84%) scale(.9) rotate(-4deg); }
 .br-quote-neighbor-next { transform: translateX(-16%) scale(.9) rotate(4deg); }
 .br-quote-neighbor:hover { border-color: #9f84b4; }
@@ -409,4 +412,66 @@
   .br-quote-carousel .br-quote-popover { transform: none; }
   .br-quote-neighbor-previous { transform: translateX(-80%) scale(.9); }
   .br-quote-neighbor-next { transform: translateX(-20%) scale(.9); }
+}
+
+/* ---------------------------------------------------------------------------
+ * 铺开审阅：整叠原话卡片上滑后四散铺满屏幕，点卡片聚焦、一键收拢。
+ * 姿态（倾角/缩放/跨列）由组件按索引种子注入，散开时大小不一。
+ * ------------------------------------------------------------------------- */
+.br-spread-board { position: fixed; inset: 0; z-index: 6; display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 20px 18px; align-content: start; align-items: start; padding: 20px 26px 34px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.br-spread-toolbar { position: sticky; top: 0; z-index: 7; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 4px; padding: 11px 14px; border: 1px solid #ffffff15; border-radius: 12px; background: #17151cf2; box-shadow: 0 10px 30px #0008; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.br-spread-caption { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.br-spread-caption strong { color: #ddd3ea; font-size: 15px; font-weight: 550; white-space: nowrap; }
+.br-spread-caption span { color: #94879f; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-spread-gather { gap: 7px; flex-shrink: 0; }
+.br-spread-card { position: relative; display: flex; flex-direction: column; gap: 10px; min-height: 168px; max-height: 330px; padding: 17px 17px 15px; border: 1px solid #ffffff18; border-radius: 14px; background: repeating-linear-gradient(115deg, #ffffff05 0 2px, transparent 2px 7px), linear-gradient(160deg, #2a2531, #1b1822); color: #ded7e8; text-align: left; transform: rotate(var(--tilt, 0deg)) scale(var(--zoom, 1)); box-shadow: inset 0 1px 0 #ffffff0a, inset 0 -16px 28px -20px #000d, 0 16px 36px -16px #000b, 0 3px 9px #0006; transition: transform .26s cubic-bezier(.2, .9, .3, 1), box-shadow .26s, border-color .2s; will-change: transform; overflow: hidden; }
+.br-spread-card:hover { border-color: #a98fc273; transform: rotate(0deg) scale(calc(var(--zoom, 1) + .05)) translateY(-6px); box-shadow: inset 0 1px 0 #ffffff0f, inset 0 -16px 28px -20px #000d, 0 28px 52px -18px #000d, 0 6px 15px #0007; }
+.br-spread-card:focus-visible { outline: 2px solid #c4a7dc; outline-offset: 4px; }
+.br-spread-card.is-wide { grid-column: span 2; }
+.br-spread-source { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-right: 26px; }
+.br-spread-source strong { color: #cbbfd8; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-spread-source em { color: #8f839c; font-size: 12px; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-spread-text { display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: #e7e1f0; font-size: 14.5px; line-height: 1.75; overflow-wrap: anywhere; }
+.br-spread-index { position: absolute; top: 9px; right: 12px; color: #7e7290; font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) {
+  .br-spread-board { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 14px 12px; padding: 12px 14px 26px; }
+  .br-spread-card { min-height: 130px; padding: 13px; border-radius: 11px; }
+  .br-spread-card.is-wide { grid-column: span 1; }
+  .br-spread-text { font-size: 13px; line-height: 1.65; -webkit-line-clamp: 7; }
+  .br-spread-toolbar { flex-wrap: wrap; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .br-spread-card { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+ * 屏显信息密度：仅作用于应用内的周报页面。PDF 导出渲染在独立文档
+ * （无 .briefing-reports-view 祖先），不受这些覆盖影响。
+ * ------------------------------------------------------------------------- */
+.briefing-reports-view .br-toolbar.br-modes-toolbar { margin-bottom: 16px; }
+.briefing-reports-view .br-filter-result { margin-bottom: 14px; }
+.briefing-reports-view .br-layout-paper { padding: 28px 42px 24px; border-radius: 4px; background-image: repeating-linear-gradient(0deg, #000000024 0 1px, transparent 1px 26px); box-shadow: 0 18px 64px -24px #0007, 0 2px 10px #0002; }
+.briefing-reports-view .br-paper-heading { padding-bottom: 15px; margin-bottom: 4px; }
+.briefing-reports-view .br-layout-paper .br-excerpt { padding: 16px 0 18px; }
+.briefing-reports-view .br-excerpt-heading { margin-bottom: 8px; }
+.briefing-reports-view .br-mode-card-title { margin-bottom: 8px; }
+.briefing-reports-view .br-mode-card-text { line-height: 1.72; }
+.briefing-reports-view .br-layout-paper blockquote { line-height: 1.72; }
+.briefing-reports-view .br-open-resource { margin-top: 11px; }
+.briefing-reports-view .br-card-evidence { margin-top: 11px; }
+.briefing-reports-view .br-layout-paper .br-excerpt-footer { margin-top: 13px; gap: 11px; }
+.briefing-reports-view .br-card-evidence-quote { margin-bottom: 14px; padding-bottom: 12px; }
+.briefing-reports-view .br-paper-footer { padding-top: 16px; }
+/* 双栏（columns）屏显密度：缩留白、压间距，单屏容纳更多卡片 */
+.briefing-reports-view .br-layout-columns { gap: 18px; }
+.briefing-reports-view .br-layout-columns .br-excerpt { padding: 20px 22px 18px; min-height: 225px; }
+.briefing-reports-view .br-layout-columns .br-excerpt-heading { min-height: 2.6em; margin-bottom: 8px; }
+.briefing-reports-view .br-layout-columns .br-excerpt-footer { margin-top: 14px; }
+.briefing-reports-view .br-layout-columns .br-card-tags { margin-top: 12px; }
+.briefing-reports-view .br-layout-columns .br-mode-card-title { margin-bottom: 8px; }
+@container (min-width: 1250px) {
+  .briefing-reports-view .br-paper-items { column-gap: 34px; }
+}
+@media (max-width: 900px) {
+  .briefing-reports-view .br-layout-paper { padding: 24px 26px 20px; }
 }

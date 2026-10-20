@@ -481,7 +481,7 @@ def translate_reading_evidence(source_id):
         {"id": str(item.get("id", "")), "quote": str(item.get("quote", "")).strip()}
         for item in raw
         if isinstance(item, dict) and str(item.get("quote", "")).strip()
-    ][:20]
+    ][:60]
     if not valid:
         return error_response("没有可翻译的引文", "INVALID_QUOTES", 400)
 
@@ -497,30 +497,35 @@ def translate_reading_evidence(source_id):
 
     missing = [item for item in valid if quote_hash(item["quote"]) not in translations]
     if missing:
-        llm = get_llm_client(task="briefing")
-        result = llm.chat_json(
-            messages=[
-                {"role": "system", "content": "你是字幕翻译。把每条播客原话忠实翻译成简洁中文，保留人名与技术名词，不加解释。只返回JSON。"},
-                {"role": "user", "content": "逐条翻译下面引文，返回 {\"items\":[{\"i\":<序号>,\"zh\":\"译文\"}]}：\n"
-                 + "\n".join(f"{i}. {item['quote'][:600]}" for i, item in enumerate(missing))},
-            ],
-            temperature=0.2,
-            max_tokens=4000,
-        )
-        items = (result.get("data") or {}).get("items") or []
-        now = datetime.utcnow()
-        new_docs = []
-        for i, item in enumerate(missing):
-            zh = next((str(entry.get("zh", "")).strip() for entry in items if entry.get("i") == i), "")
-            if not zh:
-                continue
-            translations[quote_hash(item["quote"])] = zh
-            new_docs.append({"owner_id": owner_id, "quote_hash": quote_hash(item["quote"]), "zh": zh, "created_at": now})
-        if new_docs:
-            try:
-                db.evidence_translations.insert_many(new_docs)
-            except Exception:
-                pass  # 缓存写失败不影响本次返回
+        llm = None
+        # LLM 分批翻译（每批 20 条）：弹窗聚合整份报告的引文，数量常超过单批上限，不再被 [:20] 截断
+        for batch_start in range(0, len(missing), 20):
+            batch = missing[batch_start:batch_start + 20]
+            if llm is None:
+                llm = get_llm_client(task="briefing")
+            result = llm.chat_json(
+                messages=[
+                    {"role": "system", "content": "你是字幕翻译。把每条播客原话忠实翻译成简洁中文，保留人名与技术名词，不加解释。只返回JSON。"},
+                    {"role": "user", "content": "逐条翻译下面引文，返回 {\"items\":[{\"i\":<序号>,\"zh\":\"译文\"}]}：\n"
+                     + "\n".join(f"{i}. {item['quote'][:600]}" for i, item in enumerate(batch))},
+                ],
+                temperature=0.2,
+                max_tokens=4000,
+            )
+            items = (result.get("data") or {}).get("items") or []
+            now = datetime.utcnow()
+            new_docs = []
+            for i, item in enumerate(batch):
+                zh = next((str(entry.get("zh", "")).strip() for entry in items if entry.get("i") == i), "")
+                if not zh:
+                    continue
+                translations[quote_hash(item["quote"])] = zh
+                new_docs.append({"owner_id": owner_id, "quote_hash": quote_hash(item["quote"]), "zh": zh, "created_at": now})
+            if new_docs:
+                try:
+                    db.evidence_translations.insert_many(new_docs)
+                except Exception:
+                    pass  # 缓存写失败不影响本次返回
 
     return success_response({
         "translations": {item["id"]: translations[quote_hash(item["quote"])] for item in valid
