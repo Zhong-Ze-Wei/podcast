@@ -417,28 +417,33 @@
 /* ---------------------------------------------------------------------------
  * 铺开审阅：整叠原话卡片上滑后四散铺满屏幕，点卡片聚焦、一键收拢。
  * 姿态（倾角/缩放/跨列）由组件按索引种子注入，散开时大小不一。
+ * 摊开在大桌上的感觉：大卡、大字、大间距，宁可滚动也要留白。
  * ------------------------------------------------------------------------- */
-.br-spread-board { position: fixed; inset: 0; z-index: 6; display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 20px 18px; align-content: start; align-items: start; padding: 20px 26px 34px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.br-spread-toolbar { position: sticky; top: 0; z-index: 7; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 4px; padding: 11px 14px; border: 1px solid #ffffff15; border-radius: 12px; background: #17151cf2; box-shadow: 0 10px 30px #0008; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.br-spread-board { position: fixed; inset: 0; z-index: 6; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 64px 56px; align-content: start; align-items: start; padding: 24px 56px 72px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.br-spread-toolbar { position: sticky; top: 0; z-index: 7; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; padding: 11px 14px; border: 1px solid #ffffff15; border-radius: 12px; background: #17151cf2; box-shadow: 0 10px 30px #0008; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .br-spread-caption { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .br-spread-caption strong { color: #ddd3ea; font-size: 15px; font-weight: 550; white-space: nowrap; }
 .br-spread-caption span { color: #94879f; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .br-spread-gather { gap: 7px; flex-shrink: 0; }
-.br-spread-card { position: relative; display: flex; flex-direction: column; gap: 10px; min-height: 168px; max-height: 330px; padding: 17px 17px 15px; border: 1px solid #ffffff18; border-radius: 14px; background: repeating-linear-gradient(115deg, #ffffff05 0 2px, transparent 2px 7px), linear-gradient(160deg, #2a2531, #1b1822); color: #ded7e8; text-align: left; transform: rotate(var(--tilt, 0deg)) scale(var(--zoom, 1)); box-shadow: inset 0 1px 0 #ffffff0a, inset 0 -16px 28px -20px #000d, 0 16px 36px -16px #000b, 0 3px 9px #0006; transition: transform .26s cubic-bezier(.2, .9, .3, 1), box-shadow .26s, border-color .2s; will-change: transform; overflow: hidden; }
-.br-spread-card:hover { border-color: #a98fc273; transform: rotate(0deg) scale(calc(var(--zoom, 1) + .05)) translateY(-6px); box-shadow: inset 0 1px 0 #ffffff0f, inset 0 -16px 28px -20px #000d, 0 28px 52px -18px #000d, 0 6px 15px #0007; }
+.br-spread-card { position: relative; display: flex; flex-direction: column; gap: 14px; min-height: 220px; max-height: 420px; padding: 24px 24px 20px; border: 1px solid #ffffff18; border-radius: 16px; background: repeating-linear-gradient(115deg, #ffffff05 0 2px, transparent 2px 7px), linear-gradient(160deg, #2a2531, #1b1822); color: #ded7e8; text-align: left; transform: rotate(var(--tilt, 0deg)) scale(var(--zoom, 1)); box-shadow: inset 0 1px 0 #ffffff0a, inset 0 -16px 28px -20px #000d, 0 22px 44px -18px #000c, 0 4px 12px #0007; transition: transform .26s cubic-bezier(.2, .9, .3, 1), box-shadow .26s, border-color .2s; will-change: transform; overflow: hidden; }
+.br-spread-card:hover { border-color: #a98fc273; transform: rotate(0deg) scale(calc(var(--zoom, 1) + .05)) translateY(-8px); box-shadow: inset 0 1px 0 #ffffff0f, inset 0 -16px 28px -20px #000d, 0 34px 60px -18px #000e, 0 8px 18px #0008; }
 .br-spread-card:focus-visible { outline: 2px solid #c4a7dc; outline-offset: 4px; }
 .br-spread-card.is-wide { grid-column: span 2; }
-.br-spread-source { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-right: 26px; }
-.br-spread-source strong { color: #cbbfd8; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.br-spread-source em { color: #8f839c; font-size: 12px; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.br-spread-text { display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: #e7e1f0; font-size: 14.5px; line-height: 1.75; overflow-wrap: anywhere; }
-.br-spread-index { position: absolute; top: 9px; right: 12px; color: #7e7290; font-size: 12px; font-variant-numeric: tabular-nums; }
+.br-spread-source { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; padding-right: 30px; }
+.br-spread-source strong { color: #cbbfd8; font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-spread-source em { color: #8f839c; font-size: 12.5px; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-spread-text { display: -webkit-box; -webkit-line-clamp: 12; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: #e9e3f2; font-size: 16.5px; line-height: 1.8; overflow-wrap: anywhere; }
+.br-spread-index { position: absolute; top: 11px; right: 14px; color: #857899; font-size: 13px; font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .br-spread-board { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 40px 32px; padding: 16px 28px 56px; }
+  .br-spread-text { font-size: 15px; -webkit-line-clamp: 10; }
+}
 @media (max-width: 700px) {
-  .br-spread-board { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 14px 12px; padding: 12px 14px 26px; }
-  .br-spread-card { min-height: 130px; padding: 13px; border-radius: 11px; }
+  .br-spread-board { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 26px 20px; padding: 12px 16px 44px; }
+  .br-spread-card { min-height: 160px; padding: 16px; border-radius: 12px; }
   .br-spread-card.is-wide { grid-column: span 1; }
-  .br-spread-text { font-size: 13px; line-height: 1.65; -webkit-line-clamp: 7; }
-  .br-spread-toolbar { flex-wrap: wrap; gap: 10px; }
+  .br-spread-text { font-size: 14px; line-height: 1.7; -webkit-line-clamp: 8; }
+  .br-spread-toolbar { flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .br-spread-card { transition: none; }
