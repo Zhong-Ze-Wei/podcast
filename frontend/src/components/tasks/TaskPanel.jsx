@@ -489,8 +489,8 @@ const TaskPanel = ({
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
             {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{localizeUiMessage(requestError, t)}</div>}
-            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} onClear={clearTranscriptQueue} />}
-            {activeTab === 'history' && <DailyAutoRefreshCard daily={autoRefreshDaily} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} />}
+            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'subscriptions' })} onClear={clearTranscriptQueue} />}
+            {activeTab === 'history' && <DailyAutoRefreshCard daily={autoRefreshDaily} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'subscriptions' })} />}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (

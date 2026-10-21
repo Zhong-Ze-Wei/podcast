@@ -39,6 +39,19 @@ import PlayerBar from './components/player/PlayerBar';
 import TaskPanel from './components/tasks/TaskPanel';
 import { TasksProvider } from './components/tasks/TasksContext';
 
+// 旧的 section 名兼容：设置标签重排后链接与书签仍然可用
+const SETTINGS_SECTION_ALIASES = {
+  app: 'general',
+  llm: 'ai',
+  templates: 'ai',
+  users: 'account',
+};
+
+function normalizeSettingsSection(section) {
+  if (!section) return 'general';
+  return SETTINGS_SECTION_ALIASES[section] || section;
+}
+
 const SIMPLE_VIEW_PATHS = {
   list: '/episodes',
   workspace: '/workspace',
@@ -67,7 +80,7 @@ export default function App() {
   const [briefingNavigation, setBriefingNavigation] = useState(null);
   const briefingContextRef = useRef({ periodType: 'week', periodStart: null, mode: 'core', selectedTag: '', showAll: false, readingSource: null, scroll: { top: 0 } });
   const [returnContext, setReturnContext] = useState(null);
-  const [settingsTab, setSettingsTab] = useState('account');
+  const [settingsTab, setSettingsTab] = useState('general');
   const [briefingState, setBriefingState] = useState({ periodType: 'week', mode: 'core' });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false); // 'traditional' | 'ai-briefing'
   const [activeFeed, setActiveFeed] = useState(null);
@@ -280,7 +293,7 @@ export default function App() {
     const context = stored ? JSON.parse(stored) : null;
     if (context) { setReturnContext(context); setViewMode(context.mode); }
     const query = new URLSearchParams(window.location.search);
-    setSettingsTab(query.get('section') || 'account');
+    setSettingsTab(normalizeSettingsSection(query.get('section')));
     if (query.get('app_mode') === 'ai-briefing') setViewMode('ai-briefing');
   }, [currentUser?.id]);
   const openSettings = useCallback(({ context, replace = false, section, mode } = {}) => {
@@ -291,7 +304,7 @@ export default function App() {
       setReturnContext(origin);
       sessionStorage.setItem(`podmaster_settings_return:${currentUser.id}`, JSON.stringify(origin));
     }
-    const tab = section || 'account';
+    const tab = normalizeSettingsSection(section);
     setSettingsTab(tab); setView('settings'); setViewMode(originMode); setMobileSidebarOpen(false);
     updateBrowserPath(`/settings?section=${tab}&app_mode=${originMode}`, { replace, state: { view: 'settings', returnContext: origin } });
   }, [viewMode, returnContext, currentUser?.id, updateBrowserPath]);
@@ -424,7 +437,7 @@ export default function App() {
       openFeed(route.id, { replace, push: false });
       return;
     }
-    if (route.view === 'settings') { const query = new URLSearchParams(window.location.search); openSettings({ replace, section: route.section || query.get('section') || 'account', mode: route.mode || query.get('app_mode') || 'traditional' }); return; }
+    if (route.view === 'settings') { const query = new URLSearchParams(window.location.search); openSettings({ replace, section: normalizeSettingsSection(route.section || query.get('section')), mode: route.mode || query.get('app_mode') || 'traditional' }); return; }
     if (route.view.startsWith('briefing')) { const context = window.history.state?.briefingContext; setBriefingNavigation(context && context.owner === currentUser?.id ? { ...context, restore: true } : { ...readBriefingRoute(window.location.search) }); }
     navigateToView(route.view, { replace });
   }, [navigateToView, openEpisode, openFeed, openSettings, currentUser?.id]);
@@ -850,10 +863,11 @@ export default function App() {
       <TaskPanel
         onRetrySubscription={retrySubscription}
         openRequest={taskOpenRequest}
-        onNavigate={({ type, id, tab, ...context }) => {
+        onNavigate={({ type, id, tab, section, ...context }) => {
           if (type === 'episode') openEpisode(id, { tab });
           if (type === 'feed') openFeed(id);
           if (type === 'briefing') handleBriefingNavigate('reports', context);
+          if (type === 'settings') openSettings({ section });
         }}
         historyWindowMinutes={taskHistoryWindowMinutes}
         defaultOpen={taskPanelDefaultOpen}

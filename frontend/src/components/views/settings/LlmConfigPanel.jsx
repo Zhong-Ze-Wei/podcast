@@ -5,7 +5,7 @@ import {
   Loader2, Plus, Route, Search, Server, Star, Trash2, Zap,
 } from 'lucide-react';
 import { settingsApi } from '../../../services/api';
-import { SettingsButton, SettingsPage } from './SettingsLayout';
+import { SettingsButton } from './SettingsLayout';
 import { localizeUiMessage } from '../../../utils/localization';
 
 const PROVIDER_PRESETS = [
@@ -60,33 +60,8 @@ const LlmConfigPanel = () => {
   const [manualModelInputs, setManualModelInputs] = useState({});
   const [collapsedProviders, setCollapsedProviders] = useState(() => new Set());
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [biliStatus, setBiliStatus] = useState(null);
-  const [sessdataInput, setSessdataInput] = useState("");
-  const [savingSessdata, setSavingSessdata] = useState(false);
 
   useEffect(() => { loadConfigs(); }, []);
-
-  // 在线更新 B站 SESSDATA：后端立即生效并持久化 .env，这里接收实时验证结果
-  const saveBiliSessdata = async () => {
-    const value = sessdataInput.trim();
-    if (!value) return;
-    setSavingSessdata(true);
-    setNotice(null);
-    try {
-      const res = await settingsApi.updateBilibiliSessdata(value);
-      if (res.valid) {
-        setNotice({ success: true, message: t("settings.biliSessdataSaved", { value1: res.nickname || res.mid }) });
-        setSessdataInput("");
-      } else {
-        setNotice({ success: false, message: res.message || t("settings.biliSessdataInvalid") });
-      }
-      setBiliStatus({ configured: true, valid: !!res.valid, nickname: res.nickname, mid: res.mid });
-    } catch (err) {
-      setNotice({ success: false, message: err?.response?.data?.message || String(err) });
-    } finally {
-      setSavingSessdata(false);
-    }
-  };
 
   const providerById = useMemo(() => Object.fromEntries(providers.map(p => [p.id, p])), [providers]);
   const enabledModels = useMemo(
@@ -119,7 +94,6 @@ const LlmConfigPanel = () => {
       setDefaultModelId(res.default_model_id || res.models?.[0]?.id || 'default');
       setTaskRoutes(res.task_routes || {});
       settingsApi.getAiAnalysis().then(r => setAiEnabled(!!r.enabled)).catch(() => {});
-      settingsApi.getBilibiliStatus().then(setBiliStatus).catch(() => {});
       // 已配置 Key 的服务商默认折叠为摘要卡片
       setCollapsedProviders(new Set((res.providers || []).filter(p => p.api_key).map(p => p.id)));
     } catch (err) {
@@ -290,18 +264,17 @@ const LlmConfigPanel = () => {
   // ── Main render ──
 
   return (
-    <SettingsPage
-      width="wide"
-      actions={(
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex items-center justify-end border-b border-zinc-800 px-4 py-3 md:px-8">
         <SettingsButton onClick={saveConfigs} disabled={saving}>
           {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
           {t('settings.save')}
         </SettingsButton>
-      )}
-    >
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar px-4 py-6 md:px-8">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
       <NoticeBanner />
 
-      <div className="space-y-6">
 
         {/* Provider Cards */}
         {providers.map((provider) => {
@@ -607,43 +580,6 @@ const LlmConfigPanel = () => {
           </button>
         </div>
 
-        {/* Bilibili login status */}
-        {biliStatus && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-zinc-300"> {t("ui.bilibiliSession")} <span className="ml-3 text-xs text-zinc-500">
-                  {biliStatus.configured
-                    ? (biliStatus.valid
-                        ? t("ui.connectedValueValidSESSDATA", { value1: biliStatus.nickname || biliStatus.mid })
-                        : t("ui.configuredButValidationFailedSESSDATAMayHave"))
-                    : t("ui.sESSDATAIsNotConfiguredBilibiliRefreshAnd")}
-                </span>
-              </div>
-              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${biliStatus.configured && biliStatus.valid ? 'bg-green-500' : biliStatus.configured ? 'bg-amber-500' : 'bg-zinc-600'}`} />
-            </div>
-            {/* 在线更新 SESSDATA：粘贴即生效（运行时+持久化 .env），无需改文件重启 */}
-            <div className="mt-2.5 flex gap-2">
-              <input
-                type="text"
-                value={sessdataInput}
-                onChange={(e) => setSessdataInput(e.target.value)}
-                placeholder={t("settings.biliSessdataPlaceholder")}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
-              />
-              <button
-                onClick={saveBiliSessdata}
-                disabled={!sessdataInput.trim() || savingSessdata}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white transition-colors shrink-0"
-              >
-                {savingSessdata ? t("settings.biliSessdataVerifying") : t("settings.biliSessdataSave")}
-              </button>
-            </div>
-            {biliStatus.valid === false && (
-              <p className="mt-1.5 text-xs text-amber-400/90">{t("settings.biliSessdataHowTo")}</p>
-            )}
-          </div>
-        )}
-
         {/* Task routing */}
         <div className="border-t border-zinc-800/60 pt-6">
           <div className="mb-4 flex items-center gap-2">
@@ -675,7 +611,8 @@ const LlmConfigPanel = () => {
           </div>
         </div>
       </div>
-    </SettingsPage>
+      </div>
+    </div>
   );
 };
 

@@ -15,6 +15,76 @@ const NUMBER_FIELDS = [
 
 const inputClass = 'w-24 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm tabular-nums text-zinc-200 outline-none focus:border-indigo-500';
 
+/** B站登录态：数据源凭证，属于订阅更新而不是模型配置。 */
+function BilibiliSession() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState(null);
+  const [input, setInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    settingsApi.getBilibiliStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    const value = input.trim();
+    if (!value) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      const res = await settingsApi.updateBilibiliSessdata(value);
+      if (res.valid) {
+        setNotice({ success: true, message: t('settings.biliSessdataSaved', { value1: res.nickname || res.mid }) });
+        setInput('');
+      } else {
+        setNotice({ success: false, message: res.message || t('settings.biliSessdataInvalid') });
+      }
+      setStatus({ configured: true, valid: !!res.valid, nickname: res.nickname, mid: res.mid });
+    } catch (err) {
+      setNotice({ success: false, message: err?.response?.data?.message || String(err) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const state = !status?.configured
+    ? t('ui.sESSDATAIsNotConfiguredBilibiliRefreshAnd')
+    : status.valid
+      ? t('ui.connectedValueValidSESSDATA', { value1: status.nickname || status.mid })
+      : t('ui.configuredButValidationFailedSESSDATAMayHave');
+  const tone = !status?.configured ? 'bg-zinc-600' : status.valid ? 'bg-emerald-500' : 'bg-amber-500';
+
+  return (
+    <SettingGroup
+      title={t('settings.refresh.biliTitle')}
+      description={state}
+      hint={notice ? notice.message : (status?.valid === false ? t('settings.biliSessdataHowTo') : undefined)}
+    >
+      <SettingRow label={t('settings.refresh.biliSessdata')} description={t('settings.biliSessdataHowToShort')}>
+        <span className="flex items-center gap-2">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${tone}`} />
+          <input
+            type="text"
+            value={input}
+            onChange={event => setInput(event.target.value)}
+            placeholder={t('settings.biliSessdataPlaceholder')}
+            className="w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={save}
+            disabled={!input.trim() || saving}
+            className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+          >
+            {saving ? t('settings.biliSessdataVerifying') : t('settings.biliSessdataSave')}
+          </button>
+        </span>
+      </SettingRow>
+    </SettingGroup>
+  );
+}
+
 export default function SubscriptionUpdatePanel() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(null);
@@ -72,49 +142,53 @@ export default function SubscriptionUpdatePanel() {
     : '';
 
   return (
-    <SettingGroup
-      title={t('settings.refresh.title')}
-      description={t('settings.refresh.description')}
-      hint={[status, t('settings.refresh.queueDepth', { count: queueDepth })].filter(Boolean).join(' · ')}
-    >
-      <SettingRow
-        label={t('settings.refresh.enabled')}
-        description={t('settings.refresh.enabledHint')}
+    <>
+      <SettingGroup
+        title={t('settings.refresh.title')}
+        description={t('settings.refresh.description')}
+        hint={[status, t('settings.refresh.queueDepth', { count: queueDepth })].filter(Boolean).join(' · ')}
       >
-        <label className="inline-flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(settings.enabled)}
-            onChange={event => persist({ enabled: event.target.checked })}
-            className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
-          />
-          <SaveStatus saving={saving} saved={saved} error={error} t={t} />
-        </label>
-      </SettingRow>
+        <SettingRow
+          label={t('settings.refresh.enabled')}
+          description={t('settings.refresh.enabledHint')}
+        >
+          <label className="inline-flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={Boolean(settings.enabled)}
+              onChange={event => persist({ enabled: event.target.checked })}
+              className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
+            />
+            <SaveStatus saving={saving} saved={saved} error={error} t={t} />
+          </label>
+        </SettingRow>
 
-      {NUMBER_FIELDS.map(field => {
-        const [min, max] = bound(field.key);
-        return (
-          <SettingRow
-            key={field.key}
-            label={t(`settings.refresh.${field.label}`)}
-            description={t(`settings.refresh.${field.label}Hint`, { min, max })}
-          >
-            <span className="flex items-center gap-2">
-              <input
-                type="number"
-                min={min}
-                max={max}
-                step={field.step}
-                value={settings[field.key]}
-                onChange={event => persist({ [field.key]: Number(event.target.value) })}
-                className={inputClass}
-              />
-              <span className="w-16 text-xs text-zinc-500">{t(`settings.refresh.units.${field.unit}`)}</span>
-            </span>
-          </SettingRow>
-        );
-      })}
-    </SettingGroup>
+        {NUMBER_FIELDS.map(field => {
+          const [min, max] = bound(field.key);
+          return (
+            <SettingRow
+              key={field.key}
+              label={t(`settings.refresh.${field.label}`)}
+              description={t(`settings.refresh.${field.label}Hint`, { min, max })}
+            >
+              <span className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  step={field.step}
+                  value={settings[field.key]}
+                  onChange={event => persist({ [field.key]: Number(event.target.value) })}
+                  className={inputClass}
+                />
+                <span className="w-16 text-xs text-zinc-500">{t(`settings.refresh.units.${field.unit}`)}</span>
+              </span>
+            </SettingRow>
+          );
+        })}
+      </SettingGroup>
+
+      <BilibiliSession />
+    </>
   );
 }

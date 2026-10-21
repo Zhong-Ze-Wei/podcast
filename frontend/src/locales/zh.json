@@ -420,7 +420,9 @@
       "statusEnabled": "已启用",
       "statusDisabled": "已停用",
       "aiSwitchTitle": "AI 分析",
-      "aiSwitchDesc": "总开关：关闭后暂停新摘要 / 翻译 / 简报生成，已有结果保持可读（即时生效，无需重启）"
+      "aiSwitchDesc": "总开关：关闭后暂停新摘要 / 翻译 / 简报生成，已有结果保持可读（即时生效，无需重启）",
+      "segmentProviders": "供应商与模型",
+      "segmentTemplates": "摘要模板"
     },
     "account": {
       "title": "账号",
@@ -496,7 +498,22 @@
       "loading": "正在读取订阅更新设置…",
       "loadError": "订阅更新设置暂时无法读取",
       "saveError": "保存失败，请重试",
-      "enabledHint": "关闭后只保留手动刷新，已排队的字幕仍会继续抓取"
-    }
+      "enabledHint": "关闭后只保留手动刷新，已排队的字幕仍会继续抓取",
+      "biliTitle": "B 站登录态",
+      "biliSessdata": "更新 SESSDATA"
+    },
+    "tabs": {
+      "general": "通用",
+      "generalDesc": "任务面板、状态轮询与历史范围，改完立即生效。",
+      "subscriptions": "订阅与更新",
+      "subscriptionsDesc": "刷新节奏、字幕抓取与数据源登录态，全部在这里统一调节。",
+      "briefing": "阅读与简报",
+      "briefingDesc": "关注话题、自动生成周期与阅读排版。",
+      "ai": "AI 与提示词",
+      "aiDesc": "模型供应商、默认模型与摘要提示词模板。",
+      "account": "账号与成员",
+      "accountDesc": "当前身份、系统概况与成员管理。"
+    },
+    "biliSessdataHowToShort": "从浏览器 Cookie 复制，保存后立即生效"
   }
 }

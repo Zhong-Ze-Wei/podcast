@@ -420,7 +420,9 @@
       "statusEnabled": "Enabled",
       "statusDisabled": "Disabled",
       "aiSwitchTitle": "AI Analysis",
-      "aiSwitchDesc": "Master switch: disable to freeze new summary / translation / briefing generation. Existing results stay readable. Takes effect immediately."
+      "aiSwitchDesc": "Master switch: disable to freeze new summary / translation / briefing generation. Existing results stay readable. Takes effect immediately.",
+      "segmentProviders": "Providers & models",
+      "segmentTemplates": "Summary templates"
     },
     "account": {
       "title": "Account",
@@ -496,7 +498,22 @@
       "loading": "Loading subscription update settings…",
       "loadError": "Could not load subscription update settings",
       "saveError": "Could not save, please retry",
-      "enabledHint": "When off, only manual refreshes run; already queued transcripts still complete"
-    }
+      "enabledHint": "When off, only manual refreshes run; already queued transcripts still complete",
+      "biliTitle": "Bilibili login",
+      "biliSessdata": "Update SESSDATA"
+    },
+    "tabs": {
+      "general": "General",
+      "generalDesc": "Task panel, polling and history range. Changes apply immediately.",
+      "subscriptions": "Feeds & updates",
+      "subscriptionsDesc": "Refresh cadence, transcript fetching and source logins in one place.",
+      "briefing": "Reading & briefings",
+      "briefingDesc": "Topics, automatic report periods and reading layouts.",
+      "ai": "AI & prompts",
+      "aiDesc": "Model providers, default models and summary prompt templates.",
+      "account": "Account & members",
+      "accountDesc": "Your identity, system overview and member management."
+    },
+    "biliSessdataHowToShort": "Copy it from your browser cookies; applied immediately"
   }
 }
