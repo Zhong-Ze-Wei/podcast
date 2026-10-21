@@ -220,8 +220,37 @@ class TranscriptQueue:
                     continue
             self.fetch_next()
 
+    def _proxy_pool(self):
+        """直连代理池（YOUTUBE_PROXY_POOL）；空列表表示未配置，走 Clash 轮换。"""
+        from ..config import get_config
+        return list(getattr(get_config(), "YOUTUBE_PROXY_POOL", []) or [])
+
+    def _probe_proxy(self, proxy: str) -> bool:
+        """探测代理对 YouTube 是否可达。"""
+        try:
+            import requests
+            resp = requests.get("https://www.youtube.com/robots.txt",
+                                proxies={"http": proxy, "https": proxy}, timeout=(3, 6))
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     def _rotate_exit(self, reason: str) -> str:
-        """换到下一个可用出口节点；Clash 不可用时静默跳过。"""
+        """换到下一个可用出口：代理池直连优先，未配置时走 Clash 轮换。"""
+        pool = self._proxy_pool()
+        if pool:
+            # 池内轮换：逐个探活直到找到可用代理，代码内完成，不依赖 Clash
+            start = (getattr(self, "_pool_index", -1) + 1) % len(pool)
+            for offset in range(len(pool)):
+                index = (start + offset) % len(pool)
+                candidate = pool[index]
+                if self._probe_proxy(candidate):
+                    self._pool_index = index
+                    self._active_proxy = candidate
+                    logger.info("字幕队列换代理池出口（%s）→ %s", reason, self._deauth(candidate))
+                    return candidate
+            logger.warning("代理池 %d 个出口全部不可用", len(pool))
+            return ""
         try:
             from . import clash_service
             if not clash_service.available():
@@ -233,6 +262,12 @@ class TranscriptQueue:
         except Exception as error:
             logger.debug("出口轮换不可用：%s", error)
             return ""
+
+    @staticmethod
+    def _deauth(proxy: str) -> str:
+        """日志里隐藏代理凭据。"""
+        import re
+        return re.sub(r"(://[^/@]+)@", "://***@", proxy)
 
     def fetch_next(self):
         """同步抓一期队首（队列线程与测试共用）；没有待抓时返回 None。"""
@@ -276,7 +311,8 @@ class TranscriptQueue:
         if episode.get("has_transcript") or db.transcripts.find_one({"episode_id": episode["_id"]}):
             return
         started = time.time()
-        transcript, error = YouTubeService.fetch_transcript(video_id)
+        # 代理池模式下用当前池出口；未配置时用默认 YOUTUBE_PROXY
+        transcript, error = YouTubeService.fetch_transcript(video_id, proxy=getattr(self, "_active_proxy", None))
         elapsed = time.time() - started
         if transcript:
             transcript["model"] = "youtube-transcript-api"

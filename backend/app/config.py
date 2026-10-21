@@ -40,6 +40,8 @@ class Config:
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
     # 视频源配置 (YouTube 字幕/元数据获取的代理，空=直连)
     YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "")
+    # 直连代理池（逗号分隔 socks5://user:pass@host:port 等）：配置后 IP 轮询在代码内完成，不依赖 Clash
+    YOUTUBE_PROXY_POOL = [item.strip() for item in os.getenv("YOUTUBE_PROXY_POOL", "").split(",") if item.strip()]
     # YouTube 登录态 Cookie 请求头（整段），绕过数据中心 IP 的 "confirm you're not a bot" 墙
     YOUTUBE_COOKIES = os.getenv("YOUTUBE_COOKIES", "")
     # Clash 外部控制器（被限流时轮换 7891 专用端口组的出口节点）
