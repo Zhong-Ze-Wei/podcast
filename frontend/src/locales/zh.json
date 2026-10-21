@@ -468,8 +468,7 @@
       },
       "title": "应用设置",
       "displayGroup": "任务与页面",
-      "displayGroupHint": "这些偏好在当前浏览器生效；需要保存后才会应用。",
-      "toolbarNote": "修改后点右侧保存生效"
+      "displayGroupHint": "改完立即生效，保存在当前浏览器。"
     },
     "refresh": {
       "title": "订阅更新",

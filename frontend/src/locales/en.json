@@ -468,8 +468,7 @@
       },
       "title": "App settings",
       "displayGroup": "Tasks and pages",
-      "displayGroupHint": "These preferences apply to the current browser and take effect after saving.",
-      "toolbarNote": "Changes apply after saving"
+      "displayGroupHint": "Changes take effect immediately and are stored in this browser."
     },
     "refresh": {
       "title": "Subscription updates",
