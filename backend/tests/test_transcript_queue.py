@@ -86,3 +86,38 @@ def test_throttle_backoff_sets_cooldown_instead_of_immediate_retry():
     queue._last_fetch_at = datetime.utcnow() - timedelta(seconds=120)
     queue._next_slot_delay()
     assert queue._cooldown_until is None
+
+
+def test_proxy_pool_rotation_prefers_pool_over_clash(monkeypatch):
+    """配置了直连代理池时轮换在池内完成，不调用 Clash。"""
+    from app.services import transcript_queue_service as module
+
+    queue = TranscriptQueue()
+    pool = ["socks5://p1:1080", "socks5://p2:1080", "socks5://p3:1080"]
+    monkeypatch.setattr(queue, "_proxy_pool", lambda: pool)
+    monkeypatch.setattr(queue, "_probe_proxy", lambda proxy: proxy != pool[0])
+    called = []
+    from app.services import clash_service
+    monkeypatch.setattr(clash_service, "available", lambda: called.append(1) or True)
+
+    first = queue._rotate_exit("429")
+    assert first == pool[1], "应跳过不可用的 p1 选到 p2"
+    assert not called, "代理池可用时不应触碰 Clash"
+    second = queue._rotate_exit("主动轮换")
+    assert second == pool[2]
+    # 再转一圈回到 p2（p1 始终不可用被跳过）
+    third = queue._rotate_exit("主动轮换")
+    assert third == pool[1]
+
+
+def test_proxy_pool_all_down_falls_back_to_clash(monkeypatch):
+    """池内全部不可用时应返回空串（调用方据此走长退避）。"""
+    queue = TranscriptQueue()
+    monkeypatch.setattr(queue, "_proxy_pool", lambda: ["socks5://dead:1080"])
+    monkeypatch.setattr(queue, "_probe_proxy", lambda proxy: False)
+    assert queue._rotate_exit("429") == ""
+
+
+def test_deauth_hides_credentials_in_logs():
+    assert TranscriptQueue._deauth("socks5://user:secret@1.2.3.4:1080") == "socks5://***@1.2.3.4:1080"
+    assert TranscriptQueue._deauth("http://1.2.3.4:8080") == "http://1.2.3.4:8080"
