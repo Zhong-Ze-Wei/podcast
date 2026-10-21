@@ -127,3 +127,47 @@ def select_node(name: str, group: str = None) -> bool:
 def node_names(group: str = None) -> list:
     """组内真实节点名列表（组名推导失败返回空）"""
     return _node_candidates(group)
+
+
+def rotate_next_healthy(group: str = None, max_tries: int = 6) -> str:
+    """轮换到下一个对 YouTube 可达的节点（跳过死节点）。返回节点名，失败返回空串。
+
+    订阅里常有失效节点，盲切会把出口换到连不上 YouTube 的节点上；
+    这里逐个探测直到找到可用的，全部不可用时恢复原节点。
+    """
+    group = group or _group_name()
+    if not group:
+        return ""
+    nodes = _node_candidates(group)
+    if len(nodes) < 2:
+        return ""
+    now = current_node(group)
+    try:
+        index = nodes.index(now) if now in nodes else -1
+    except ValueError:
+        index = -1
+    switched = ""
+    try:
+        for step in range(1, max_tries + 1):
+            candidate = nodes[(index + step) % len(nodes)]
+            if candidate == now:
+                return ""
+            if not select_node(candidate, group):
+                continue
+            import time
+            time.sleep(0.4)
+            try:
+                proxies = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
+                resp = requests.get("https://www.youtube.com/robots.txt", proxies=proxies, timeout=(3, 6))
+                if resp.status_code == 200:
+                    logger.info("Clash 轮换到可用节点 %s: %s → %s", group, now, candidate)
+                    switched = candidate
+                    return candidate
+            except Exception:
+                continue
+    finally:
+        # 一个可用节点都没找到：恢复原节点，避免停在死节点上（成功时不回切）
+        if not switched and now and current_node(group) != now:
+            select_node(now, group)
+    logger.warning("Clash 连续 %d 个节点不可用，保持 %s", max_tries, now)
+    return ""

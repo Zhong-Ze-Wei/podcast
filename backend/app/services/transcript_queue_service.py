@@ -26,6 +26,8 @@ PRIORITY_NEW_EPISODE = 0
 PRIORITY_HISTORY = 10
 # 同一期连续被限流的最大次数；超过后记为不可用，避免无限重试烧出口 IP
 MAX_THROTTLE_ATTEMPTS = 3
+# 每抓多少期主动轮换一次出口节点，把负载摊到多个 IP 上（0 = 关闭主动轮换）
+PROACTIVE_ROTATE_EVERY = int(os.getenv("TRANSCRIPT_ROTATE_EVERY", "8") or 0)
 
 
 class TranscriptQueue:
@@ -218,8 +220,25 @@ class TranscriptQueue:
                     continue
             self.fetch_next()
 
+    def _rotate_exit(self, reason: str) -> str:
+        """换到下一个可用出口节点；Clash 不可用时静默跳过。"""
+        try:
+            from . import clash_service
+            if not clash_service.available():
+                return ""
+            node = clash_service.rotate_next_healthy()
+            if node:
+                logger.info("字幕队列换出口（%s）→ %s", reason, node)
+            return node
+        except Exception as error:
+            logger.debug("出口轮换不可用：%s", error)
+            return ""
+
     def fetch_next(self):
         """同步抓一期队首（队列线程与测试共用）；没有待抓时返回 None。"""
+        # 主动轮换：每 N 期换一个出口 IP，避免单个 IP 请求密度过高被限流
+        if PROACTIVE_ROTATE_EVERY and self._stats["completed"] and self._stats["completed"] % PROACTIVE_ROTATE_EVERY == 0:
+            self._rotate_exit("主动轮换")
         with self._lock:
             if not self._items:
                 return None
@@ -267,10 +286,10 @@ class TranscriptQueue:
                 logger.info("字幕队列 ✓ %s（%.1fs）", item.get("title", "")[:40], elapsed)
                 return
         message = str(error or "unknown error")
-        if "429" in message or "throttl" in message.lower():
+        if "429" in message or "throttl" in message.lower() or "无法连接" in message or "暂时限制" in message:
             self._stats["throttled"] += 1
             attempts = item.get("throttle_attempts", 0) + 1
-            # 连续限流不再无限重试：同一期反复打同一个出口只会让情况更糟
+            # 连续限流不再无限重试：同一期反复打只会更糟
             if attempts > MAX_THROTTLE_ATTEMPTS:
                 self._stats["failed"] += 1
                 db.episodes.update_one({"_id": episode["_id"]},
@@ -278,7 +297,12 @@ class TranscriptQueue:
                 logger.warning("字幕队列放弃 %s：连续 %d 次被限流", item.get("title", "")[:40], attempts)
                 return
             item["throttle_attempts"] = attempts
-            backoff = min(self._interval_seconds * (2 ** attempts), 30 * 60)
+            # 先换出口 IP：换了新 IP 后不需要长退避，短冷却即可重试
+            rotated = self._rotate_exit(f"429×{attempts}")
+            if rotated:
+                backoff = min(self._interval_seconds * attempts, 5 * 60)
+            else:
+                backoff = min(self._interval_seconds * (2 ** attempts), 30 * 60)
             with self._lock:
                 item.pop("started_at", None)
                 # 退避期内排到队尾（不占队首），让其他期先试
@@ -288,8 +312,8 @@ class TranscriptQueue:
                 # 冷却单独计时，不与常规 interval 叠加
                 self._cooldown_until = datetime.utcnow() + timedelta(seconds=backoff)
                 self._wake.notify_all()
-            logger.warning("字幕队列被限流（第 %d 次），%s 退避 %d 分钟后重试",
-                           attempts, item.get("title", "")[:40], round(backoff / 60))
+            logger.warning("字幕队列被限流（第 %d 次，%s），%s 退避 %d 秒后重试",
+                           attempts, f"已换出口 {rotated}" if rotated else "未换出口", item.get("title", "")[:40], backoff)
             return
         self._stats["failed"] += 1
         db.episodes.update_one({"_id": episode["_id"]},
