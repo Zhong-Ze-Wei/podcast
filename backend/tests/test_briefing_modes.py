@@ -4,7 +4,7 @@ from copy import deepcopy
 import pytest
 
 from app.api import briefing_reports as api
-from app.services.briefing_modes_service import BriefingModesService, MODES, validate_mode, validate_compact_modes
+from app.services.briefing_modes_service import BriefingModesService, MODES, rebalance_by_feed, validate_mode, validate_compact_modes
 from app.services.briefing_reading_service import BriefingReadingService
 from app.services.briefing_report_service import BriefingReportService
 from app.services.briefing_report_pdf import _candidates, _document
@@ -273,3 +273,62 @@ def test_disabled_ai_blocks_new_content_modes(client, monkeypatch):
     monkeypatch.setattr(api, "is_ai_analysis_enabled", lambda: False)
     monkeypatch.setattr(api, "BriefingModesService", lambda **kwargs: pytest.fail("Must not start work"))
     assert http.post("/api/briefing-reports/modes/generate", headers=headers, json={"mode": "all"}).status_code == 423
+
+
+def test_quote_mode_caps_items_per_episode_so_one_show_cannot_fill_the_column():
+    """原话精选曾整栏来自同一期节目；单源配额必须在逐条校验里生效。"""
+    body = "这是一段足够长的完整引文内容，用于验证同一期节目的配额上限。"
+    source = {"id": "ep-1", "title": "一期节目", "feed": "某播客", "full_text": body + "后续正文" * 20}
+    corpus = {"sources": [source]}
+    cards = [{"id": f"q{index}", "source_id": "ep-1", "kind": "quote", "quote": body,
+              "translation": "", "brief": "", "source_title": source["title"],
+              "feed": source["feed"], "episode_id": "ep-1", "offset": 0}
+             for index in range(4)]
+    data = {"items": [{"candidate_id": card["id"], "quote": body, "brief": "背景提要"} for card in cards]}
+    with pytest.raises(ValueError, match="同一播客最多 3 项"):
+        validate_mode(data, "quotes", cards, corpus)
+
+
+def test_concept_and_resource_columns_also_apply_per_episode_quota(tmp_path):
+    service = modes_service(tmp_path)
+    corpus, cards, _ = service._material()
+    for mode, quota in (("concepts", 2), ("resources", 2)):
+        kind = "concept" if mode == "concepts" else "resource"
+        candidates = [card for card in cards if card["kind"] == kind]
+        if not candidates:
+            continue
+        base = candidates[0]
+        same = [{**base, "id": f"{mode}-{index}", "title": f"{base['title']}{index}",
+                 "original_term": f"term{index}", "original_title": f"title{index}"}
+                for index in range(quota + 1)]
+        data = {"items": [{"candidate_id": card["id"], "text": "说明"} for card in same]}
+        with pytest.raises(ValueError, match=f"同一播客最多 {quota} 项"):
+            validate_mode(data, mode, [*cards, *same], corpus)
+
+
+def test_rebalance_replaces_single_show_dominance_with_other_feeds():
+    """原话精选曾 10/10 来自同一档播客；重排后必须分散到多个播客。"""
+    cards = []
+    items = []
+    for index in range(8):
+        card = {"id": f"np{index}", "kind": "quote", "feed": "No Priors",
+                "quote": f"No Priors 引文 {index}，内容足够长用于校验。", "source_id": f"ep-np{index % 3}"}
+        cards.append(card)
+        items.append(card)
+    for index in range(2):
+        card = {"id": f"bg{index}", "kind": "quote", "feed": "Bg2 Pod",
+                "quote": f"Bg2 引文 {index}，内容足够长用于校验。", "source_id": "ep-bg"}
+        cards.append(card)
+        items.append(card)
+    # 其他播客的可用候选
+    for feed in ("硅谷101", "Invest Like The Best"):
+        for index in range(2):
+            cards.append({"id": f"{feed}-{index}", "kind": "quote", "feed": feed,
+                          "quote": f"{feed} 引文 {index}，内容足够长用于校验。", "source_id": f"ep-{feed}-{index}"})
+
+    balanced = rebalance_by_feed(items, "quotes", cards, 10)
+    counts = {}
+    for item in balanced:
+        counts[item["feed"]] = counts.get(item["feed"], 0) + 1
+    assert counts.get("No Priors", 0) <= 3
+    assert len(counts) >= 3, counts
