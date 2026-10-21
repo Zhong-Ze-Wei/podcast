@@ -1,7 +1,6 @@
 // -*- coding: utf-8 -*-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import SubscriptionUpdatePanel from './SubscriptionUpdatePanel';
 import { SaveStatus, SettingsPage, SettingGroup, SettingRow } from './SettingsLayout';
 
 export const AUTO_REFRESH_KEY = 'podcast_auto_refresh_minutes';
@@ -54,8 +53,6 @@ const AppSettingsPanel = () => {
 
   return (
     <SettingsPage>
-      <SubscriptionUpdatePanel />
-
       <SettingGroup title={t('settings.app.displayGroup')} description={t('settings.app.displayGroupHint')}>
         <SettingRow
           label={t('settings.app.autoRefreshTitle')}

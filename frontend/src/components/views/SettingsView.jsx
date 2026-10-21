@@ -54,7 +54,7 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'general', o
           </div>
         </div>
 
-        <div className="settings-tabs mt-4 flex w-fit gap-1 overflow-x-auto rounded-xl bg-zinc-800/50 p-1">
+        <div className="settings-tabs mt-4 flex w-full gap-1 overflow-x-auto rounded-xl bg-zinc-800/50 p-1 sm:w-fit">
           {tabs.map(tab => (
             <button
               key={tab.id}

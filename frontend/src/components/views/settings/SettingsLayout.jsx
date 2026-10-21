@@ -54,12 +54,12 @@ export function SettingGroup({ title, description, hint, children }) {
  */
 export function SettingRow({ label, description, stacked = false, children }) {
   return (
-    <div className={`flex gap-4 py-4 ${stacked ? 'flex-col' : 'flex-col sm:flex-row sm:items-center sm:justify-between'}`}>
+    <div className={`flex gap-3 py-4 ${stacked ? 'flex-col' : 'flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-4'}`}>
       <div className="min-w-0 sm:max-w-[62%]">
         {label && <p className="text-sm font-medium text-zinc-200">{label}</p>}
         {description && <p className="mt-1 text-xs leading-relaxed text-zinc-500">{description}</p>}
       </div>
-      <div className={`shrink-0 ${stacked ? 'w-full' : 'flex items-center justify-end'}`}>{children}</div>
+      <div className={`shrink-0 ${stacked ? 'w-full' : 'flex items-center justify-start sm:justify-end'}`}>{children}</div>
     </div>
   );
 }

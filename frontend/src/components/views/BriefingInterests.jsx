@@ -23,10 +23,10 @@ export default function BriefingInterests({ interests, autoPeriod, saving, error
   return (
     <SettingGroup
       title={t('ui.topicsOfInterest')}
-      description={t('ui.addTopicsOrQuestionsYouCareAbout')}
+      description={t('ui.interestInAIAlsoIncludesAICompanies')}
       hint={t('ui.changesSaveAutomaticallyAndApplyToThe')}
     >
-      <SettingRow stacked label={t('ui.topicsOfInterest')} description={t('ui.interestInAIAlsoIncludesAICompanies')}>
+      <SettingRow stacked>
         <div className="flex flex-wrap gap-2">
           {interests.map(item => (
             <span
