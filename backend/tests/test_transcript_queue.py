@@ -67,3 +67,22 @@ def test_clear_empties_queue():
     queue.enqueue([episode(1), episode(2)])
     assert queue.clear() == 2
     assert queue.snapshot()["queued_count"] == 0
+
+
+def test_throttle_backoff_sets_cooldown_instead_of_immediate_retry():
+    """被限流时应设置冷却窗口并把该期排到队尾，而不是立刻重试同一期。"""
+    from datetime import timedelta
+    queue = TranscriptQueue()
+    queue._interval_seconds = 60
+    item = {"episode_id": "a" * 24, "guid": "youtube:abc", "title": "番外",
+            "priority": PRIORITY_HISTORY, "enqueued_at": datetime.utcnow()}
+    queue._items = [item]
+    # 模拟第一次限流后的处理
+    queue._cooldown_until = datetime.utcnow() + timedelta(seconds=120)
+    delay = queue._next_slot_delay()
+    assert delay > 0, "冷却期内不应立即抓取"
+    # 冷却到点后自动清空，恢复常规节奏
+    queue._cooldown_until = datetime.utcnow() - timedelta(seconds=1)
+    queue._last_fetch_at = datetime.utcnow() - timedelta(seconds=120)
+    queue._next_slot_delay()
+    assert queue._cooldown_until is None

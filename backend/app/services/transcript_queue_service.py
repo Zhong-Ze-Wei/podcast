@@ -24,6 +24,8 @@ DEFAULT_INTERVAL_MINUTES = 2
 # 优先级：数值越小越先抓
 PRIORITY_NEW_EPISODE = 0
 PRIORITY_HISTORY = 10
+# 同一期连续被限流的最大次数；超过后记为不可用，避免无限重试烧出口 IP
+MAX_THROTTLE_ATTEMPTS = 3
 
 
 class TranscriptQueue:
@@ -39,6 +41,7 @@ class TranscriptQueue:
         self._thread = None
         self._active = None       # 正在抓取的那一期
         self._last_fetch_at = None
+        self._cooldown_until = None
         self._interval_seconds = DEFAULT_INTERVAL_MINUTES * 60
         self._stats = {"completed": 0, "failed": 0, "throttled": 0}
 
@@ -159,10 +162,18 @@ class TranscriptQueue:
 
     def _next_slot_delay(self, slots=1):
         """再等 slots 个节流窗口需要多少秒（0 表示随时可抓）。"""
-        if self._last_fetch_at is None:
+        if self._last_fetch_at is None and self._cooldown_until is None:
             return 0
-        due = self._last_fetch_at + timedelta(seconds=self._interval_seconds)
-        remaining = (due - datetime.utcnow()).total_seconds() + (slots - 1) * self._interval_seconds
+        now = datetime.utcnow()
+        # 限流冷却优先：到点前一律不抓；到点后清空，恢复正常节奏
+        if self._cooldown_until is not None:
+            remaining = (self._cooldown_until - now).total_seconds()
+            if remaining > 0:
+                return max(0, int(remaining))
+            self._cooldown_until = None
+        base = self._last_fetch_at or now
+        due = base + timedelta(seconds=self._interval_seconds)
+        remaining = (due - now).total_seconds() + (slots - 1) * self._interval_seconds
         return max(0, int(remaining))
 
     def pending_count(self):
@@ -258,14 +269,27 @@ class TranscriptQueue:
         message = str(error or "unknown error")
         if "429" in message or "throttl" in message.lower():
             self._stats["throttled"] += 1
-            # 被限流不判死：保留在队首稍后重试，避免永久丢失
+            attempts = item.get("throttle_attempts", 0) + 1
+            # 连续限流不再无限重试：同一期反复打同一个出口只会让情况更糟
+            if attempts > MAX_THROTTLE_ATTEMPTS:
+                self._stats["failed"] += 1
+                db.episodes.update_one({"_id": episode["_id"]},
+                                       {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
+                logger.warning("字幕队列放弃 %s：连续 %d 次被限流", item.get("title", "")[:40], attempts)
+                return
+            item["throttle_attempts"] = attempts
+            backoff = min(self._interval_seconds * (2 ** attempts), 30 * 60)
             with self._lock:
-                item["priority"] = max(item["priority"], PRIORITY_HISTORY) - 1
                 item.pop("started_at", None)
-                self._items.insert(0, item)
-                # 限流时把下次窗口拉长到 3 倍，给出口 IP 冷却时间
-                self._last_fetch_at = datetime.utcnow() + timedelta(seconds=self._interval_seconds * 2)
-            logger.warning("字幕队列被限流，%s 稍后重试", item.get("title", "")[:40])
+                # 退避期内排到队尾（不占队首），让其他期先试
+                item["priority"] = PRIORITY_HISTORY + attempts
+                self._items.append(item)
+                self._sort_locked()
+                # 冷却单独计时，不与常规 interval 叠加
+                self._cooldown_until = datetime.utcnow() + timedelta(seconds=backoff)
+                self._wake.notify_all()
+            logger.warning("字幕队列被限流（第 %d 次），%s 退避 %d 分钟后重试",
+                           attempts, item.get("title", "")[:40], round(backoff / 60))
             return
         self._stats["failed"] += 1
         db.episodes.update_one({"_id": episode["_id"]},
