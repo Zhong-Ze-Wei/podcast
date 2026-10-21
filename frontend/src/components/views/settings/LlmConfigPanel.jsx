@@ -5,6 +5,7 @@ import {
   Loader2, Plus, Route, Search, Server, Star, Trash2, Zap,
 } from 'lucide-react';
 import { settingsApi } from '../../../services/api';
+import { SettingsButton, SettingsPage } from './SettingsLayout';
 import { localizeUiMessage } from '../../../utils/localization';
 
 const PROVIDER_PRESETS = [
@@ -289,32 +290,18 @@ const LlmConfigPanel = () => {
   // ── Main render ──
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-zinc-800 px-4 md:px-8 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-white">
-              <Server size={16} className="text-blue-300" />
-              {t('settings.ai.cardTitle')}
-            </div>
-            <p className="mt-1 text-sm text-zinc-500">{t('settings.ai.cardDesc')}</p>
-          </div>
-          <button
-            onClick={saveConfigs}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-            {t('settings.save')}
-          </button>
-        </div>
-      </div>
-
+    <SettingsPage
+      width="wide"
+      actions={(
+        <SettingsButton onClick={saveConfigs} disabled={saving}>
+          {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+          {t('settings.save')}
+        </SettingsButton>
+      )}
+    >
       <NoticeBanner />
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6">
+      <div className="space-y-6">
 
         {/* Provider Cards */}
         {providers.map((provider) => {
@@ -334,7 +321,7 @@ const LlmConfigPanel = () => {
           });
 
           return (
-            <div key={provider.id} className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900/35 overflow-hidden">
+            <div key={provider.id} className="rounded-lg border border-zinc-800 bg-zinc-900/35 overflow-hidden">
               {/* Card header (点击折叠/展开，左色条=启用状态) */}
               <div className="flex items-center justify-between gap-3 border-b border-zinc-800/60 py-3 pr-5">
                 <button onClick={toggleCollapsed} className="flex min-w-0 flex-1 items-center gap-3 pl-4 text-left">
@@ -589,7 +576,7 @@ const LlmConfigPanel = () => {
         })}
 
         {/* Add provider bar */}
-        <div className="mx-auto max-w-4xl">
+        <div>
           <div className="mb-2 text-xs font-medium uppercase text-zinc-500">{t('settings.ai.addProvider')}</div>
           <div className="flex flex-wrap gap-2">
             {PROVIDER_PRESETS.map((preset) => (
@@ -606,7 +593,7 @@ const LlmConfigPanel = () => {
         </div>
 
         {/* AI analysis master switch */}
-        <div className="mx-auto max-w-4xl flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-4">
+        <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-4">
           <div className="min-w-0 pr-4">
             <div className="text-sm font-semibold text-white">{t('settings.ai.aiSwitchTitle')}</div>
             <p className="mt-0.5 text-xs text-zinc-500">{t('settings.ai.aiSwitchDesc')}</p>
@@ -622,7 +609,7 @@ const LlmConfigPanel = () => {
 
         {/* Bilibili login status */}
         {biliStatus && (
-          <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
             <div className="flex items-center justify-between">
               <div className="text-sm text-zinc-300"> {t("ui.bilibiliSession")} <span className="ml-3 text-xs text-zinc-500">
                   {biliStatus.configured
@@ -658,7 +645,7 @@ const LlmConfigPanel = () => {
         )}
 
         {/* Task routing */}
-        <div className="mx-auto max-w-4xl border-t border-zinc-800/60 pt-6">
+        <div className="border-t border-zinc-800/60 pt-6">
           <div className="mb-4 flex items-center gap-2">
             <Route size={16} className="text-blue-300" />
             <div>
@@ -688,7 +675,7 @@ const LlmConfigPanel = () => {
           </div>
         </div>
       </div>
-    </div>
+    </SettingsPage>
   );
 };
 

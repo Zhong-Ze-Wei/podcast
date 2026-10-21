@@ -355,7 +355,7 @@
     "biliSessdataInvalid": "验证未通过：请确认复制的是登录 bilibili.com 后的最新 SESSDATA",
     "biliSessdataHowTo": "获取方法：bilibili.com 登录后按 F12 → Application（应用）→ Cookies → SESSDATA，整段复制粘贴到上面，保存即生效",
     "templatesTab": "摘要模板",
-    "appTab": "应用设置",
+    "appTab": "应用与订阅",
     "templatesDesc": "管理摘要生成时使用的提示词模板。",
     "templates": "模板",
     "templatesCount": "个模板",
@@ -431,10 +431,12 @@
       "adminTitle": "管理员",
       "userList": "用户列表",
       "adminLoadError": "管理员信息加载失败",
-      "firstAdminHint": "当前账号拥有管理员权限。空数据库的第一个注册用户会自动成为管理员。"
+      "firstAdminHint": "当前账号拥有管理员权限。空数据库的第一个注册用户会自动成为管理员。",
+      "adminDescription": "系统概况与全部注册账号；成员管理在相邻标签页",
+      "memberHint": "成员与系统概况仅管理员可见"
     },
     "app": {
-      "description": "应用行为和任务面板偏好会保存在当前浏览器。",
+      "description": "订阅刷新节奏与任务面板行为，集中在这里调节。",
       "autoRefreshTitle": "自动更新页面数据",
       "autoRefreshDescription": "定时读取后端已保存的订阅和节目结果。订阅内容抓取由后端自动同步或订阅上的刷新操作负责。",
       "taskPollTitle": "任务状态轮询",
@@ -463,7 +465,11 @@
         "60": "最近 1 小时",
         "1440": "最近 24 小时",
         "10080": "最近 7 天"
-      }
+      },
+      "title": "应用设置",
+      "displayGroup": "任务与页面",
+      "displayGroupHint": "这些偏好在当前浏览器生效；需要保存后才会应用。",
+      "toolbarNote": "修改后点右侧保存生效"
     },
     "refresh": {
       "title": "订阅更新",
@@ -490,7 +496,8 @@
       "todayDone": "今天自动更新 {{done}}/{{total}} 个源，失败 {{failed}} 个",
       "loading": "正在读取订阅更新设置…",
       "loadError": "订阅更新设置暂时无法读取",
-      "saveError": "保存失败，请重试"
+      "saveError": "保存失败，请重试",
+      "enabledHint": "关闭后只保留手动刷新，已排队的字幕仍会继续抓取"
     }
   }
 }

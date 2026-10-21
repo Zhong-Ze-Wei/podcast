@@ -355,7 +355,7 @@
     "biliSessdataInvalid": "Verification failed: make sure you copied the latest SESSDATA while logged in to bilibili.com",
     "biliSessdataHowTo": "How to get it: log in to bilibili.com, press F12 → Application → Cookies → SESSDATA, copy the whole value into the box above",
     "templatesTab": "Summary Templates",
-    "appTab": "App Settings",
+    "appTab": "App & feeds",
     "templatesDesc": "Manage prompt templates used by summary generation.",
     "templates": "Templates",
     "templatesCount": "templates",
@@ -431,10 +431,12 @@
       "adminTitle": "Administrator",
       "userList": "Users",
       "adminLoadError": "Failed to load administrator data",
-      "firstAdminHint": "This account has administrator access. The first registered user in an empty database becomes the administrator."
+      "firstAdminHint": "This account has administrator access. The first registered user in an empty database becomes the administrator.",
+      "adminDescription": "System overview and every registered account",
+      "memberHint": "Members and system overview are visible to administrators only"
     },
     "app": {
-      "description": "App behavior and task panel preferences are saved in this browser.",
+      "description": "Refresh cadence and task panel behaviour, all in one place.",
       "autoRefreshTitle": "Refresh displayed data",
       "autoRefreshDescription": "Read saved feeds and episode results from the backend. Source content is fetched by backend synchronization or the feed refresh action.",
       "taskPollTitle": "Task polling interval",
@@ -463,7 +465,11 @@
         "60": "Last 1 hour",
         "1440": "Last 24 hours",
         "10080": "Last 7 days"
-      }
+      },
+      "title": "App settings",
+      "displayGroup": "Tasks and pages",
+      "displayGroupHint": "These preferences apply to the current browser and take effect after saving.",
+      "toolbarNote": "Changes apply after saving"
     },
     "refresh": {
       "title": "Subscription updates",
@@ -490,7 +496,8 @@
       "todayDone": "Auto-updated {{done}}/{{total}} feeds today, {{failed}} failed",
       "loading": "Loading subscription update settings…",
       "loadError": "Could not load subscription update settings",
-      "saveError": "Could not save, please retry"
+      "saveError": "Could not save, please retry",
+      "enabledHint": "When off, only manual refreshes run; already queued transcripts still complete"
     }
   }
 }

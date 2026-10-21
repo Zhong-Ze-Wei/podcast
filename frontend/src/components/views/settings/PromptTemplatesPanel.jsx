@@ -8,6 +8,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { promptTemplatesApi } from '../../../services/api';
+import { SettingsButton } from './SettingsLayout';
 
 /**
  * PromptTemplatesPanel - Prompt Templates Management Panel
@@ -188,22 +189,16 @@ const PromptTemplatesPanel = () => {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex items-center justify-end border-b border-zinc-800 px-4 py-3 md:px-8">
+        <SettingsButton variant="secondary" onClick={loadTemplates} className="!px-3 !py-1.5 !text-xs">
+          <RefreshCw size={14} />{t('ui.refresh')}
+        </SettingsButton>
+      </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Left: Template List */}
-      <div className="w-72 border-r border-zinc-800 flex flex-col">
-        <div className="p-4 border-b border-zinc-800">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-zinc-400">
-              {t('settings.templates') || 'Templates'}
-            </h3>
-            <button
-              onClick={loadTemplates}
-              className="p-1 text-zinc-500 hover:text-white transition-colors"
-              title={t("ui.refresh")}
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
+      <div className="w-72 shrink-0 border-r border-zinc-800 flex flex-col">
+        <div className="border-b border-zinc-800 px-4 py-3">
           <p className="text-xs text-zinc-600">
             {templates.length} {t('settings.templatesCount') || 'templates'}
           </p>
@@ -387,6 +382,7 @@ const PromptTemplatesPanel = () => {
             {t("ui.selectTemplate")}
           </div>
         )}
+      </div>
       </div>
 
       {/* Duplicate Modal */}

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Shield, User, Activity, Power } from 'lucide-react';
 import { adminApi } from '../../../services/api';
 import { localizeUiMessage } from '../../../utils/localization';
+import { SettingsButton, SettingsPage, SettingGroup } from './SettingsLayout';
 
 const AccountPanel = ({ currentUser, onLogout }) => {
   const { t } = useTranslation();
@@ -28,73 +29,57 @@ const AccountPanel = ({ currentUser, onLogout }) => {
   }, [isAdmin, t]);
 
   return (
-    <div className="h-full overflow-y-auto p-8 space-y-6">
-      <section className="max-w-4xl">
-        <h2 className="text-lg font-semibold text-white mb-4">{t('settings.account.title')}</h2>
-        <div className="border border-zinc-800 bg-zinc-900/40 rounded-lg p-5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-11 h-11 rounded-lg bg-zinc-800 flex items-center justify-center">
-              <User size={20} className="text-zinc-300" />
+    <SettingsPage>
+      <SettingGroup>
+        <div className="flex items-center justify-between gap-4 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-300">
+              <User size={18} />
             </div>
-            <div>
-              <div className="text-white font-medium">{currentUser?.email || t('settings.account.localUser')}</div>
-              <div className="text-xs text-zinc-500">
-                {t('settings.account.role')}: {roles[currentUser?.role || 'user']}
-              </div>
-              {isAdmin && (
-                <div className="mt-1 text-xs text-emerald-300">
-                  {t('settings.account.firstAdminHint')}
-                </div>
-              )}
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-white">{currentUser?.email || t('settings.account.localUser')}</div>
+              <div className="text-xs text-zinc-500">{t('settings.account.role')}: {roles[currentUser?.role || 'user']}</div>
+              {isAdmin && <div className="mt-0.5 text-xs text-emerald-300">{t('settings.account.firstAdminHint')}</div>}
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm text-zinc-300 hover:text-white hover:bg-zinc-800"
-          >
-            <Power size={16} />
-            {t('settings.account.logout')}
-          </button>
+          <SettingsButton variant="secondary" onClick={onLogout}>
+            <Power size={15} />{t('settings.account.logout')}
+          </SettingsButton>
         </div>
-      </section>
+      </SettingGroup>
 
       {isAdmin && (
-        <section className="max-w-4xl space-y-4">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Shield size={18} className="text-indigo-300" />
-            {t('settings.account.adminTitle')}
-          </h2>
-          {error && <div className="text-sm text-red-300">{localizeUiMessage(error, t)}</div>}
-          {health && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {['users', 'feeds', 'episodes', 'tasks'].map(key => (
-                <div key={key} className="border border-zinc-800 bg-zinc-900/40 rounded-lg p-4">
-                  <div className="text-xs text-zinc-500 uppercase">{t(`ui.accountCounts.${key}`)}</div>
-                  <div className="text-2xl text-white mt-1">{health[key]}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="border border-zinc-800 bg-zinc-900/40 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-zinc-800 text-sm text-zinc-400 flex items-center gap-2">
-              <Activity size={16} />
-              {t('settings.account.userList')}
-            </div>
+        <>
+          <SettingGroup
+            title={t('settings.account.adminTitle')}
+            description={t('settings.account.adminDescription')}
+            hint={error ? localizeUiMessage(error, t) : undefined}
+          >
+            {health && ['users', 'feeds', 'episodes', 'tasks'].map(key => (
+              <div key={key} className="flex items-center justify-between py-3">
+                <span className="text-sm text-zinc-400">{t(`ui.accountCounts.${key}`)}</span>
+                <span className="text-lg font-semibold tabular-nums text-white">{health[key]}</span>
+              </div>
+            ))}
+          </SettingGroup>
+
+          <SettingGroup title={t('settings.account.userList')}>
             {users.map(user => (
-              <div key={user.id} className="px-4 py-3 border-b border-zinc-800/70 last:border-0 flex items-center justify-between">
-                <div>
-                  <div className="text-sm text-white">{user.email}</div>
+              <div key={user.id} className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-white">{user.email}</div>
                   <div className="text-xs text-zinc-500">{roles[user.role]}</div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded ${user.status === 'active' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
+                <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${user.status === 'active' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
                   {statuses[user.status]}
                 </span>
               </div>
             ))}
-          </div>
-        </section>
+          </SettingGroup>
+        </>
       )}
-    </div>
+      {!isAdmin && <p className="flex items-center gap-2 px-1 text-xs text-zinc-600"><Shield size={13} /><Activity size={13} />{t('settings.account.memberHint')}</p>}
+    </SettingsPage>
   );
 };
 
