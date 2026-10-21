@@ -240,14 +240,14 @@ const LlmConfigPanel = () => {
   if (loading) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
-        <Loader2 className="mb-4 h-8 w-8 animate-spin text-blue-400" />
+        <Loader2 className="mb-4 h-8 w-8 animate-spin text-indigo-400" />
         <p className="text-zinc-400">{t('common.loading')}</p>
       </div>
     );
   }
 
   const NoticeBanner = () => notice ? (
-    <div className={`mx-8 mt-4 rounded-md border px-4 py-3 ${
+    <div className={`mx-8 mt-4 rounded-lg border px-4 py-3 ${
       notice.success ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-300'
         : 'border-red-900/70 bg-red-950/30 text-red-300'
     }`}>
@@ -301,7 +301,7 @@ const LlmConfigPanel = () => {
                   <span className={`w-[3px] self-stretch shrink-0 ${provider.enabled !== false ? 'bg-green-500' : 'bg-zinc-600'}`} />
                   <span className="shrink-0 text-base font-semibold text-white">{provider.name || provider.id}</span>
                   {!isCollapsed && defaultModelId && providerModels.some(m => m.id === defaultModelId) && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
                       <Star size={11} /> {t('settings.ai.defaultModel')}
                     </span>
                   )}
@@ -338,7 +338,7 @@ const LlmConfigPanel = () => {
                   </label>
                   <button
                     onClick={() => deleteProvider(provider.id)}
-                    className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+                    className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
                     title={t('settings.delete')}
                   >
                     <Trash2 size={15} />
@@ -356,7 +356,7 @@ const LlmConfigPanel = () => {
                     <select
                       value={provider.api_format || 'openai_compatible'}
                       onChange={(e) => updateProvider(provider.id, 'api_format', e.target.value)}
-                      className="w-full appearance-none rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                      className="w-full appearance-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                     >
                       <option value="openai_compatible">{t("ui.openaiCompatible")}</option>
                       <option value="anthropic_messages">Anthropic Messages</option>
@@ -369,7 +369,7 @@ const LlmConfigPanel = () => {
                   <input
                     value={provider.name || ''}
                     onChange={(e) => updateProvider(provider.id, 'name', e.target.value)}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div className="lg:col-span-2">
@@ -378,7 +378,7 @@ const LlmConfigPanel = () => {
                     value={provider.base_url || ''}
                     onChange={(e) => updateProvider(provider.id, 'base_url', e.target.value)}
                     placeholder="https://api-inference.modelscope.cn/v1"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div className="lg:col-span-2">
@@ -390,7 +390,7 @@ const LlmConfigPanel = () => {
                         value={provider.api_key || ''}
                         onChange={(e) => updateProvider(provider.id, 'api_key', e.target.value)}
                         placeholder="sk-..."
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 pr-10 font-mono text-sm text-white outline-none focus:border-blue-500"
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 pr-10 font-mono text-sm text-white outline-none focus:border-indigo-500"
                         style={!isRevealed && provider.api_key ? { WebkitTextSecurity: 'disc' } : {}}
                       />
                       <button
@@ -404,7 +404,7 @@ const LlmConfigPanel = () => {
                     {provider.api_key && (
                       <button
                         onClick={() => copyToClipboard(provider.api_key)}
-                        className="rounded-md border border-zinc-700 px-3 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                        className="rounded-lg border border-zinc-700 px-3 text-zinc-400 hover:bg-zinc-800 hover:text-white"
                         title={t('settings.ai.copyKey')}
                       >
                         <Copy size={15} />
@@ -421,7 +421,7 @@ const LlmConfigPanel = () => {
                   <button
                     onClick={() => handleFetchModels(provider.id)}
                     disabled={isFetching}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {isFetching ? <Loader2 className="animate-spin" size={13} /> : <Search size={13} />}
                     {isFetching ? t('settings.ai.fetching') : t('settings.ai.fetchModels')}
@@ -430,7 +430,7 @@ const LlmConfigPanel = () => {
 
                 {/* Fetched models picker */}
                 {isShowingFetched && (
-                  <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 max-h-60 overflow-y-auto">
+                  <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 max-h-60 overflow-y-auto">
                     {fetched.length === 0 ? (
                       <p className="text-xs text-zinc-500 py-2">{t('settings.ai.noModelsFound')}</p>
                     ) : (
@@ -441,7 +441,7 @@ const LlmConfigPanel = () => {
                             const isSelected = selectedFetched.includes(fm.id);
                             return (
                               <label key={fm.id} className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
-                                alreadyAdded ? 'text-zinc-600' : isSelected ? 'text-blue-300 bg-blue-500/10' : 'text-zinc-300 hover:bg-zinc-800'
+                                alreadyAdded ? 'text-zinc-600' : isSelected ? 'text-indigo-300 bg-indigo-500/10' : 'text-zinc-300 hover:bg-zinc-800'
                               } ${alreadyAdded ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                 <input
                                   type="checkbox"
@@ -462,13 +462,13 @@ const LlmConfigPanel = () => {
                           })}
                         </div>
                         <div className="mt-2 flex justify-end gap-2 border-t border-zinc-800 pt-2">
-                          <button onClick={() => setShowFetched(null)} className="rounded-md px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
+                          <button onClick={() => setShowFetched(null)} className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
                             {t('settings.ai.close')}
                           </button>
                           <button
                             onClick={() => addSelectedFetched(provider.id)}
                             disabled={selectedFetched.length === 0}
-                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-500 disabled:opacity-50"
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:opacity-50"
                           >
                             {t('settings.ai.addSelected')} ({selectedFetched.length})
                           </button>
@@ -486,12 +486,12 @@ const LlmConfigPanel = () => {
                     {providerModels.map((model) => (
                       <div
                         key={model.id}
-                        className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2"
+                        className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2"
                       >
                         <button
                           onClick={() => setDefaultModelId(model.id)}
                           className={`shrink-0 rounded p-1 ${
-                            defaultModelId === model.id ? 'text-blue-400' : 'text-zinc-600 hover:text-zinc-400'
+                            defaultModelId === model.id ? 'text-indigo-400' : 'text-zinc-600 hover:text-zinc-400'
                           }`}
                           title={defaultModelId === model.id ? t('settings.ai.defaultModel') : t('settings.ai.setDefault')}
                         >
@@ -508,14 +508,14 @@ const LlmConfigPanel = () => {
                         <button
                           onClick={() => testModel(model.id)}
                           disabled={testing === model.id}
-                          className="shrink-0 rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
                           title={t('settings.test')}
                         >
                           {testing === model.id ? <Loader2 className="animate-spin" size={14} /> : <Zap size={14} />}
                         </button>
                         <button
                           onClick={() => deleteModel(model.id)}
-                          className="shrink-0 rounded-md p-1.5 text-zinc-600 hover:bg-zinc-800 hover:text-red-300"
+                          className="shrink-0 rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-800 hover:text-red-300"
                           title={t('settings.delete')}
                         >
                           <Trash2 size={14} />
@@ -532,11 +532,11 @@ const LlmConfigPanel = () => {
                     onChange={(e) => setManualModelInputs(prev => ({ ...prev, [provider.id]: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === 'Enter') addManualModel(provider.id); }}
                     placeholder={t('settings.ai.addModelPlaceholder')}
-                    className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-blue-500"
+                    className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-indigo-500"
                   />
                   <button
                     onClick={() => addManualModel(provider.id)}
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700"
+                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700"
                   >
                     <Plus size={14} />
                   </button>
@@ -557,7 +557,7 @@ const LlmConfigPanel = () => {
                 key={preset.id}
                 onClick={() => addProvider(preset)}
                 disabled={preset.id !== 'custom' && providers.some(p => p.id === preset.id)}
-                className="rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {preset.id === 'custom' ? t('ui.customProvider') : preset.label}
               </button>
@@ -583,7 +583,7 @@ const LlmConfigPanel = () => {
         {/* Task routing */}
         <div className="border-t border-zinc-800/60 pt-6">
           <div className="mb-4 flex items-center gap-2">
-            <Route size={16} className="text-blue-300" />
+            <Route size={16} className="text-indigo-300" />
             <div>
               <h3 className="text-sm font-semibold text-white">{t('settings.ai.taskRouting')}</h3>
               <p className="text-xs text-zinc-500">{t('settings.ai.taskRoutingDesc')}</p>
@@ -591,13 +591,13 @@ const LlmConfigPanel = () => {
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {TASKS.map((task) => (
-              <div key={task} className="rounded-md border border-zinc-800 bg-zinc-950/60 p-4">
+              <div key={task} className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
                 <div className="text-sm font-medium text-white">{t(`settings.ai.tasks.${task}.title`)}</div>
                 <p className="mt-1 text-xs text-zinc-500">{t(`settings.ai.tasks.${task}.description`)}</p>
                 <select
                   value={taskRoutes[task] || 'default'}
                   onChange={(e) => setTaskRoutes(prev => ({ ...prev, [task]: e.target.value }))}
-                  className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-white outline-none focus:border-blue-500"
+                  className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 >
                   <option value="default">{t('settings.ai.defaultModel')}</option>
                   {enabledModels.map((model) => (

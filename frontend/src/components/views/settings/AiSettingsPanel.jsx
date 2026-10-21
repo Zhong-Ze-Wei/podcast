@@ -25,7 +25,7 @@ export default function AiSettingsPanel() {
               type="button"
               onClick={() => setSection(segment.id)}
               aria-pressed={section === segment.id}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 section === segment.id ? 'bg-indigo-600 text-white' : 'text-zinc-400 hover:text-zinc-100'
               }`}
             >
