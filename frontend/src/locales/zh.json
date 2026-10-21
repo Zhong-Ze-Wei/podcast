@@ -424,7 +424,7 @@
     },
     "account": {
       "title": "账号",
-      "description": "查看当前登录身份、退出登录，以及管理员视角的用户和系统概况。",
+      "description": "查看当前身份、系统概况，并管理注册账号。",
       "localUser": "本地默认用户",
       "role": "角色",
       "logout": "退出",
@@ -432,7 +432,7 @@
       "userList": "用户列表",
       "adminLoadError": "管理员信息加载失败",
       "firstAdminHint": "当前账号拥有管理员权限。空数据库的第一个注册用户会自动成为管理员。",
-      "adminDescription": "系统概况与全部注册账号；成员管理在相邻标签页",
+      "adminDescription": "系统概况与全部注册账号",
       "memberHint": "成员与系统概况仅管理员可见"
     },
     "app": {

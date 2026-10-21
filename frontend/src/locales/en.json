@@ -424,7 +424,7 @@
     },
     "account": {
       "title": "Account",
-      "description": "Review the signed-in identity, log out, and inspect users and system health as an administrator.",
+      "description": "Review your identity and system overview, and manage registered accounts.",
       "localUser": "Local default user",
       "role": "Role",
       "logout": "Log out",

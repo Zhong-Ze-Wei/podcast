@@ -7,7 +7,6 @@ import PromptTemplatesPanel from './settings/PromptTemplatesPanel';
 import AppSettingsPanel from './settings/AppSettingsPanel';
 import AccountPanel from './settings/AccountPanel';
 import BriefingPreferencesPanel from './settings/BriefingPreferencesPanel';
-import AdminUsersPanel from './settings/AdminUsersPanel';
 
 const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', onOpenMenu }) => {
   const { t } = useTranslation();
@@ -22,12 +21,6 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
       icon: UserCircle
     },
     ...(currentUser?.role === 'admin' ? [
-      {
-        id: 'users',
-        label: t("ui.userManagement"),
-        description: t("ui.accountApprovalAndRoleAssignment"),
-        icon: UserCircle
-      },
       {
         id: 'llm',
         label: t('settings.llmTab'),
@@ -95,7 +88,6 @@ const SettingsView = ({ onBack, currentUser, onLogout, initialTab = 'account', o
       <div className="flex-1 overflow-hidden">
         {activeTab === 'briefing' && <BriefingPreferencesPanel key={currentUser.id} />}
         {activeTab === 'account' && <AccountPanel currentUser={currentUser} onLogout={onLogout} />}
-        {activeTab === 'users' && currentUser?.role === 'admin' && <AdminUsersPanel />}
         {activeTab === 'app' && <AppSettingsPanel />}
         {activeTab === 'llm' && currentUser?.role === 'admin' && <LlmConfigPanel />}
         {activeTab === 'templates' && <PromptTemplatesPanel />}
