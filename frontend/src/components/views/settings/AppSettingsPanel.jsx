@@ -1,7 +1,8 @@
 // -*- coding: utf-8 -*-
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { SaveStatus, SettingsPage, SettingGroup, SettingRow } from './SettingsLayout';
+import { SettingsPage, SettingGroup, SettingRow } from './SettingsLayout';
+import { useStagedSettings } from './SettingsDraft';
 
 export const AUTO_REFRESH_KEY = 'podcast_auto_refresh_minutes';
 export const TASK_POLL_KEY = 'podcast_task_poll_seconds';
@@ -33,23 +34,29 @@ function writePref(key, value) {
   window.dispatchEvent(new StorageEvent('storage', { key, newValue: localStorage.getItem(key) }));
 }
 
+const PREF_KEYS = {
+  refreshMinutes: AUTO_REFRESH_KEY,
+  pollSeconds: TASK_POLL_KEY,
+  historyWindowMinutes: TASK_HISTORY_WINDOW_KEY,
+  taskPanelDefaultOpen: TASK_PANEL_DEFAULT_OPEN_KEY,
+};
+
 const selectClass = 'w-44 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500';
 
 const AppSettingsPanel = () => {
   const { t } = useTranslation();
-  const [refreshMinutes, setRefreshMinutes] = useState(() => readInt(AUTO_REFRESH_KEY, 5));
-  const [pollSeconds, setPollSeconds] = useState(() => readInt(TASK_POLL_KEY, 3));
-  const [historyWindowMinutes, setHistoryWindowMinutes] = useState(() => readInt(TASK_HISTORY_WINDOW_KEY, 60));
-  const [taskPanelDefaultOpen, setTaskPanelDefaultOpen] = useState(() => readBool(TASK_PANEL_DEFAULT_OPEN_KEY, false));
-  const [savedAt, setSavedAt] = useState(0);
 
-  // 与订阅更新一致：改完立即生效，只在行尾提示“已保存”
-  const change = (key, setter, value) => {
-    setter(value);
-    writePref(key, value);
-    setSavedAt(Date.now());
+  const stored = {
+    refreshMinutes: readInt(AUTO_REFRESH_KEY, 5),
+    pollSeconds: readInt(TASK_POLL_KEY, 3),
+    historyWindowMinutes: readInt(TASK_HISTORY_WINDOW_KEY, 60),
+    taskPanelDefaultOpen: readBool(TASK_PANEL_DEFAULT_OPEN_KEY, false),
   };
-  const saved = Date.now() - savedAt < 1600;
+
+  // 弹窗点“保存”时才真正写入浏览器
+  const { values, change } = useStagedSettings('general', stored, async changes => {
+    Object.entries(changes).forEach(([field, value]) => writePref(PREF_KEYS[field], value));
+  });
 
   return (
     <SettingsPage>
@@ -58,18 +65,15 @@ const AppSettingsPanel = () => {
           label={t('settings.app.autoRefreshTitle')}
           description={t('settings.app.autoRefreshDescription')}
         >
-          <span className="flex items-center gap-3">
-            <SaveStatus saved={saved} t={t} />
-            <select
-              value={refreshMinutes}
-              onChange={event => change(AUTO_REFRESH_KEY, setRefreshMinutes, parseInt(event.target.value, 10))}
-              className={selectClass}
-            >
-              {REFRESH_OPTIONS.map(value => (
-                <option key={value} value={value}>{t(`settings.app.refreshOptions.${value}`)}</option>
-              ))}
-            </select>
-          </span>
+          <select
+            value={values.refreshMinutes}
+            onChange={event => change({ refreshMinutes: parseInt(event.target.value, 10) })}
+            className={selectClass}
+          >
+            {REFRESH_OPTIONS.map(value => (
+              <option key={value} value={value}>{t(`settings.app.refreshOptions.${value}`)}</option>
+            ))}
+          </select>
         </SettingRow>
 
         <SettingRow
@@ -77,8 +81,8 @@ const AppSettingsPanel = () => {
           description={t('settings.app.taskPollDescription')}
         >
           <select
-            value={pollSeconds}
-            onChange={event => change(TASK_POLL_KEY, setTaskPollSeconds, parseInt(event.target.value, 10))}
+            value={values.pollSeconds}
+            onChange={event => change({ pollSeconds: parseInt(event.target.value, 10) })}
             className={selectClass}
           >
             {POLL_OPTIONS.map(value => (
@@ -92,8 +96,8 @@ const AppSettingsPanel = () => {
           description={t('settings.app.taskHistoryDescription')}
         >
           <select
-            value={historyWindowMinutes}
-            onChange={event => change(TASK_HISTORY_WINDOW_KEY, setHistoryWindowMinutes, parseInt(event.target.value, 10))}
+            value={values.historyWindowMinutes}
+            onChange={event => change({ historyWindowMinutes: parseInt(event.target.value, 10) })}
             className={selectClass}
           >
             {HISTORY_OPTIONS.map(value => (
@@ -109,8 +113,8 @@ const AppSettingsPanel = () => {
           <label className="inline-flex cursor-pointer items-center gap-3">
             <input
               type="checkbox"
-              checked={taskPanelDefaultOpen}
-              onChange={event => change(TASK_PANEL_DEFAULT_OPEN_KEY, setTaskPanelDefaultOpen, event.target.checked)}
+              checked={values.taskPanelDefaultOpen}
+              onChange={event => change({ taskPanelDefaultOpen: event.target.checked })}
               className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
             />
             <span className="text-sm text-zinc-300">{t('settings.app.taskPanelDefaultOpenLabel')}</span>

@@ -364,7 +364,7 @@
     "save": "Save",
     "saved": "Settings saved",
     "loadError": "Failed to load settings",
-    "saveError": "Failed to save settings",
+    "saveError": "Could not save, please try again",
     "maxConfigs": "Maximum 5 configs allowed",
     "minConfigs": "At least one config is required",
     "active": "Active",
@@ -470,11 +470,11 @@
       },
       "title": "App settings",
       "displayGroup": "Tasks and pages",
-      "displayGroupHint": "Changes take effect immediately and are stored in this browser."
+      "displayGroupHint": "Changes apply after you press Save, stored in this browser."
     },
     "refresh": {
       "title": "Subscription updates",
-      "description": "Every update interval lives here and takes effect immediately once saved — no backend restart. Refreshes run silently in the background and never appear in the task list.",
+      "description": "All update intervals live here. They take effect when you press Save at the bottom — no backend restart needed. Refreshes run silently in the background and never appear in the task list.",
       "enabled": "Enable background auto-update",
       "feedInterval": "Feed refresh interval",
       "feedIntervalHint": "Shared by YouTube and RSS: check each feed every {{min}}–{{max}} hours",
@@ -514,6 +514,13 @@
       "account": "Account & members",
       "accountDesc": "Your identity, system overview and member management."
     },
-    "biliSessdataHowToShort": "Copy it from your browser cookies; applied immediately"
+    "biliSessdataHowToShort": "Copy it from your browser cookies; applied immediately",
+    "cancel": "Cancel",
+    "unsavedChanges": "You have unsaved changes",
+    "noChanges": "No changes",
+    "pendingSave": "Pending",
+    "pendingHint": "Changes apply after you press Save",
+    "close": "Close",
+    "tabSavesOwn": "This tab has its own save button and instant actions"
   }
 }

@@ -10,7 +10,7 @@ export default function BriefingMaterialStyle({ layout = 'gallery', saving, onCh
     <SettingGroup
       title={t('briefingMaterials.styleTitle')}
       description={t('briefingMaterials.styleDescription')}
-      hint={t('briefingMaterials.savedToAccount')}
+      hint={t('settings.pendingHint')}
     >
       <SettingRow stacked>
         <div className="bm-style-options">

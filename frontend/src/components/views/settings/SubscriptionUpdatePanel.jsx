@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { settingsApi } from '../../../services/api';
-import { SaveStatus, SettingGroup, SettingRow } from './SettingsLayout';
+import { useStagedSettings } from './SettingsDraft';
+import { SettingGroup, SettingRow } from './SettingsLayout';
 
-// 统一管理订阅更新节奏：所有间隔都在这里调，改完即生效
+// 统一管理订阅更新节奏：所有间隔都在这里调，点弹窗底部“保存”才提交
 const NUMBER_FIELDS = [
   { key: 'feed_interval_hours', label: 'feedInterval', min: 1, max: 168, step: 1, unit: 'hours' },
   { key: 'check_interval_minutes', label: 'checkInterval', min: 1, max: 60, step: 1, unit: 'minutes' },
@@ -15,7 +16,6 @@ const NUMBER_FIELDS = [
 
 const inputClass = 'w-24 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm tabular-nums text-zinc-200 outline-none focus:border-indigo-500';
 
-/** B站登录态：数据源凭证，属于订阅更新而不是模型配置。 */
 function BilibiliSession() {
   const { t } = useTranslation();
   const [status, setStatus] = useState(null);
@@ -27,6 +27,7 @@ function BilibiliSession() {
     settingsApi.getBilibiliStatus().then(setStatus).catch(() => {});
   }, []);
 
+  // 登录态需要实时校验，所以保存即生效，不参与弹窗的批量提交
   const save = async () => {
     const value = input.trim();
     if (!value) return;
@@ -87,51 +88,29 @@ function BilibiliSession() {
 
 export default function SubscriptionUpdatePanel() {
   const { t } = useTranslation();
-  const [settings, setSettings] = useState(null);
+  const [server, setServer] = useState(null);
   const [limits, setLimits] = useState({});
   const [daily, setDaily] = useState(null);
   const [queue, setQueue] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
-  const mounted = useRef(true);
-  const saveTimer = useRef(null);
 
   useEffect(() => {
-    mounted.current = true;
     settingsApi.getRefreshSettings()
       .then(response => {
         const data = response.data || response;
-        if (!mounted.current) return;
-        setSettings(data.settings);
+        setServer(data.settings);
         setLimits(data.limits || {});
         setDaily(data.daily);
         setQueue(data.transcript_queue);
       })
-      .catch(err => { if (mounted.current) setError(err.message || t('settings.refresh.loadError')); });
-    return () => { mounted.current = false; clearTimeout(saveTimer.current); };
+      .catch(err => setError(err.message || t('settings.refresh.loadError')));
   }, []);
 
-  const persist = changes => {
-    setSettings(current => ({ ...current, ...changes }));
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      setSaving(true); setError('');
-      try {
-        const response = await settingsApi.saveRefreshSettings(changes);
-        if (!mounted.current) return;
-        setSettings((response.data || response).settings);
-        setSaved(true);
-        setTimeout(() => { if (mounted.current) setSaved(false); }, 1600);
-      } catch (err) {
-        if (mounted.current) setError(err.message || t('settings.refresh.saveError'));
-      } finally {
-        if (mounted.current) setSaving(false);
-      }
-    }, 400);
-  };
+  const { values, change, hasStaged } = useStagedSettings('subscriptions', server, async changes => {
+    await settingsApi.saveRefreshSettings(changes);
+  });
 
-  if (!settings) {
+  if (!server) {
     return <p role={error ? 'alert' : 'status'} className="text-sm text-zinc-500">{error || t('settings.refresh.loading')}</p>;
   }
 
@@ -155,11 +134,11 @@ export default function SubscriptionUpdatePanel() {
           <label className="inline-flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(settings.enabled)}
-              onChange={event => persist({ enabled: event.target.checked })}
+              checked={Boolean(values.enabled)}
+              onChange={event => change({ enabled: event.target.checked })}
               className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
             />
-            <SaveStatus saving={saving} saved={saved} error={error} t={t} />
+            {hasStaged && <span className="text-xs text-amber-400">{t('settings.pendingSave')}</span>}
           </label>
         </SettingRow>
 
@@ -177,8 +156,8 @@ export default function SubscriptionUpdatePanel() {
                   min={min}
                   max={max}
                   step={field.step}
-                  value={settings[field.key]}
-                  onChange={event => persist({ [field.key]: Number(event.target.value) })}
+                  value={values[field.key]}
+                  onChange={event => change({ [field.key]: Number(event.target.value) })}
                   className={inputClass}
                 />
                 <span className="w-16 text-xs text-zinc-500">{t(`settings.refresh.units.${field.unit}`)}</span>

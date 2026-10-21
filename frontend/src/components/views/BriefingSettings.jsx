@@ -27,7 +27,7 @@ export default function BriefingSettings({ interests, autoPeriod, saving, error,
       <SettingGroup
         title={t('ui.readingStyle')}
         description={t('ui.chooseHowTheSameContentIsPresented')}
-        hint={t('ui.readingStyleIsSavedToYourAccount')}
+        hint={t('settings.pendingHint')}
       >
         <SettingRow stacked>
           <div className="br-style-library">

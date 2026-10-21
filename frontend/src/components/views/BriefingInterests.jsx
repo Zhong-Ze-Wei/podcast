@@ -2,7 +2,7 @@ import { localizeUiMessage } from '../../utils/localization';
 import { useTranslation } from 'react-i18next';
 import React, { useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
-import { SaveStatus, SettingGroup, SettingRow } from './settings/SettingsLayout';
+import { SettingGroup, SettingRow } from './settings/SettingsLayout';
 
 export default function BriefingInterests({ interests, autoPeriod, saving, error, onChange, onAutoPeriod }) {
   const { t } = useTranslation();
@@ -24,7 +24,7 @@ export default function BriefingInterests({ interests, autoPeriod, saving, error
     <SettingGroup
       title={t('ui.topicsOfInterest')}
       description={t('ui.interestInAIAlsoIncludesAICompanies')}
-      hint={t('ui.changesSaveAutomaticallyAndApplyToThe')}
+      hint={t('settings.pendingHint')}
     >
       <SettingRow stacked>
         <div className="flex flex-wrap gap-2">
@@ -88,9 +88,7 @@ export default function BriefingInterests({ interests, autoPeriod, saving, error
         </select>
       </SettingRow>
 
-      <div className="flex justify-end py-3">
-        <SaveStatus saving={saving} error={localizeUiMessage(error, t)} t={t} />
-      </div>
+      {error && <p role="alert" className="py-3 text-sm text-red-400">{localizeUiMessage(error, t)}</p>}
     </SettingGroup>
   );
 }

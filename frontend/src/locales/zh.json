@@ -364,7 +364,7 @@
     "save": "保存",
     "saved": "设置已保存",
     "loadError": "加载设置失败",
-    "saveError": "保存设置失败",
+    "saveError": "保存失败，请重试",
     "maxConfigs": "最多允许 5 个配置",
     "minConfigs": "至少需要一个配置",
     "active": "当前使用",
@@ -470,11 +470,11 @@
       },
       "title": "应用设置",
       "displayGroup": "任务与页面",
-      "displayGroupHint": "改完立即生效，保存在当前浏览器。"
+      "displayGroupHint": "改动在点「保存」后生效，保存在当前浏览器。"
     },
     "refresh": {
       "title": "订阅更新",
-      "description": "所有更新间隔都在这里统一调节，保存后立即生效，无需重启后端。后台按你设定的节奏静默刷新，不会出现在任务列表里。",
+      "description": "所有更新间隔统一在这里调节，点底部的「保存」后生效，无需重启后端。后台按设定的节奏静默刷新，不会出现在任务列表里。",
       "enabled": "启用后台自动更新",
       "feedInterval": "订阅更新间隔",
       "feedIntervalHint": "YouTube 与 RSS 共用：每 {{min}}–{{max}} 小时检查一次单个源",
@@ -514,6 +514,13 @@
       "account": "账号与成员",
       "accountDesc": "当前身份、系统概况与成员管理。"
     },
-    "biliSessdataHowToShort": "从浏览器 Cookie 复制，保存后立即生效"
+    "biliSessdataHowToShort": "从浏览器 Cookie 复制，保存后立即生效",
+    "cancel": "取消",
+    "unsavedChanges": "有未保存的改动",
+    "noChanges": "没有改动",
+    "pendingSave": "待保存",
+    "pendingHint": "改动会在点「保存」后生效",
+    "close": "关闭",
+    "tabSavesOwn": "这一页有独立的保存按钮与即时操作"
   }
 }

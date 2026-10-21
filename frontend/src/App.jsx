@@ -420,6 +420,9 @@ export default function App() {
     }
   }, [feeds, navigateToView, updateBrowserPath]);
 
+  // 设置是叠加层：它打开时主内容区继续渲染进入设置前的视图，避免背景空白
+  const pageView = view === 'settings' ? (returnContext?.view || 'workspace') : view;
+
   const applyCurrentPath = useCallback((replace = true) => {
     const route = parseAppPath(window.location.pathname);
     if (route.type === 'episode') {
@@ -694,7 +697,7 @@ export default function App() {
 
         <div className="app-page-content">
         {/* AI简报模式 */}
-        {view.startsWith('briefing') ? (
+        {pageView.startsWith('briefing') ? (
           <BriefingReportsView
             key={currentUser.id}
             currentUser={currentUser}
@@ -708,7 +711,7 @@ export default function App() {
             onNavigationStateChange={handleBriefingStateChange}
             onSectionChange={handleBriefingNavigate}
           />
-        ) : view === 'list' ? (
+        ) : pageView === 'list' ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar z-10">
             <div className="px-4 md:px-8 py-6 border-b border-zinc-800 bg-zinc-900/20">
               <div className="flex items-center justify-between gap-3">
@@ -755,7 +758,7 @@ export default function App() {
             </div>
             <ListPagination list={feedList} />
           </div>
-        ) : view === 'feedDetail' ? (
+        ) : pageView === 'feedDetail' ? (
           <FeedDetailView
             feed={selectedFeed}
             refreshVersion={refreshVersion}
@@ -779,7 +782,7 @@ export default function App() {
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
-        ) : view === 'workspace' ? (
+        ) : pageView === 'workspace' ? (
           <WorkspaceView
             refreshVersion={refreshVersion}
             feeds={feeds}
@@ -789,7 +792,7 @@ export default function App() {
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
           />
-        ) : view === 'recent' ? (
+        ) : pageView === 'recent' ? (
           <RecentUpdatesView
             key={currentUser.id}
             refreshVersion={refreshVersion}
@@ -799,13 +802,6 @@ export default function App() {
             onStar={handleStar}
             viewMode={episodeViewMode}
             onViewModeChange={setEpisodeViewMode}
-          />
-        ) : view === 'settings' ? (
-          <SettingsView
-            onBack={returnFromSettings}
-            initialTab={settingsTab}
-            currentUser={currentUser}
-            onLogout={handleLogout}
           />
         ) : (
           <EpisodeDetailView
@@ -873,6 +869,14 @@ export default function App() {
         defaultOpen={taskPanelDefaultOpen}
       />
     </div>
+    {view === 'settings' && (
+      <SettingsView
+        onBack={returnFromSettings}
+        initialTab={settingsTab}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
+    )}
     </TasksProvider>
   );
 }
