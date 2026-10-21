@@ -10,7 +10,7 @@ export function getEpisodeTaskId(episode, type, submitted) {
 
 // 一个用户会话只维护一份任务快照；详情通过明确 ID 订阅同一份状态。
 export function createTaskMonitor({ list, get, cancel, onChange = () => {}, onTerminal = () => {} }) {
-  let state = { activeTasks: [], historyTasks: [], byId: {}, error: '' };
+  let state = { activeTasks: [], historyTasks: [], byId: {}, error: '', autoRefreshDaily: null };
   let pending = null;
   let initialized = false;
   let disposed = false;
@@ -42,7 +42,9 @@ export function createTaskMonitor({ list, get, cancel, onChange = () => {}, onTe
         return initialized || (state.byId[task.id] && isActiveTask(state.byId[task.id]));
       });
       initialized = true;
-      publish({ activeTasks: Object.values(byId).filter(isActiveTask), historyTasks: Object.values(byId).filter(isTerminalTask), byId, error: '' });
+      // 后台自动刷新不进任务记录，只从列表 meta 里带出“今天已完成 x/y”
+      const autoRefreshDaily = active.meta?.auto_refresh_daily ?? state.autoRefreshDaily;
+      publish({ activeTasks: Object.values(byId).filter(isActiveTask), historyTasks: Object.values(byId).filter(isTerminalTask), byId, error: '', autoRefreshDaily });
       if (terminal.length) onTerminal(terminal);
     } catch (error) {
       if (!disposed) publish({ ...state, error: error.message });

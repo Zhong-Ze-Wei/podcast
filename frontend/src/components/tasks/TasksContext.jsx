@@ -5,7 +5,7 @@ import { createTaskMonitor } from '../../utils/taskMonitor';
 const TasksContext = createContext(null);
 
 export function TasksProvider({ children, pollIntervalMs = 3000, onTaskComplete, onTaskProgress, queuedTask }) {
-  const [state, setState] = useState({ activeTasks: [], historyTasks: [], byId: {}, error: '' });
+  const [state, setState] = useState({ activeTasks: [], historyTasks: [], byId: {}, error: '', autoRefreshDaily: null });
   const callbackRef = useRef(onTaskComplete);
   callbackRef.current = onTaskComplete;
   const progressRef = useRef(onTaskProgress);

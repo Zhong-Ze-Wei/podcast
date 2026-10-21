@@ -181,6 +181,9 @@ export const settingsApi = {
   testLlmConnection: (config) => api.post('/settings/llm/test', config),
   fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
   getAiAnalysis: () => api.get('/settings/ai-analysis'),
+  // 订阅更新节奏：所有间隔统一在这里调节，保存后后端即时生效
+  getRefreshSettings: () => api.get('/settings/refresh'),
+  saveRefreshSettings: (data) => api.put('/settings/refresh', data),
   getBilibiliStatus: () => api.get('/settings/bilibili-status'),
   // 在线更新 B站登录态：立即生效并持久化 .env，返回实时验证结果
   updateBilibiliSessdata: (sessdata) => api.put('/settings/bilibili-sessdata', { sessdata }),

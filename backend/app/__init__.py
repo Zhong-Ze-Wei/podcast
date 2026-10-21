@@ -50,16 +50,10 @@ def create_app():
     task_queue.set_db(app.db)
     task_queue.recover_interrupted_tasks()
 
-    # 启动自动刷新服务：频率全部可由环境变量调整（默认 YouTube 15 分钟 / RSS 6 小时 / 字幕补捞 30 分钟）
+    # 启动自动刷新服务：节奏全部在 设置→订阅更新 里调节（默认 12 小时一轮、每轮一个源）
     from .services.auto_refresher import start_auto_refresher
 
-    start_auto_refresher(
-        app.db,
-        interval_hours=float(os.getenv("FEED_REFRESH_CHECK_MINUTES", "5")) / 60,
-        stale_threshold_hours=float(os.getenv("FEED_REFRESH_STALE_HOURS", "6")),
-        youtube_stale_minutes=float(os.getenv("FEED_REFRESH_YOUTUBE_MINUTES", "15")),
-        transcript_sweep_minutes=float(os.getenv("TRANSCRIPT_SWEEP_MINUTES", "30")),
-    )
+    start_auto_refresher(app.db, queue=task_queue)
 
     from .services.briefing_auto_reporter import start_auto_reporter
 

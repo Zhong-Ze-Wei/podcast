@@ -7,7 +7,7 @@ import FeedImage from '../common/FeedImage';
 import { getFeedDescription } from '../../utils/helpers';
 import EpisodeCard from '../cards/EpisodeCard';
 import ViewToolbar from '../common/ViewToolbar';
-import { feedsApi } from '../../services/api';
+import { feedsApi, settingsApi } from '../../services/api';
 import usePaginatedList from '../../hooks/usePaginatedList';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import { ListFilters, ListPagination } from '../common/ListControls';
@@ -34,15 +34,26 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, canAutoRefres
   const loading = list.loading;
   const tasks = useTasks();
   const syncing = tasks?.activeTasks.some(task => task.type === 'refresh' && task.feed_id === feed?.id);
-  const fetchingTranscripts = tasks?.activeTasks.some(task => task.type === 'fetch_transcripts' && task.feed_id === feed?.id);
+  // 打开订阅详情时若已过期就顺手同步一次；间隔与设置页的「订阅更新间隔」保持一致
+  const [staleMs, setStaleMs] = useState(12 * 60 * 60 * 1000);
+  useEffect(() => {
+    let active = true;
+    settingsApi.getRefreshSettings()
+      .then(response => {
+        const hours = (response.data || response).settings?.feed_interval_hours;
+        if (active && hours) setStaleMs(hours * 60 * 60 * 1000);
+      })
+      .catch(() => { /* 读不到设置就沿用 12 小时默认值 */ });
+    return () => { active = false; };
+  }, []);
   const lastRequested = useRef({ feedId: null, at: 0 });
   useEffect(() => {
-    if (feed?.type !== 'youtube' || !canAutoRefresh) return;
+    if (!['youtube', 'rss'].includes(feed?.type) || !canAutoRefresh) return;
     if (lastRequested.current.feedId !== feed.id) lastRequested.current = { feedId: feed.id, at: 0 };
     const check = () => {
       if (document.hidden) return;
       const checkedAt = Math.max(Date.parse(feed.last_checked) || 0, lastRequested.current.at);
-      if (Date.now() - checkedAt < 15 * 60 * 1000) return;
+      if (Date.now() - checkedAt < staleMs) return;
       lastRequested.current.at = Date.now();
       onRefresh(feed.id);
     };
@@ -50,7 +61,7 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, canAutoRefres
     const timer = setInterval(check, 60 * 1000);
     document.addEventListener('visibilitychange', check);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', check); };
-  }, [feed?.id, feed?.type, feed?.last_checked, canAutoRefresh, onRefresh]);
+  }, [feed?.id, feed?.type, feed?.last_checked, canAutoRefresh, onRefresh, staleMs]);
   const playLatest = async () => {
     setPlayError('');
     try {
@@ -121,7 +132,6 @@ const FeedDetailView = ({ feed, refreshVersion, onBack, onRefresh, canAutoRefres
             </div>
 
             {feed.type === 'bilibili' && <p className="mb-3 text-xs text-zinc-500">{t('feedDetail.bilibiliAutoPaused')}</p>}
-            {fetchingTranscripts && <p role="status" className="mb-3 text-xs text-indigo-300">{t('feedDetail.fetchingTranscripts')}</p>}
             {feed.check_error && episodes.length > 0 && !syncing && <p role="status" className="mb-3 text-sm text-zinc-500">{t('common.fetchUnavailable')}</p>}
 
             {/* 简介 */}

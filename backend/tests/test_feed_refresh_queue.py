@@ -25,12 +25,19 @@ class RecordingQueue:
         self.tasks[task_id] = {"task_id": task_id, "task_type": task_type, "dedup_key": dedup_key, "status": "pending", "func": func, **kwargs}
         return task_id
 
+    def submit_silent(self, task_type, func, *, dedup_key, **kwargs):
+        task_id = RecordingQueue.submit_unique(self, task_type, func, dedup_key=dedup_key, **kwargs)
+        self.tasks[task_id]["silent"] = True
+        return task_id
+
     def run(self, task_id):
         task = self.tasks[task_id]
         task["status"] = "processing"
         try:
             task["result"] = task["func"](progress_callback=lambda progress: None)
             task["status"] = "completed"
+            if task.get("on_success"):
+                task["on_success"](task["result"])
         except Exception as error:
             task["status"] = "failed"
             if task.get("on_failure"):
@@ -43,6 +50,20 @@ class ImmediateQueue(RecordingQueue):
         task_id = super().submit_unique(*args, **kwargs)
         self.run(task_id)
         return task_id
+
+    def submit_silent(self, *args, **kwargs):
+        task_id = RecordingQueue.submit_silent(self, *args, **kwargs)
+        self.run(task_id)
+        return task_id
+
+
+def many_per_tick(**overrides):
+    """测试里一次跑完所有到期源，避免用默认的逐轮错峰。"""
+    from app.services import refresh_settings
+
+    settings = dict(refresh_settings.DEFAULTS)
+    settings.update(overrides)
+    return settings
 
 
 def add_feed(db, status="active"):
@@ -57,7 +78,7 @@ def test_scheduling_does_not_change_last_checked_and_paused_is_skipped(monkeypat
     add_feed(db, status="paused")
     queue = RecordingQueue()
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", lambda url: ({"episodes": []}, None))
-    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds()
+    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds(many_per_tick(feeds_per_tick=20))
     assert len(queue.tasks) == 1
     assert db.feeds.find_one({"_id": active["_id"]})["last_checked"] == datetime(2020, 1, 1)
     queue.run(next(iter(queue.tasks)))
@@ -69,7 +90,7 @@ def test_scheduler_submission_failure_does_not_stop_other_sources():
     failed = add_feed(db)
     other = add_feed(db)
     queue = RecordingQueue(fail_feed_id=str(failed["_id"]))
-    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds()
+    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds(many_per_tick(feeds_per_tick=20))
     assert len(queue.tasks) == 1
     assert next(iter(queue.tasks.values()))["feed_id"] == str(other["_id"])
     assert db.feeds.find_one({"_id": failed["_id"]})["last_checked"] == datetime(2020, 1, 1)
@@ -80,7 +101,7 @@ def test_sync_failure_is_recorded_only_when_worker_runs(monkeypatch):
     feed = add_feed(db)
     queue = RecordingQueue()
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", lambda url: (None, "upstream unavailable"))
-    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds()
+    FeedAutoRefresher(db, queue=queue)._check_and_refresh_feeds(many_per_tick())
     assert db.feeds.find_one({"_id": feed["_id"]})["status"] == "active"
     queue.run(next(iter(queue.tasks)))
     result = db.feeds.find_one({"_id": feed["_id"]})
@@ -107,14 +128,14 @@ def test_manual_and_scheduled_refresh_reuse_one_real_running_task(monkeypatch):
     monkeypatch.setattr(feeds, "task_queue", queue)
     scheduler = FeedAutoRefresher(db, queue=queue)
     try:
-        scheduler._check_and_refresh_feeds()
+        scheduler._check_and_refresh_feeds(many_per_tick())
         assert started.wait(5)
         task_id = next(iter(queue.tasks))
         future = queue._futures[task_id]
         response = app.test_client().post(f"/api/feeds/{feed['_id']}/refresh")
         assert response.status_code == 200
         assert response.get_json()["data"]["task_id"] == task_id
-        scheduler._check_and_refresh_feeds()
+        scheduler._check_and_refresh_feeds(many_per_tick())
         assert len(queue.tasks) == 1
         assert db.feeds.find_one({"_id": feed["_id"]})["last_checked"] == datetime(2020, 1, 1)
         release.set()

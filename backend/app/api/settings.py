@@ -7,7 +7,7 @@ from datetime import datetime
 
 from flask import Blueprint, request, jsonify, current_app
 from ..models.setting import SettingModel
-from .decorators import current_owner_id, require_auth, require_admin
+from .decorators import current_owner_id, require_auth, require_admin, require_role
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -439,6 +439,45 @@ def fetch_provider_models():
     except Exception as e:
         current_app.logger.error(f"Failed to fetch models from {base_url}: {e}")
         return jsonify({"models": [], "error": f"拉取模型列表失败: {str(e)}"})
+
+
+@settings_bp.route("/refresh", methods=["GET"])
+@require_auth
+def get_refresh_settings():
+    """订阅更新节奏：统一间隔、巡检频率、每轮源数、字幕补捞与抓取节流。"""
+    from ..services import refresh_settings
+    from ..services.auto_refresher import get_auto_refresher
+    from ..services.transcript_queue_service import get_transcript_queue
+
+    db = current_app.db
+    settings = refresh_settings.get_settings(db)
+    refresher = get_auto_refresher()
+    return jsonify({
+        "settings": settings,
+        "limits": {key: list(bounds) for key, bounds in refresh_settings.LIMITS.items()},
+        "daily": refresher.daily_summary() if refresher else None,
+        "transcript_queue": get_transcript_queue().snapshot() if get_transcript_queue() else None,
+    })
+
+
+@settings_bp.route("/refresh", methods=["PUT"])
+@require_role("user", "admin")
+def save_refresh_settings():
+    """保存订阅更新节奏，即时生效（无需重启）"""
+    from ..services import refresh_settings
+    from ..services.transcript_queue_service import get_transcript_queue
+
+    data = request.get_json() or {}
+    allowed = set(refresh_settings.LIMITS) | {"enabled"}
+    unknown = [key for key in data if key not in allowed]
+    if unknown:
+        return jsonify({"error": f"不支持的参数: {', '.join(unknown)}"}), 400
+
+    settings = refresh_settings.save_settings(current_app.db, data)
+    queue = get_transcript_queue()
+    if queue is not None:
+        queue.set_interval_minutes(settings["transcript_interval_minutes"])
+    return jsonify({"settings": settings})
 
 
 @settings_bp.route("/ai-analysis", methods=["GET"])

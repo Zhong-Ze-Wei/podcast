@@ -39,7 +39,7 @@ def make_db(monkeypatch):
     return db
 
 
-def add_feed(db, feed_type=Feed.TYPE_RSS, status=Feed.STATUS_ACTIVE, hours_ago=7):
+def add_feed(db, feed_type=Feed.TYPE_RSS, status=Feed.STATUS_ACTIVE, hours_ago=13):
     feed = Feed.create(
         "https://example.com/feed", title="Channel", type=feed_type,
         channel_ref="channel-1", owner_id="user-1",
@@ -57,6 +57,8 @@ def reject_rss(monkeypatch):
 
 
 def test_refresh_selection_retries_errors_but_respects_interval_and_paused(monkeypatch):
+    from tests.test_feed_refresh_queue import many_per_tick
+
     db = make_db(monkeypatch)
     active_old = add_feed(db)
     error_old = add_feed(db, status=Feed.STATUS_ERROR)
@@ -67,13 +69,14 @@ def test_refresh_selection_retries_errors_but_respects_interval_and_paused(monke
     add_feed(db, status=Feed.STATUS_PAUSED)
     add_feed(db, hours_ago=1)
     add_feed(db, status=Feed.STATUS_ERROR, hours_ago=1)
-    add_feed(db, status=Feed.STATUS_ERROR, hours_ago=6)
+    add_feed(db, status=Feed.STATUS_ERROR, hours_ago=11)
     selected = []
     refresher = FeedAutoRefresher(db, queue=ImmediateQueue())
     monkeypatch.setattr(refresher, "_refresh_single_feed", lambda feed: selected.append(feed["_id"]))
 
-    refresher._check_and_refresh_feeds()
+    refresher._check_and_refresh_feeds(many_per_tick(feeds_per_tick=20))
 
+    # 12 小时统一间隔：11 小时前检查过的源（含失败源）这一轮不动
     assert set(selected) == {active_old["_id"], error_old["_id"], active_none["_id"], error_missing["_id"]}
 
 
@@ -95,7 +98,8 @@ def test_auto_youtube_refresh_discovers_video_and_queues_transcripts(monkeypatch
     queue = transcript_queue_service.TranscriptQueue(db=db)
     monkeypatch.setattr(transcript_queue_service, "_queue_instance", queue)
 
-    FeedAutoRefresher(db, queue=ImmediateQueue())._check_and_refresh_feeds()
+    FeedAutoRefresher(db, queue=ImmediateQueue())._check_and_refresh_feeds(
+        __import__("tests.test_feed_refresh_queue", fromlist=["many_per_tick"]).many_per_tick())
 
     stored = db.feeds.find_one({"_id": feed["_id"]})
     assert stored["status"] == Feed.STATUS_ACTIVE
@@ -149,13 +153,15 @@ def test_failed_refresh_records_attempt_and_continues_with_other_feeds(monkeypat
     monkeypatch.setattr(YouTubeService, "fetch_channel_videos", classmethod(fetch_videos))
     monkeypatch.setattr("app.services.rss_service.RSSService.parse_feed", lambda url: ({"episodes": []}, None))
     refresher = FeedAutoRefresher(db, queue=ImmediateQueue())
+    from tests.test_feed_refresh_queue import many_per_tick
 
-    refresher._check_and_refresh_feeds()
-    refresher._check_and_refresh_feeds()
+    refresher._check_and_refresh_feeds(many_per_tick(feeds_per_tick=20))
+    refresher._check_and_refresh_feeds(many_per_tick(feeds_per_tick=20))
 
     stored = db.feeds.find_one({"_id": video["_id"]})
     assert stored["status"] == Feed.STATUS_ERROR
     assert stored["check_error"] == "upstream unavailable"
     assert stored["last_checked"] == NOW
+    # 失败源按同一间隔重试：同一天内失败后不再立刻重打
     assert calls == ["channel-1"]
     assert db.feeds.find_one({"_id": rss["_id"]})["last_checked"] == NOW
