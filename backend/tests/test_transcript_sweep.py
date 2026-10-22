@@ -6,7 +6,15 @@ from bson import ObjectId
 
 from app.services import transcript_queue_service
 from app.services.auto_refresher import FeedAutoRefresher
+from app.services.youtube_service import YouTubeService
 from tests.conftest import MockDB
+
+
+def _probe_has_tracks(monkeypatch):
+    """补捞现在会先探测字幕轨道；测试里统一当成"有字幕"，聚焦投递逻辑本身。"""
+    monkeypatch.setattr(YouTubeService, "probe_captions",
+                        classmethod(lambda cls, vid, proxy=None: (
+                            {"manual": ["en"], "automatic": [], "available": True, "title": "Ep"}, None)))
 
 
 def _episode(db, guid="youtube:abc", has_transcript=False):
@@ -26,7 +34,8 @@ def _queue(db):
     return queue
 
 
-def test_sweep_enqueues_missing_transcripts_and_respects_interval():
+def test_sweep_enqueues_missing_transcripts_and_respects_interval(monkeypatch):
+    _probe_has_tracks(monkeypatch)
     db = MockDB()
     _episode(db)
 
@@ -47,8 +56,9 @@ def test_sweep_enqueues_missing_transcripts_and_respects_interval():
     assert queue.snapshot()["queued_count"] == 2
 
 
-def test_sweep_skips_confirmed_no_subtitle_episodes():
+def test_sweep_skips_confirmed_no_subtitle_episodes(monkeypatch):
     """已确认无字幕的剧集不再重试；限流/超时类仍然会再扫。"""
+    _probe_has_tracks(monkeypatch)
     db = MockDB()
     _episode(db, guid="youtube:keep")           # 限流失败，应重试
     _episode(db, guid="youtube:skip")           # 确认无字幕，应跳过
@@ -60,7 +70,8 @@ def test_sweep_skips_confirmed_no_subtitle_episodes():
     assert [item["guid"] for item in queue.snapshot()["pending"]] == ["youtube:keep"]
 
 
-def test_sweep_uses_configured_batch_size():
+def test_sweep_uses_configured_batch_size(monkeypatch):
+    _probe_has_tracks(monkeypatch)
     db = MockDB()
     for index in range(4):
         _episode(db, guid=f"youtube:{index}")

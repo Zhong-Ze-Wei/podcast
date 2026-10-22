@@ -158,3 +158,82 @@ def test_throttle_count_persists_across_requeue(monkeypatch):
     before = stored["transcript_throttle_attempts"]
     queue._fetch_one(dict(item))
     assert db.episodes.find_one({"_id": episode_id})["transcript_throttle_attempts"] == before
+
+
+def test_caption_tracks_detects_manual_and_automatic(monkeypatch):
+    from app.services.youtube_service import YouTubeService
+
+    info = {"subtitles": {"en": [{"ext": "vtt"}], "ja": []},
+            "automatic_captions": {"en-orig": [{}], "zh-Hans": [{}], "de": [{}]}}
+    tracks = YouTubeService.caption_tracks(info)
+    assert tracks["manual"] == ["en"]              # ja 不在关注语种内
+    assert tracks["automatic"] == ["en-orig", "zh-Hans"]
+    assert tracks["available"] is True
+    assert YouTubeService.caption_tracks({"subtitles": {}, "automatic_captions": {}})["available"] is False
+
+
+def test_enqueue_skips_probed_episodes_without_captions(monkeypatch):
+    """已探测确认没字幕轨的期不会再入队。"""
+    from bson import ObjectId
+    from app.services import transcript_queue_service as module
+    from tests.conftest import MockDB
+
+    db = MockDB()
+    queue = module.TranscriptQueue(db=db)
+    episode_id = ObjectId()
+    db.episodes.insert_one({"_id": episode_id, "guid": "youtube:abc", "title": "Ep",
+                            "audio_type": "video/youtube", "caption_tracks_state": "none"})
+    episode = db.episodes.find_one({"_id": episode_id})
+
+    calls = []
+    monkeypatch.setattr(module.TranscriptQueue, "probe_captions",
+                        lambda self, ep, proxy=None: calls.append(ep["_id"]) or "none")
+
+    queue.enqueue([episode], priority=module.PRIORITY_HISTORY)
+    assert queue.pending_count() == 0
+
+
+def test_probe_empty_tracks_are_not_treated_as_missing(monkeypatch):
+    """yt-dlp 有时不返回轨道但视频其实有字幕（POT/地区），空轨道只能记为 unknown。"""
+    from bson import ObjectId
+    from app.services import transcript_queue_service as module
+    from app.services.youtube_service import YouTubeService
+    from tests.conftest import MockDB
+
+    db = MockDB()
+    queue = module.TranscriptQueue(db=db)
+    episode_id = ObjectId()
+    db.episodes.insert_one({"_id": episode_id, "guid": "youtube:abc", "title": "Ep",
+                            "audio_type": "video/youtube"})
+    episode = db.episodes.find_one({"_id": episode_id})
+
+    monkeypatch.setattr(YouTubeService, "probe_captions",
+                        classmethod(lambda cls, vid, proxy=None: (
+                            {"manual": [], "automatic": [], "available": False, "title": "Ep"}, None)))
+
+    assert queue.probe_captions(episode) == module.TranscriptQueue.CAPTION_UNKNOWN
+    stored = db.episodes.find_one({"_id": episode_id})
+    # 关键：不能写死 none，否则这期再也不会被尝试，即使平台其实有字幕
+    assert stored["caption_tracks_state"] == "unknown"
+    assert "transcript_fetch_error" not in stored
+
+
+def test_probe_failure_does_not_mark_episode_as_unavailable(monkeypatch):
+    """探测本身失败（网络/限流）不能写死"没字幕"，否则会永久漏掉可抓的期。"""
+    from bson import ObjectId
+    from app.services import transcript_queue_service as module
+    from app.services.youtube_service import YouTubeService
+    from tests.conftest import MockDB
+
+    db = MockDB()
+    queue = module.TranscriptQueue(db=db)
+    episode_id = ObjectId()
+    db.episodes.insert_one({"_id": episode_id, "guid": "youtube:abc", "title": "Ep",
+                            "audio_type": "video/youtube"})
+    episode = db.episodes.find_one({"_id": episode_id})
+
+    monkeypatch.setattr(YouTubeService, "probe_captions",
+                        classmethod(lambda cls, vid, proxy=None: (None, "无法连接 YouTube")))
+
+    assert queue.probe_captions(episode) == module.TranscriptQueue.CAPTION_UNKNOWN
+    assert "caption_tracks_state" not in db.episodes.find_one({"_id": episode_id})

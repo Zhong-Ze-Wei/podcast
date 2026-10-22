@@ -212,6 +212,8 @@ class FeedAutoRefresher:
 
         存量剧集大多在频道 RSS 最近 15 条窗口外，常规刷新永远不碰；
         抓取本身由 transcript_queue_service 统一节流，这里只负责投递。
+        投递前先探测字幕轨道：确认没有轨道的不再入队，避免抓一次失败才知道、
+        下轮又重试一遍。
         """
         from .transcript_queue_service import PRIORITY_HISTORY, get_transcript_queue
 
@@ -224,19 +226,37 @@ class FeedAutoRefresher:
             return 0
         self._last_transcript_sweep = now
 
-        stuck = list(self.db.episodes.find(
-            {"audio_type": "video/youtube", "has_transcript": {"$ne": True},
-             "guid": {"$regex": "^youtube:"},
-             # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube；
-             # 连续限流到上限的也已放弃，捞回来只会重复献祭同一个出口 IP
-             "transcript_gave_up_at": {"$exists": False},
-             "$nor": [{"transcript_fetch_error": {"$regex": "No subtitles|No transcript"}}]},
-            {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1, "feed_id": 1, "published": 1},
+        query = {
+            "audio_type": "video/youtube", "has_transcript": {"$ne": True},
+            "guid": {"$regex": "^youtube:"},
+            # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube；
+            # 连续限流到上限的也已放弃，捞回来只会重复献祭同一个出口 IP
+            "transcript_gave_up_at": {"$exists": False},
+            "caption_tracks_state": {"$ne": "none"},
+            "$nor": [{"transcript_fetch_error": {"$regex": "No subtitles|No transcript"}}],
+        }
+        projection = {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1,
+                      "feed_id": 1, "published": 1, "caption_tracks_state": 1}
+        queue = get_transcript_queue(self.db, self.queue)
+
+        # 先给从没探测过的期做轨道探测；没有轨道的结论不可靠（可能假阴性），
+        # 所以探测只是让"确认有字幕"的期优先，其余照样排队，由抓取阶段定论
+        unprobed = list(self.db.episodes.find(
+            {**query, "caption_tracks_state": {"$exists": False}}, projection
         ).sort("published", 1).limit(limit))
+        confirmed = []
+        for episode in unprobed:
+            if queue.probe_captions(episode) == "has":
+                confirmed.append(episode)
+
+        stuck = confirmed + list(self.db.episodes.find(
+            {**query, "caption_tracks_state": {"$in": ["has", "unknown"]}}, projection
+        ).sort("published", 1).limit(max(0, limit - len(confirmed))))
         if not stuck:
             return 0
-        get_transcript_queue(self.db, self.queue).enqueue(stuck, priority=PRIORITY_HISTORY)
-        logger.info("已投递 %d 期历史字幕到抓取队列", len(stuck))
+        queue.enqueue(stuck, priority=PRIORITY_HISTORY)
+        logger.info("已投递 %d 期历史字幕到抓取队列（新探测 %d 期，确认有轨道 %d 期）",
+                    len(stuck), len(unprobed), len(confirmed))
         return len(stuck)
 
 
