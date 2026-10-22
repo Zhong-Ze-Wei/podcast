@@ -9,6 +9,8 @@ import { SettingsButton } from './SettingsLayout';
 import { localizeUiMessage } from '../../../utils/localization';
 
 const PROVIDER_PRESETS = [
+  // magpie 是本地网关：一条通道接管所有供应商，默认首选
+  { id: 'magpie', label: 'magpie', api_format: 'openai_compatible', base_url: 'http://127.0.0.1:3425/v1', api_key: 'magpie' },
   { id: 'modelscope', label: 'ModelScope', api_format: 'openai_compatible', base_url: 'https://api-inference.modelscope.cn/v1' },
   { id: 'deepseek', label: 'DeepSeek', api_format: 'openai_compatible', base_url: 'https://api.deepseek.com/v1' },
   { id: 'siliconflow', label: 'SiliconFlow', api_format: 'openai_compatible', base_url: 'https://api.siliconflow.cn/v1' },
@@ -29,7 +31,7 @@ const createProvider = (preset, index) => ({
   provider: preset.id,
   api_format: preset.api_format,
   base_url: preset.base_url,
-  api_key: '',
+  api_key: preset.api_key || '',
   enabled: true,
 });
 
@@ -58,6 +60,7 @@ const LlmConfigPanel = () => {
   const [showFetched, setShowFetched] = useState(null);
   const [selectedFetched, setSelectedFetched] = useState([]);
   const [manualModelInputs, setManualModelInputs] = useState({});
+  const [magpie, setMagpie] = useState(null);
   const [collapsedProviders, setCollapsedProviders] = useState(() => new Set());
   const [aiEnabled, setAiEnabled] = useState(true);
 
@@ -94,6 +97,7 @@ const LlmConfigPanel = () => {
       setDefaultModelId(res.default_model_id || res.models?.[0]?.id || 'default');
       setTaskRoutes(res.task_routes || {});
       settingsApi.getAiAnalysis().then(r => setAiEnabled(!!r.enabled)).catch(() => {});
+      settingsApi.detectMagpie().then(setMagpie).catch(() => setMagpie({ available: false }));
       // 已配置 Key 的服务商默认折叠为摘要卡片
       setCollapsedProviders(new Set((res.providers || []).filter(p => p.api_key).map(p => p.id)));
     } catch (err) {
@@ -134,6 +138,34 @@ const LlmConfigPanel = () => {
     if (providers.some(p => p.id === preset.id) && preset.id !== 'custom') return;
     const provider = createProvider(preset, providers.length);
     setProviders(prev => [...prev, provider]);
+  };
+
+  /** 一键接入本机 magpie：加供应商、带上可用模型，并设为默认。 */
+  const connectMagpie = () => {
+    const preset = PROVIDER_PRESETS.find(item => item.id === 'magpie');
+    let nextProviders = providers;
+    if (!providers.some(p => p.id === 'magpie')) {
+      const provider = createProvider(preset, providers.length);
+      provider.api_key = magpie?.api_key || preset.api_key;
+      provider.base_url = magpie?.base_url || preset.base_url;
+      nextProviders = [...providers, provider];
+      setProviders(nextProviders);
+    }
+
+    const remote = magpie?.models?.length ? magpie.models : [{ id: magpie?.default_model || preset.id, name: '' }];
+    const existing = new Set(models.map(m => m.id));
+    const additions = remote
+      .map(item => createModel('magpie', item.id, item.name))
+      .filter(model => !existing.has(model.id));
+    if (additions.length) {
+      const nextModels = [...models, ...additions];
+      setModels(nextModels);
+      const preferred = additions.find(m => m.model === magpie?.default_model) || additions[0];
+      setDefaultModelId(preferred.id);
+      // 三个 AI 任务都先指向默认模型，用户可再细分
+      setTaskRoutes(Object.fromEntries(TASKS.map(task => [task, 'default'])));
+    }
+    setNotice({ success: true, message: t('settings.ai.magpieConnected', { count: additions.length }) });
   };
 
   const deleteProvider = (providerId) => {
@@ -214,9 +246,10 @@ const LlmConfigPanel = () => {
 
   const addSelectedFetched = (providerId) => {
     const existingIds = new Set(models.map(m => m.id));
+    const fetched = fetchedModels[providerId] || [];
     const additions = selectedFetched
       .filter(id => !existingIds.has(`${providerId}-${slug(id)}`))
-      .map(id => createModel(providerId, id, id));
+      .map(id => createModel(providerId, id, fetched.find(item => item.id === id)?.name || id));
     if (additions.length === 0) { setShowFetched(null); return; }
     setModels(prev => [...prev, ...additions]);
     if (!defaultModelId || defaultModelId === 'default') setDefaultModelId(additions[0].id);
@@ -275,6 +308,38 @@ const LlmConfigPanel = () => {
       <div className="mx-auto w-full max-w-5xl space-y-6">
       <NoticeBanner />
 
+        {/* 本机 magpie 网关：默认首选，一键接入 */}
+        {magpie && (
+          <div className={`rounded-lg border px-5 py-4 ${magpie.available ? 'border-indigo-800/60 bg-indigo-950/25' : 'border-zinc-800 bg-zinc-900/35'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Zap size={15} className={magpie.available ? 'text-indigo-300' : 'text-zinc-500'} />
+                  {t('settings.ai.magpieTitle')}
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${magpie.available ? 'bg-emerald-500/15 text-emerald-300' : 'bg-zinc-700/60 text-zinc-400'}`}>
+                    {magpie.available ? t('settings.ai.magpieOnline') : t('settings.ai.magpieOffline')}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                  {magpie.available
+                    ? t('settings.ai.magpieDesc', { url: magpie.base_url, count: magpie.models?.length || 0 })
+                    : t('settings.ai.magpieOfflineDesc', { url: magpie.base_url })}
+                </p>
+              </div>
+              {magpie.available && (
+                <button
+                  type="button"
+                  onClick={connectMagpie}
+                  disabled={providers.some(p => p.id === 'magpie') && models.some(m => m.provider_id === 'magpie')}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                >
+                  <Plus size={14} />
+                  {providers.some(p => p.id === 'magpie') ? t('settings.ai.magpieAddModels') : t('settings.ai.magpieConnect')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Provider Cards */}
         {providers.map((provider) => {

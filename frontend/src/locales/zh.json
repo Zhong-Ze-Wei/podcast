@@ -422,7 +422,15 @@
       "aiSwitchTitle": "AI 分析",
       "aiSwitchDesc": "总开关：关闭后暂停新摘要 / 翻译 / 简报生成，已有结果保持可读（即时生效，无需重启）",
       "segmentProviders": "供应商与模型",
-      "segmentTemplates": "摘要模板"
+      "segmentTemplates": "摘要模板",
+      "magpieTitle": "magpie 本地网关",
+      "magpieOnline": "已连接",
+      "magpieOffline": "未检测到",
+      "magpieDesc": "从 {{url}} 读取到 {{count}} 个可用模型。接入后统一走本机网关，无需逐家配置 Key。",
+      "magpieOfflineDesc": "本机未发现 magpie（{{url}}）。启动 magpie 后刷新即可自动发现。",
+      "magpieConnect": "接入并选用模型",
+      "magpieAddModels": "再拉一次模型",
+      "magpieConnected": "已添加 {{count}} 个 magpie 模型"
     },
     "account": {
       "title": "账号",

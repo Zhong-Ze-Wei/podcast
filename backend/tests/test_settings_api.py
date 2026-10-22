@@ -37,7 +37,7 @@ def test_llm_settings_are_scoped_per_user():
     assert other.get_json()["configs"][0]["name"] == "User1 LLM"
 
 
-def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypatch):
+def _clear_llm_env(monkeypatch):
     for key in [
         "LLM_DEFAULT_ID",
         "LLM_DEFAULT_NAME",
@@ -50,6 +50,26 @@ def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypat
         "LLM_ENABLED",
     ]:
         monkeypatch.delenv(key, raising=False)
+
+
+def test_default_llm_config_prefers_local_magpie_gateway(monkeypatch):
+    """本机 magpie 网关在监听时，默认直接走它，不需要任何 API key。"""
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setattr(SettingModel, "magpie_available", classmethod(lambda cls, timeout=1.5: True))
+    config = SettingModel.get_default_llm_config()
+
+    assert config["id"] == "magpie-default"
+    assert config["provider"] == "magpie"
+    assert config["api_format"] == "openai_compatible"
+    assert config["base_url"] == SettingModel.MAGPIE_BASE_URL
+    assert config["api_key"] == "magpie"
+    assert config["model"] == SettingModel.MAGPIE_MODEL
+
+
+def test_default_llm_config_uses_modelscope_without_committing_api_key(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    # magpie 不可用时回退到 ModelScope 默认值
+    monkeypatch.setattr(SettingModel, "magpie_available", classmethod(lambda cls, timeout=1.5: False))
     config = SettingModel.get_default_llm_config()
 
     assert config["id"] == "modelscope-default"
@@ -423,3 +443,42 @@ def test_feed_check_error_is_humanized_in_response():
     resp = Feed.to_response(doc)
     assert resp["check_error"].startswith("B站登录已失效")
     assert "SESSDATA" in resp["check_error"]
+
+
+def test_magpie_detection_reports_gateway_models(monkeypatch):
+    """本机 magpie 可用时，接口返回接入参数与可读模型名。"""
+    from app.models.setting import SettingModel
+
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "admin@example.com", role="admin")
+    monkeypatch.setattr(SettingModel, "magpie_available", classmethod(lambda cls, timeout=1.5: True))
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [
+                {"id": "auto/glm-5.3-flash", "display_name": "GLM-5.3-Flash"},
+                {"id": "auto/deepseek-v4.1-flash"},
+            ]}
+
+    monkeypatch.setattr("requests.get", lambda *a, **k: FakeResponse())
+
+    payload = app.test_client().get("/api/settings/llm/magpie", headers=auth_headers(user)).get_json()
+    assert payload["available"] is True
+    assert payload["base_url"] == SettingModel.MAGPIE_BASE_URL
+    assert payload["default_model"] == SettingModel.MAGPIE_MODEL
+    assert [m["name"] for m in payload["models"]] == ["GLM-5.3-Flash", "auto/deepseek-v4.1-flash"]
+
+
+def test_magpie_detection_when_gateway_is_down(monkeypatch):
+    from app.models.setting import SettingModel
+
+    app = make_auth_app((settings_bp, "/api/settings"))
+    user = add_user(app.db, "admin@example.com", role="admin")
+    monkeypatch.setattr(SettingModel, "magpie_available", classmethod(lambda cls, timeout=1.5: False))
+
+    payload = app.test_client().get("/api/settings/llm/magpie", headers=auth_headers(user)).get_json()
+    assert payload["available"] is False
+    assert "models" not in payload

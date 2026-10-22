@@ -422,7 +422,15 @@
       "aiSwitchTitle": "AI Analysis",
       "aiSwitchDesc": "Master switch: disable to freeze new summary / translation / briefing generation. Existing results stay readable. Takes effect immediately.",
       "segmentProviders": "Providers & models",
-      "segmentTemplates": "Summary templates"
+      "segmentTemplates": "Summary templates",
+      "magpieTitle": "magpie local gateway",
+      "magpieOnline": "Connected",
+      "magpieOffline": "Not detected",
+      "magpieDesc": "Found {{count}} models at {{url}}. Route everything through the local gateway instead of configuring each provider.",
+      "magpieOfflineDesc": "No magpie on this machine ({{url}}). Start it and refresh to auto-detect.",
+      "magpieConnect": "Connect and add models",
+      "magpieAddModels": "Fetch models again",
+      "magpieConnected": "Added {{count}} magpie models"
     },
     "account": {
       "title": "Account",
