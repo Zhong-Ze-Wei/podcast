@@ -52,8 +52,9 @@ services:
       # Linux 上让 host.docker.internal 可用，与 Docker Desktop 行为一致
       - "host.docker.internal:host-gateway"
     volumes:
-      - podcast-media:/app/media
-      - podcast-runtime:/app/.runtime
+      # 报告正文是文件而不是 DB 记录：直接挂宿主目录，历史简报才看得见
+      - ./backend/.runtime:/app/.runtime
+      - ./backend/media:/app/media
     ports:
       # 仅本机可访问；要对外暴露改成 "5000:5000"
       - "127.0.0.1:5000:5000"
@@ -75,5 +76,3 @@ volumes:
   podcast-mongo-data:
     name: podcast-mongodb-data
     external: true
-  podcast-media:
-  podcast-runtime:

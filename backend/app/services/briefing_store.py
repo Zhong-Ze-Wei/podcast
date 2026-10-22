@@ -25,7 +25,39 @@ class BriefingStore:
                 *sorted(self.root.glob("reading-v*/editions"))]
 
     def _visible(self, report):
+        """被新版本取代的报告不再出现在列表里，但文件保留便于追溯。"""
+        if report.get("superseded_by"):
+            return False
         return report.get("owner_id") in (None, self.owner_id)
+
+    def supersede(self, directory, *, keep_id, owner_id, period_type, period_start, modes=None):
+        """把同一周期（可选限定模式）的旧报告标记为已被 keep_id 取代。
+
+        重新生成一期简报时，旧版本不该继续出现在页面和历史列表里，否则同一个
+        周期会堆出十几份看起来一样的报告；文件本身保留，能追溯到当时的材料。
+        """
+        marked = []
+        with _PUBLICATION_LOCK:
+            for path in (self.root / directory).glob("*.json"):
+                report = self._load(path)
+                if not report or report.get("id") == keep_id:
+                    continue
+                if report.get("superseded_by"):
+                    continue
+                if (report.get("owner_id") or None) != (owner_id or None):
+                    continue
+                saved_period = report.get("period") or {}
+                if (saved_period.get("type"), saved_period.get("start")) != (period_type, period_start):
+                    continue
+                if modes is not None and report.get("mode") not in modes:
+                    continue
+                report["superseded_by"] = keep_id
+                write_json(path, report)
+                if self.db is not None:
+                    self.db.briefing_reports.update_one(
+                        {"report_id": report["id"]}, {"$set": {"superseded_by": keep_id}})
+                marked.append(report["id"])
+        return marked
 
     def _index(self, path, report):
         metadata = {key: deepcopy(report[key]) for key in REPORT_FIELDS if key in report}

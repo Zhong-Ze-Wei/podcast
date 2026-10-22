@@ -486,6 +486,11 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
     }
   }, [task, observedTask, taskError, reload, periodKey, updateTask]);
 
+  // 顶部需要展示"生成于/是否需要重置"，所以从当前模式的报告里取出元信息
+  const reportMeta = report ? {
+    generated_at: report.generated_at,
+    stale: report.matches_current_selection === false || Boolean(report.analysis?.partial),
+  } : null;
   const generate = async (kind, target) => {
     const owner = userId;
     const key = periodKey;
@@ -587,6 +592,11 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
           <ReadingStyleSelect layout={layout} disabled={layoutLoading || layoutSaving} onChange={changeLayout} />
           {report && <button className="br-button br-export" onClick={openPreview}>{t("ui.exportPDF")}</button>}
         </div></div>
+        {reportMeta && <div className="br-report-meta-bar">
+          <span>{t("ui.generatedOn")} {dateText(reportMeta.generated_at)}</span>
+          {reportMeta.stale && <span className="br-report-stale">{t("ui.reportOutdated")}</span>}
+          <button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', 'all')}>{t("ui.resetAllFive")}</button>
+        </div>}
         {report && <div className="br-filter-result" aria-live="polite"><span>{filteredItems.length} {t("ui.items")} {matchingSourceCount} {t("ui.episodes3")}</span></div>}
       </>}
       {layoutError && <div className="br-notice br-notice-error" role="alert"><AlertCircle size={17} /><span>{localizeUiMessage(layoutError, t)}</span><button className="br-icon-button" onClick={() => setLayoutError('')} aria-label={t("ui.dismissReadingStyleNotice")}><X size={16} /></button></div>}
@@ -618,8 +628,6 @@ export default function BriefingReportsView({ currentUser, feeds = [], onOpenEpi
             </button>}
           </span>
           {hasUnfinishedAnalysis && <button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>{t("ui.resumeUnfinishedAnalysis")}</button>}
-          <button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', 'all')}>{t("ui.generateAllFiveSections")}</button>
-          <button className="br-text-button" disabled={working || !canFavorite} onClick={() => generate('modes', mode)}>{t("ui.regenerateThisSection")}</button>
         </footer>
       </>)}
     </main>
