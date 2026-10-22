@@ -121,3 +121,40 @@ def test_proxy_pool_all_down_falls_back_to_clash(monkeypatch):
 def test_deauth_hides_credentials_in_logs():
     assert TranscriptQueue._deauth("socks5://user:secret@1.2.3.4:1080") == "socks5://***@1.2.3.4:1080"
     assert TranscriptQueue._deauth("http://1.2.3.4:8080") == "http://1.2.3.4:8080"
+
+
+def _db_episode(db, episode_id):
+    db.episodes.insert_one({"_id": episode_id, "guid": "youtube:abc", "title": "Ep",
+                            "status": "new", "audio_type": "video/youtube"})
+
+
+def test_throttle_count_persists_across_requeue(monkeypatch):
+    """限流计数落库：这期被放弃后重新入队，不能从 0 重新献祭。"""
+    from bson import ObjectId
+    from app.services import transcript_queue_service as module
+    from app.services.youtube_service import YouTubeService
+    from tests.conftest import MockDB
+
+    db = MockDB()
+    queue = module.TranscriptQueue(db=db)
+    episode_id = ObjectId()
+    _db_episode(db, episode_id)
+
+    monkeypatch.setattr(module.TranscriptQueue, "_rotate_exit", lambda self, reason: "")
+    monkeypatch.setattr(YouTubeService, "fetch_transcript",
+                        classmethod(lambda cls, vid, proxy=None: (None, "HTTP Error 429")))
+    monkeypatch.setattr("app.services.feed_sync_service._needs_youtube_metadata", lambda ep: False)
+
+    item = {"episode_id": str(episode_id), "guid": "youtube:abc", "title": "Ep",
+            "priority": module.PRIORITY_HISTORY, "enqueued_at": None}
+    for _ in range(module.MAX_THROTTLE_ATTEMPTS + 1):
+        queue._fetch_one(dict(item))
+
+    stored = db.episodes.find_one({"_id": episode_id})
+    assert stored["transcript_gave_up_at"] is not None
+    assert stored["transcript_throttle_attempts"] > module.MAX_THROTTLE_ATTEMPTS
+
+    # 再次入队重试：计数已落库，不会重新累计到上限后又来一轮
+    before = stored["transcript_throttle_attempts"]
+    queue._fetch_one(dict(item))
+    assert db.episodes.find_one({"_id": episode_id})["transcript_throttle_attempts"] == before

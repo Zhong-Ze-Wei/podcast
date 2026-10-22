@@ -227,7 +227,9 @@ class FeedAutoRefresher:
         stuck = list(self.db.episodes.find(
             {"audio_type": "video/youtube", "has_transcript": {"$ne": True},
              "guid": {"$regex": "^youtube:"},
-             # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube
+             # 已确认无字幕的（频道主没开字幕轨）不再重试，避免每轮空转打 YouTube；
+             # 连续限流到上限的也已放弃，捞回来只会重复献祭同一个出口 IP
+             "transcript_gave_up_at": {"$exists": False},
              "$nor": [{"transcript_fetch_error": {"$regex": "No subtitles|No transcript"}}]},
             {"_id": 1, "guid": 1, "title": 1, "owner_id": 1, "status": 1, "feed_id": 1, "published": 1},
         ).sort("published", 1).limit(limit))

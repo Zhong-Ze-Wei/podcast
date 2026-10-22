@@ -324,14 +324,24 @@ class TranscriptQueue:
         message = str(error or "unknown error")
         if "429" in message or "throttl" in message.lower() or "无法连接" in message or "暂时限制" in message:
             self._stats["throttled"] += 1
-            attempts = item.get("throttle_attempts", 0) + 1
+            # 计数必须落库：只存在内存 item 上时，这期被放弃后补捞又会从 0 重来，
+            # 于是同一期在 55 次限流里被反复献祭。
+            attempts = int(episode.get("transcript_throttle_attempts") or 0) + 1
+            # 已放弃的期不再累计、不再换 IP，直接跳过
+            if episode.get("transcript_gave_up_at"):
+                logger.debug("跳过已放弃的 %s", item.get("title", "")[:40])
+                return
             # 连续限流不再无限重试：同一期反复打只会更糟
             if attempts > MAX_THROTTLE_ATTEMPTS:
                 self._stats["failed"] += 1
                 db.episodes.update_one({"_id": episode["_id"]},
-                                       {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
+                                       {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message),
+                                                 "transcript_throttle_attempts": attempts,
+                                                 "transcript_gave_up_at": datetime.utcnow()}})
                 logger.warning("字幕队列放弃 %s：连续 %d 次被限流", item.get("title", "")[:40], attempts)
                 return
+            db.episodes.update_one({"_id": episode["_id"]},
+                                   {"$set": {"transcript_throttle_attempts": attempts}})
             item["throttle_attempts"] = attempts
             # 先换出口 IP：换了新 IP 后不需要长退避，短冷却即可重试
             rotated = self._rotate_exit(f"429×{attempts}")

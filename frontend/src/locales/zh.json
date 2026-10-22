@@ -335,7 +335,10 @@
       "inHours": "约 {{count}} 小时",
       "more": "另有 {{count}} 期在队列中",
       "stats": "已完成 {{done}} 期 · 被限流 {{throttled}} 次",
-      "clear": "清空积压"
+      "clear": "清空积压",
+      "cooling": "限流冷却中，暂不抓取",
+      "coolingHint": "刚被 YouTube 限流，稍后自动重试；换出口节点后再继续。",
+      "coolingOnly": "暂无排队 · {{duration}}后继续"
     },
     "autoDaily": {
       "title": "今日自动更新",

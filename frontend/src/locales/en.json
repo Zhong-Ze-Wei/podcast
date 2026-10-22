@@ -335,7 +335,10 @@
       "inHours": "in ~{{count}} h",
       "more": "{{count}} more in queue",
       "stats": "{{done}} done · {{throttled}} throttled",
-      "clear": "Clear backlog"
+      "clear": "Clear backlog",
+      "cooling": "Cooling down after throttling",
+      "coolingHint": "YouTube throttled the last request. It will resume automatically.",
+      "coolingOnly": "Nothing queued · resumes {{duration}}"
     },
     "autoDaily": {
       "title": "Auto-updated today",
