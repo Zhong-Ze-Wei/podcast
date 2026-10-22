@@ -1,0 +1,79 @@
+# PodMaster 一键启动：前端 + 后端 + MongoDB
+#
+#   docker compose up -d --build     启动（首次会构建镜像）
+#   docker compose logs -f backend   看后端日志
+#   docker compose down              停止（数据保留在卷里）
+#
+# 数据都放在具名卷中，删除容器不会丢：podcast-mongo-data / podcast-media / podcast-runtime
+name: podcast
+
+services:
+  mongo:
+    # 必须 >=8：旧卷的数据是 8.2 创建的，featureCompatibilityVersion 不兼容 7.x
+    image: mongo:8
+    container_name: podcast-mongo
+    restart: unless-stopped
+    volumes:
+      - podcast-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    container_name: podcast-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # 容器网络内的 Mongo 地址；覆盖 .env 里指向宿主 localhost 的值
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: ${MONGO_DB:-podcast}
+      MONGO_MANAGED: "0"
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: 5000
+      FLASK_DEBUG: "0"
+      MEDIA_ROOT: /app/media
+      # 容器内的 127.0.0.1 指向容器自己，宿主上的 Clash 必须走这个别名
+      # 注意：backend/.env 里的 127.0.0.1 在容器内无效，这里必须覆盖
+      YOUTUBE_PROXY: http://host.docker.internal:7890
+      CLASH_API_URL: http://host.docker.internal:9090
+      # 经 nginx 反代进来的请求来自容器内网，显式放行该网段以沿用本机免登录
+      AUTH_DEV_TRUSTED_NETWORKS: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+    extra_hosts:
+      # Linux 上让 host.docker.internal 可用，与 Docker Desktop 行为一致
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - podcast-media:/app/media
+      - podcast-runtime:/app/.runtime
+    ports:
+      # 仅本机可访问；要对外暴露改成 "5000:5000"
+      - "127.0.0.1:5000:5000"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: podcast-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:80"
+
+volumes:
+  # 复用旧版单容器（podcast-mongodb）的卷，已有订阅/节目数据原样可用。
+  # external: true 表示这个卷由外部创建，compose 不会删除它。
+  podcast-mongo-data:
+    name: podcast-mongodb-data
+    external: true
+  podcast-media:
+  podcast-runtime:

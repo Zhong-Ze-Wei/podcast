@@ -13,6 +13,31 @@ from werkzeug.utils import safe_join
 from .config import get_config
 
 
+def _install_proxy_addr_fix(app):
+    """让 request.remote_addr 反映 X-Real-IP，但仅当直连方是受信内网地址。"""
+    import ipaddress
+
+    from flask import request
+
+    def _is_private(addr):
+        try:
+            ip = ipaddress.ip_address(addr or "")
+        except ValueError:
+            return False
+        return ip.is_private or ip.is_loopback
+
+    @app.before_request
+    def _rewrite_remote_addr():
+        forwarded = request.headers.get("X-Real-IP", "").strip()
+        if forwarded and _is_private(request.remote_addr):
+            try:
+                ipaddress.ip_address(forwarded)
+            except ValueError:
+                return
+            # environ 是本次请求的私有副本，改写不会影响其他请求
+            request.environ["REMOTE_ADDR"] = forwarded
+
+
 def create_app():
     """创建Flask应用"""
     app = Flask(__name__)
@@ -35,6 +60,10 @@ def create_app():
             }
         },
     )
+
+    # 反向代理部署（容器内 nginx）时，用 X-Real-IP 还原真实来源地址。
+    # 只信任来自内网代理的该头，避免客户端伪造 IP 绕过本机免登录判断。
+    _install_proxy_addr_fix(app)
 
     # 存储 MongoDB 客户端实例到应用对象
     app.mongo_client = MongoClient(app.config["MONGO_URI"])

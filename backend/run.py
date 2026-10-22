@@ -181,8 +181,9 @@ def main():
     if hasattr(signal, 'SIGTERM'):
         signal.signal(signal.SIGTERM, signal_handler)
 
-    # ① 先确保 MongoDB 在运行
-    ensure_mongo()
+    # ① 先确保 MongoDB 在运行（容器内由 compose 负责，设置 MONGO_MANAGED=0 跳过）
+    if os.environ.get("MONGO_MANAGED", "1").lower() in ("1", "true", "yes", "on"):
+        ensure_mongo()
 
     # ② 再创建 Flask 应用
     from app import create_app

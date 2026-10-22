@@ -565,25 +565,33 @@ class YouTubeService:
         Returns:
             ({title, duration, uploader, thumbnail, published, description}, error)
         """
+        import tempfile
+
         from yt_dlp import YoutubeDL
 
-        opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "proxy": cls._proxy(),
-            "socket_timeout": 15,
-            "retries": 1,
-            "extractor_retries": 1,
-        }
-
-        try:
-            with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(
-                    f"https://www.youtube.com/watch?v={video_id}", download=False
-                )
-        except Exception as e:
-            return None, cls._classify_error(e)
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = cls._write_cookiefile(tmp)
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "proxy": cls._proxy(),
+                "socket_timeout": 15,
+                "retries": 1,
+                "extractor_retries": 1,
+                "ignore_no_formats_error": True,
+            }
+            # 带登录态：数据中心 IP 常被要求 "Sign in to confirm you're not a bot"
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
+                opts["extractor_args"] = {"youtube": {"player_client": ["mweb"]}}
+            try:
+                with YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(
+                        f"https://www.youtube.com/watch?v={video_id}", download=False
+                    )
+            except Exception as e:
+                return None, cls._classify_error(e)
 
         timestamp = info.get("timestamp") or info.get("release_timestamp")
         published = datetime.utcfromtimestamp(timestamp) if timestamp else None

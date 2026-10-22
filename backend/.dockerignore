@@ -1,0 +1,17 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.runtime
+media
+tests
+*.log
+.env
+.env.*
+requirements.txt
+.DS_Store
+.uv-cache
+local-ai
+*.vhdx
+uv.lock
