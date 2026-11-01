@@ -56,9 +56,44 @@ class SettingModel:
             upsert=True,
         )
 
-    @staticmethod
-    def get_default_llm_config():
-        """从环境变量获取默认LLM配置"""
+    # magpie 本地网关：一条 OpenAI 兼容通道接管所有供应商，默认首选
+    MAGPIE_BASE_URL = os.getenv("MAGPIE_BASE_URL", "http://127.0.0.1:3425/v1")
+    MAGPIE_API_KEY = os.getenv("MAGPIE_API_KEY", "magpie")
+    MAGPIE_MODEL = os.getenv("MAGPIE_MODEL", "auto/glm-5.3-flash")
+
+    @classmethod
+    def magpie_available(cls, timeout: float = 1.5) -> bool:
+        """本机 magpie 网关是否在监听（只探测端口，不阻塞启动）。"""
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(cls.MAGPIE_BASE_URL)
+        if not parts.hostname:
+            return False
+        import socket
+
+        try:
+            with socket.create_connection((parts.hostname, parts.port or 80), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    @classmethod
+    def get_default_llm_config(cls):
+        """默认 LLM 配置：优先 magpie，其次环境变量，最后内置回退。"""
+        if not os.getenv("LLM_BASE_URL") and cls.magpie_available():
+            return {
+                "id": "magpie-default",
+                "name": "magpie",
+                "provider": "magpie",
+                "api_format": SettingModel.API_FORMAT_OPENAI,
+                "base_url": cls.MAGPIE_BASE_URL,
+                "api_key": cls.MAGPIE_API_KEY,
+                "model": cls.MAGPIE_MODEL,
+                "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "4096")),
+                "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
+                "supports_streaming": os.getenv("LLM_SUPPORTS_STREAMING", "1").lower() in ("1", "true", "yes", "on"),
+                "enabled": os.getenv("LLM_ENABLED", "1").lower() in ("1", "true", "yes", "on"),
+            }
         return {
             "id": os.getenv("LLM_DEFAULT_ID", "modelscope-default"),
             "name": os.getenv("LLM_DEFAULT_NAME", "ModelScope"),
@@ -90,9 +125,9 @@ class SettingModel:
     def get_default_llm_model(cls):
         config = cls.get_default_llm_config()
         return {
-            "id": "modelscope-deepseek-v4-flash",
+            "id": f"{config['provider']}-{cls._slug(config['model'])}",
             "provider_id": config["provider"],
-            "name": "DeepSeek V4 Flash",
+            "name": config["name"] if config["provider"] != "magpie" else "GLM-5.3-Flash",
             "model": config["model"],
             "enabled": config["enabled"],
             "supports_streaming": config["supports_streaming"],

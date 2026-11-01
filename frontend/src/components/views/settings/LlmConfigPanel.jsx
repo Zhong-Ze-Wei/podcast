@@ -5,9 +5,12 @@ import {
   Loader2, Plus, Route, Search, Server, Star, Trash2, Zap,
 } from 'lucide-react';
 import { settingsApi } from '../../../services/api';
+import { SettingsButton } from './SettingsLayout';
 import { localizeUiMessage } from '../../../utils/localization';
 
 const PROVIDER_PRESETS = [
+  // magpie 是本地网关：一条通道接管所有供应商，默认首选
+  { id: 'magpie', label: 'magpie', api_format: 'openai_compatible', base_url: 'http://127.0.0.1:3425/v1', api_key: 'magpie' },
   { id: 'modelscope', label: 'ModelScope', api_format: 'openai_compatible', base_url: 'https://api-inference.modelscope.cn/v1' },
   { id: 'deepseek', label: 'DeepSeek', api_format: 'openai_compatible', base_url: 'https://api.deepseek.com/v1' },
   { id: 'siliconflow', label: 'SiliconFlow', api_format: 'openai_compatible', base_url: 'https://api.siliconflow.cn/v1' },
@@ -28,7 +31,7 @@ const createProvider = (preset, index) => ({
   provider: preset.id,
   api_format: preset.api_format,
   base_url: preset.base_url,
-  api_key: '',
+  api_key: preset.api_key || '',
   enabled: true,
 });
 
@@ -57,35 +60,11 @@ const LlmConfigPanel = () => {
   const [showFetched, setShowFetched] = useState(null);
   const [selectedFetched, setSelectedFetched] = useState([]);
   const [manualModelInputs, setManualModelInputs] = useState({});
+  const [magpie, setMagpie] = useState(null);
   const [collapsedProviders, setCollapsedProviders] = useState(() => new Set());
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [biliStatus, setBiliStatus] = useState(null);
-  const [sessdataInput, setSessdataInput] = useState("");
-  const [savingSessdata, setSavingSessdata] = useState(false);
 
   useEffect(() => { loadConfigs(); }, []);
-
-  // 在线更新 B站 SESSDATA：后端立即生效并持久化 .env，这里接收实时验证结果
-  const saveBiliSessdata = async () => {
-    const value = sessdataInput.trim();
-    if (!value) return;
-    setSavingSessdata(true);
-    setNotice(null);
-    try {
-      const res = await settingsApi.updateBilibiliSessdata(value);
-      if (res.valid) {
-        setNotice({ success: true, message: t("settings.biliSessdataSaved", { value1: res.nickname || res.mid }) });
-        setSessdataInput("");
-      } else {
-        setNotice({ success: false, message: res.message || t("settings.biliSessdataInvalid") });
-      }
-      setBiliStatus({ configured: true, valid: !!res.valid, nickname: res.nickname, mid: res.mid });
-    } catch (err) {
-      setNotice({ success: false, message: err?.response?.data?.message || String(err) });
-    } finally {
-      setSavingSessdata(false);
-    }
-  };
 
   const providerById = useMemo(() => Object.fromEntries(providers.map(p => [p.id, p])), [providers]);
   const enabledModels = useMemo(
@@ -118,7 +97,7 @@ const LlmConfigPanel = () => {
       setDefaultModelId(res.default_model_id || res.models?.[0]?.id || 'default');
       setTaskRoutes(res.task_routes || {});
       settingsApi.getAiAnalysis().then(r => setAiEnabled(!!r.enabled)).catch(() => {});
-      settingsApi.getBilibiliStatus().then(setBiliStatus).catch(() => {});
+      settingsApi.detectMagpie().then(setMagpie).catch(() => setMagpie({ available: false }));
       // 已配置 Key 的服务商默认折叠为摘要卡片
       setCollapsedProviders(new Set((res.providers || []).filter(p => p.api_key).map(p => p.id)));
     } catch (err) {
@@ -159,6 +138,34 @@ const LlmConfigPanel = () => {
     if (providers.some(p => p.id === preset.id) && preset.id !== 'custom') return;
     const provider = createProvider(preset, providers.length);
     setProviders(prev => [...prev, provider]);
+  };
+
+  /** 一键接入本机 magpie：加供应商、带上可用模型，并设为默认。 */
+  const connectMagpie = () => {
+    const preset = PROVIDER_PRESETS.find(item => item.id === 'magpie');
+    let nextProviders = providers;
+    if (!providers.some(p => p.id === 'magpie')) {
+      const provider = createProvider(preset, providers.length);
+      provider.api_key = magpie?.api_key || preset.api_key;
+      provider.base_url = magpie?.base_url || preset.base_url;
+      nextProviders = [...providers, provider];
+      setProviders(nextProviders);
+    }
+
+    const remote = magpie?.models?.length ? magpie.models : [{ id: magpie?.default_model || preset.id, name: '' }];
+    const existing = new Set(models.map(m => m.id));
+    const additions = remote
+      .map(item => createModel('magpie', item.id, item.name))
+      .filter(model => !existing.has(model.id));
+    if (additions.length) {
+      const nextModels = [...models, ...additions];
+      setModels(nextModels);
+      const preferred = additions.find(m => m.model === magpie?.default_model) || additions[0];
+      setDefaultModelId(preferred.id);
+      // 三个 AI 任务都先指向默认模型，用户可再细分
+      setTaskRoutes(Object.fromEntries(TASKS.map(task => [task, 'default'])));
+    }
+    setNotice({ success: true, message: t('settings.ai.magpieConnected', { count: additions.length }) });
   };
 
   const deleteProvider = (providerId) => {
@@ -239,9 +246,10 @@ const LlmConfigPanel = () => {
 
   const addSelectedFetched = (providerId) => {
     const existingIds = new Set(models.map(m => m.id));
+    const fetched = fetchedModels[providerId] || [];
     const additions = selectedFetched
       .filter(id => !existingIds.has(`${providerId}-${slug(id)}`))
-      .map(id => createModel(providerId, id, id));
+      .map(id => createModel(providerId, id, fetched.find(item => item.id === id)?.name || id));
     if (additions.length === 0) { setShowFetched(null); return; }
     setModels(prev => [...prev, ...additions]);
     if (!defaultModelId || defaultModelId === 'default') setDefaultModelId(additions[0].id);
@@ -265,14 +273,14 @@ const LlmConfigPanel = () => {
   if (loading) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
-        <Loader2 className="mb-4 h-8 w-8 animate-spin text-blue-400" />
+        <Loader2 className="mb-4 h-8 w-8 animate-spin text-indigo-400" />
         <p className="text-zinc-400">{t('common.loading')}</p>
       </div>
     );
   }
 
   const NoticeBanner = () => notice ? (
-    <div className={`mx-8 mt-4 rounded-md border px-4 py-3 ${
+    <div className={`mx-8 mt-4 rounded-lg border px-4 py-3 ${
       notice.success ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-300'
         : 'border-red-900/70 bg-red-950/30 text-red-300'
     }`}>
@@ -290,31 +298,48 @@ const LlmConfigPanel = () => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-zinc-800 px-4 md:px-8 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-white">
-              <Server size={16} className="text-blue-300" />
-              {t('settings.ai.cardTitle')}
-            </div>
-            <p className="mt-1 text-sm text-zinc-500">{t('settings.ai.cardDesc')}</p>
-          </div>
-          <button
-            onClick={saveConfigs}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-            {t('settings.save')}
-          </button>
-        </div>
+      <div className="flex items-center justify-end border-b border-zinc-800 px-4 py-3 md:px-8">
+        <SettingsButton onClick={saveConfigs} disabled={saving}>
+          {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+          {t('settings.save')}
+        </SettingsButton>
       </div>
-
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar px-4 py-6 md:px-8">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
       <NoticeBanner />
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6">
+        {/* 本机 magpie 网关：默认首选，一键接入 */}
+        {magpie && (
+          <div className={`rounded-lg border px-5 py-4 ${magpie.available ? 'border-indigo-800/60 bg-indigo-950/25' : 'border-zinc-800 bg-zinc-900/35'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Zap size={15} className={magpie.available ? 'text-indigo-300' : 'text-zinc-500'} />
+                  {t('settings.ai.magpieTitle')}
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${magpie.available ? 'bg-emerald-500/15 text-emerald-300' : 'bg-zinc-700/60 text-zinc-400'}`}>
+                    {magpie.available ? t('settings.ai.magpieOnline') : t('settings.ai.magpieOffline')}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                  {magpie.available
+                    ? t('settings.ai.magpieDesc', { url: magpie.base_url, count: magpie.models?.length || 0 })
+                    : t('settings.ai.magpieOfflineDesc', { url: magpie.base_url })}
+                </p>
+              </div>
+              {magpie.available && (
+                <button
+                  type="button"
+                  onClick={connectMagpie}
+                  disabled={providers.some(p => p.id === 'magpie') && models.some(m => m.provider_id === 'magpie')}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                >
+                  <Plus size={14} />
+                  {providers.some(p => p.id === 'magpie') ? t('settings.ai.magpieAddModels') : t('settings.ai.magpieConnect')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Provider Cards */}
         {providers.map((provider) => {
@@ -334,14 +359,14 @@ const LlmConfigPanel = () => {
           });
 
           return (
-            <div key={provider.id} className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900/35 overflow-hidden">
+            <div key={provider.id} className="rounded-lg border border-zinc-800 bg-zinc-900/35 overflow-hidden">
               {/* Card header (点击折叠/展开，左色条=启用状态) */}
               <div className="flex items-center justify-between gap-3 border-b border-zinc-800/60 py-3 pr-5">
                 <button onClick={toggleCollapsed} className="flex min-w-0 flex-1 items-center gap-3 pl-4 text-left">
                   <span className={`w-[3px] self-stretch shrink-0 ${provider.enabled !== false ? 'bg-green-500' : 'bg-zinc-600'}`} />
                   <span className="shrink-0 text-base font-semibold text-white">{provider.name || provider.id}</span>
                   {!isCollapsed && defaultModelId && providerModels.some(m => m.id === defaultModelId) && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
                       <Star size={11} /> {t('settings.ai.defaultModel')}
                     </span>
                   )}
@@ -378,7 +403,7 @@ const LlmConfigPanel = () => {
                   </label>
                   <button
                     onClick={() => deleteProvider(provider.id)}
-                    className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+                    className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
                     title={t('settings.delete')}
                   >
                     <Trash2 size={15} />
@@ -396,7 +421,7 @@ const LlmConfigPanel = () => {
                     <select
                       value={provider.api_format || 'openai_compatible'}
                       onChange={(e) => updateProvider(provider.id, 'api_format', e.target.value)}
-                      className="w-full appearance-none rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                      className="w-full appearance-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                     >
                       <option value="openai_compatible">{t("ui.openaiCompatible")}</option>
                       <option value="anthropic_messages">Anthropic Messages</option>
@@ -409,7 +434,7 @@ const LlmConfigPanel = () => {
                   <input
                     value={provider.name || ''}
                     onChange={(e) => updateProvider(provider.id, 'name', e.target.value)}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div className="lg:col-span-2">
@@ -418,7 +443,7 @@ const LlmConfigPanel = () => {
                     value={provider.base_url || ''}
                     onChange={(e) => updateProvider(provider.id, 'base_url', e.target.value)}
                     placeholder="https://api-inference.modelscope.cn/v1"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div className="lg:col-span-2">
@@ -430,7 +455,7 @@ const LlmConfigPanel = () => {
                         value={provider.api_key || ''}
                         onChange={(e) => updateProvider(provider.id, 'api_key', e.target.value)}
                         placeholder="sk-..."
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 pr-10 font-mono text-sm text-white outline-none focus:border-blue-500"
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 pr-10 font-mono text-sm text-white outline-none focus:border-indigo-500"
                         style={!isRevealed && provider.api_key ? { WebkitTextSecurity: 'disc' } : {}}
                       />
                       <button
@@ -444,7 +469,7 @@ const LlmConfigPanel = () => {
                     {provider.api_key && (
                       <button
                         onClick={() => copyToClipboard(provider.api_key)}
-                        className="rounded-md border border-zinc-700 px-3 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                        className="rounded-lg border border-zinc-700 px-3 text-zinc-400 hover:bg-zinc-800 hover:text-white"
                         title={t('settings.ai.copyKey')}
                       >
                         <Copy size={15} />
@@ -461,7 +486,7 @@ const LlmConfigPanel = () => {
                   <button
                     onClick={() => handleFetchModels(provider.id)}
                     disabled={isFetching}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {isFetching ? <Loader2 className="animate-spin" size={13} /> : <Search size={13} />}
                     {isFetching ? t('settings.ai.fetching') : t('settings.ai.fetchModels')}
@@ -470,7 +495,7 @@ const LlmConfigPanel = () => {
 
                 {/* Fetched models picker */}
                 {isShowingFetched && (
-                  <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 max-h-60 overflow-y-auto">
+                  <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 max-h-60 overflow-y-auto">
                     {fetched.length === 0 ? (
                       <p className="text-xs text-zinc-500 py-2">{t('settings.ai.noModelsFound')}</p>
                     ) : (
@@ -481,7 +506,7 @@ const LlmConfigPanel = () => {
                             const isSelected = selectedFetched.includes(fm.id);
                             return (
                               <label key={fm.id} className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
-                                alreadyAdded ? 'text-zinc-600' : isSelected ? 'text-blue-300 bg-blue-500/10' : 'text-zinc-300 hover:bg-zinc-800'
+                                alreadyAdded ? 'text-zinc-600' : isSelected ? 'text-indigo-300 bg-indigo-500/10' : 'text-zinc-300 hover:bg-zinc-800'
                               } ${alreadyAdded ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                 <input
                                   type="checkbox"
@@ -502,13 +527,13 @@ const LlmConfigPanel = () => {
                           })}
                         </div>
                         <div className="mt-2 flex justify-end gap-2 border-t border-zinc-800 pt-2">
-                          <button onClick={() => setShowFetched(null)} className="rounded-md px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
+                          <button onClick={() => setShowFetched(null)} className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
                             {t('settings.ai.close')}
                           </button>
                           <button
                             onClick={() => addSelectedFetched(provider.id)}
                             disabled={selectedFetched.length === 0}
-                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-500 disabled:opacity-50"
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:opacity-50"
                           >
                             {t('settings.ai.addSelected')} ({selectedFetched.length})
                           </button>
@@ -526,12 +551,12 @@ const LlmConfigPanel = () => {
                     {providerModels.map((model) => (
                       <div
                         key={model.id}
-                        className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2"
+                        className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2"
                       >
                         <button
                           onClick={() => setDefaultModelId(model.id)}
                           className={`shrink-0 rounded p-1 ${
-                            defaultModelId === model.id ? 'text-blue-400' : 'text-zinc-600 hover:text-zinc-400'
+                            defaultModelId === model.id ? 'text-indigo-400' : 'text-zinc-600 hover:text-zinc-400'
                           }`}
                           title={defaultModelId === model.id ? t('settings.ai.defaultModel') : t('settings.ai.setDefault')}
                         >
@@ -548,14 +573,14 @@ const LlmConfigPanel = () => {
                         <button
                           onClick={() => testModel(model.id)}
                           disabled={testing === model.id}
-                          className="shrink-0 rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
                           title={t('settings.test')}
                         >
                           {testing === model.id ? <Loader2 className="animate-spin" size={14} /> : <Zap size={14} />}
                         </button>
                         <button
                           onClick={() => deleteModel(model.id)}
-                          className="shrink-0 rounded-md p-1.5 text-zinc-600 hover:bg-zinc-800 hover:text-red-300"
+                          className="shrink-0 rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-800 hover:text-red-300"
                           title={t('settings.delete')}
                         >
                           <Trash2 size={14} />
@@ -572,11 +597,11 @@ const LlmConfigPanel = () => {
                     onChange={(e) => setManualModelInputs(prev => ({ ...prev, [provider.id]: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === 'Enter') addManualModel(provider.id); }}
                     placeholder={t('settings.ai.addModelPlaceholder')}
-                    className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-blue-500"
+                    className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-indigo-500"
                   />
                   <button
                     onClick={() => addManualModel(provider.id)}
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700"
+                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700"
                   >
                     <Plus size={14} />
                   </button>
@@ -589,7 +614,7 @@ const LlmConfigPanel = () => {
         })}
 
         {/* Add provider bar */}
-        <div className="mx-auto max-w-4xl">
+        <div>
           <div className="mb-2 text-xs font-medium uppercase text-zinc-500">{t('settings.ai.addProvider')}</div>
           <div className="flex flex-wrap gap-2">
             {PROVIDER_PRESETS.map((preset) => (
@@ -597,7 +622,7 @@ const LlmConfigPanel = () => {
                 key={preset.id}
                 onClick={() => addProvider(preset)}
                 disabled={preset.id !== 'custom' && providers.some(p => p.id === preset.id)}
-                className="rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {preset.id === 'custom' ? t('ui.customProvider') : preset.label}
               </button>
@@ -606,7 +631,7 @@ const LlmConfigPanel = () => {
         </div>
 
         {/* AI analysis master switch */}
-        <div className="mx-auto max-w-4xl flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-4">
+        <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-4">
           <div className="min-w-0 pr-4">
             <div className="text-sm font-semibold text-white">{t('settings.ai.aiSwitchTitle')}</div>
             <p className="mt-0.5 text-xs text-zinc-500">{t('settings.ai.aiSwitchDesc')}</p>
@@ -620,47 +645,10 @@ const LlmConfigPanel = () => {
           </button>
         </div>
 
-        {/* Bilibili login status */}
-        {biliStatus && (
-          <div className="mx-auto max-w-4xl rounded-lg border border-zinc-800 bg-zinc-900/35 px-5 py-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-zinc-300"> {t("ui.bilibiliSession")} <span className="ml-3 text-xs text-zinc-500">
-                  {biliStatus.configured
-                    ? (biliStatus.valid
-                        ? t("ui.connectedValueValidSESSDATA", { value1: biliStatus.nickname || biliStatus.mid })
-                        : t("ui.configuredButValidationFailedSESSDATAMayHave"))
-                    : t("ui.sESSDATAIsNotConfiguredBilibiliRefreshAnd")}
-                </span>
-              </div>
-              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${biliStatus.configured && biliStatus.valid ? 'bg-green-500' : biliStatus.configured ? 'bg-amber-500' : 'bg-zinc-600'}`} />
-            </div>
-            {/* 在线更新 SESSDATA：粘贴即生效（运行时+持久化 .env），无需改文件重启 */}
-            <div className="mt-2.5 flex gap-2">
-              <input
-                type="text"
-                value={sessdataInput}
-                onChange={(e) => setSessdataInput(e.target.value)}
-                placeholder={t("settings.biliSessdataPlaceholder")}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
-              />
-              <button
-                onClick={saveBiliSessdata}
-                disabled={!sessdataInput.trim() || savingSessdata}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-white transition-colors shrink-0"
-              >
-                {savingSessdata ? t("settings.biliSessdataVerifying") : t("settings.biliSessdataSave")}
-              </button>
-            </div>
-            {biliStatus.valid === false && (
-              <p className="mt-1.5 text-xs text-amber-400/90">{t("settings.biliSessdataHowTo")}</p>
-            )}
-          </div>
-        )}
-
         {/* Task routing */}
-        <div className="mx-auto max-w-4xl border-t border-zinc-800/60 pt-6">
+        <div className="border-t border-zinc-800/60 pt-6">
           <div className="mb-4 flex items-center gap-2">
-            <Route size={16} className="text-blue-300" />
+            <Route size={16} className="text-indigo-300" />
             <div>
               <h3 className="text-sm font-semibold text-white">{t('settings.ai.taskRouting')}</h3>
               <p className="text-xs text-zinc-500">{t('settings.ai.taskRoutingDesc')}</p>
@@ -668,13 +656,13 @@ const LlmConfigPanel = () => {
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {TASKS.map((task) => (
-              <div key={task} className="rounded-md border border-zinc-800 bg-zinc-950/60 p-4">
+              <div key={task} className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
                 <div className="text-sm font-medium text-white">{t(`settings.ai.tasks.${task}.title`)}</div>
                 <p className="mt-1 text-xs text-zinc-500">{t(`settings.ai.tasks.${task}.description`)}</p>
                 <select
                   value={taskRoutes[task] || 'default'}
                   onChange={(e) => setTaskRoutes(prev => ({ ...prev, [task]: e.target.value }))}
-                  className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-white outline-none focus:border-blue-500"
+                  className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 >
                   <option value="default">{t('settings.ai.defaultModel')}</option>
                   {enabledModels.map((model) => (
@@ -687,6 +675,7 @@ const LlmConfigPanel = () => {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

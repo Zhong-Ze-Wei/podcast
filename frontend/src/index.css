@@ -101,7 +101,8 @@ body {
   .app-page-content .br-export { display: none; }
   .app-page-content .br-toolbar { flex-wrap: wrap; gap: 12px; }
   .app-page-content .br-toolbar-actions { display: none; }
-  .settings-tabs { max-width: 100%; overflow-x: auto; }
+  .settings-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .settings-tabs::-webkit-scrollbar { display: none; }
   .settings-tabs > button { flex-shrink: 0; white-space: nowrap; }
   .app-shell button, .app-shell select { min-height: 44px; }
   .app-shell .br-favorite-button, .app-shell .br-more > summary { min-width: 44px; min-height: 44px; }

@@ -334,7 +334,7 @@
   "clickTheHeartBelowAnItemTo": "点击内容下方的心形即可收藏。",
   "adjustYourInterestsInSettingsAtThe": "可以在左下角设置中调整关注话题后重新生成。",
   "generatedOn": "生成于",
-  "regenerateThisSection": "重新生成当前模式",
+  "regenerateThisSection": "重置这五篇",
   "noTranscript": "未转录",
   "downloading": "下载中",
   "downloaded": "已下载",
@@ -530,5 +530,8 @@
   "transcriptQueueInterval": "每期抓取间隔",
   "transcriptQueueFastest": "1 分钟",
   "transcriptQueueSlowest": "300 分钟",
-  "transcriptQueueBacklog": "当前排队 {{count}} 期，全部抓完约需 {{duration}}。"
+  "transcriptQueueBacklog": "当前排队 {{count}} 期，全部抓完约需 {{duration}}。",
+  "resetAllFive": "重置这五篇",
+  "resetAllFiveHint": "用当前的关注话题与最新材料，一次重做这一期的五个栏目",
+  "reportOutdated": "材料已更新，可重置"
 }

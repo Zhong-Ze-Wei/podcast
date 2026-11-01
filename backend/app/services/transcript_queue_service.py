@@ -90,8 +90,72 @@ class TranscriptQueue:
                 self._wake.notify_all()
 
     # ---- 队列操作 ----
+    # 轨道探测结论：没有字幕轨的期不再入队，避免"抓一次失败才知道、下轮又重试"
+    CAPTION_NONE = "none"          # 确认没有字幕轨
+    CAPTION_UNKNOWN = "unknown"    # 探测失败（网络/限流），稍后仍可再试
+
+    def _caption_state(self, episode):
+        """读取已有探测结论，返回 none / has / unknown。"""
+        if episode.get("has_transcript") or self.db.transcripts.find_one({"episode_id": episode["_id"]}):
+            return "has"
+        state = episode.get("caption_tracks_state")
+        if state == self.CAPTION_NONE:
+            return "none"
+        if state == "has":
+            return "has"
+        return "unknown"
+
+    def probe_captions(self, episode, proxy=None):
+        """探测并落库一期的字幕轨道状态；返回 has / none / unknown。
+
+        只读元数据不下载字幕，所以能安全地放在入队前跑。
+
+        注意：yt-dlp 有时既不报错误也不返回字幕轨（POT 校验、地区限制、
+        自动字幕被隐藏），此时"没有轨道"可能是假阴性。所以探测出的空轨道
+        只记为 unavailable，真正判死要等抓取阶段明确返回"字幕已禁用/不存在"。
+        """
+        from .youtube_service import YouTubeService
+
+        video_id = (episode.get("guid") or "").removeprefix("youtube:")
+        if not video_id:
+            return self.CAPTION_UNKNOWN
+        tracks, error = YouTubeService.probe_captions(video_id, proxy=proxy)
+        if tracks is None:
+            # 探测本身失败（429、连不上）：不写死结论，留待以后重试
+            logger.info("字幕轨道探测失败 %s: %s", episode.get("title", "")[:40], str(error)[:80])
+            return self.CAPTION_UNKNOWN
+        if not tracks["available"]:
+            # 不标 none：可能是假阴性，仍需抓一次才能确认
+            self.db.episodes.update_one(
+                {"_id": episode["_id"]},
+                {"$set": {"caption_tracks_state": self.CAPTION_UNKNOWN,
+                          "caption_tracks": {"manual": [], "automatic": []},
+                          "caption_probed_at": datetime.utcnow()}},
+            )
+            return self.CAPTION_UNKNOWN
+        self.db.episodes.update_one(
+            {"_id": episode["_id"]},
+            {"$set": {"caption_tracks_state": "has",
+                      "caption_tracks": {"manual": tracks["manual"], "automatic": tracks["automatic"]},
+                      "caption_probed_at": datetime.utcnow()}},
+        )
+        return "has"
+
+    def _mark_no_captions(self, episode, tracks=None):
+        """落一个明确的"没有字幕轨"结论，补捞与队列都不会再碰它。"""
+        self.db.episodes.update_one(
+            {"_id": episode["_id"]},
+            {"$set": {"caption_tracks_state": self.CAPTION_NONE,
+                      "caption_tracks": {"manual": [], "automatic": []} if tracks is None else {"manual": tracks["manual"], "automatic": tracks["automatic"]},
+                      "caption_probed_at": datetime.utcnow(),
+                      "transcript_fetch_error": "No subtitles available for this video"}},
+        )
+
     def enqueue(self, episodes, priority=PRIORITY_HISTORY, feed_id=None):
-        """把剧集放进抓取队列；已在队列里的会按更小优先级提升。"""
+        """把剧集放进抓取队列；已在队列里的会按更小优先级提升。
+
+        已确认没有字幕轨的期直接跳过（不入队、不重试）。
+        """
         added = []
         with self._lock:
             known = {item["episode_id"] for item in self._items}
@@ -101,6 +165,9 @@ class TranscriptQueue:
                 episode_id = str(episode.get("_id") or episode.get("episode_id") or "")
                 guid = episode.get("guid") or ""
                 if not episode_id or not guid.startswith("youtube:"):
+                    continue
+                # 已确认没有字幕轨：不再入队，省掉一次注定失败的网络请求
+                if episode.get("caption_tracks_state") == self.CAPTION_NONE:
                     continue
                 if episode_id in known:
                     # 已在排队：新剧集可以把历史积压提上来（同时刷新入队时间，否则旧时间会把它压在后面）
@@ -324,14 +391,24 @@ class TranscriptQueue:
         message = str(error or "unknown error")
         if "429" in message or "throttl" in message.lower() or "无法连接" in message or "暂时限制" in message:
             self._stats["throttled"] += 1
-            attempts = item.get("throttle_attempts", 0) + 1
+            # 计数必须落库：只存在内存 item 上时，这期被放弃后补捞又会从 0 重来，
+            # 于是同一期在 55 次限流里被反复献祭。
+            attempts = int(episode.get("transcript_throttle_attempts") or 0) + 1
+            # 已放弃的期不再累计、不再换 IP，直接跳过
+            if episode.get("transcript_gave_up_at"):
+                logger.debug("跳过已放弃的 %s", item.get("title", "")[:40])
+                return
             # 连续限流不再无限重试：同一期反复打只会更糟
             if attempts > MAX_THROTTLE_ATTEMPTS:
                 self._stats["failed"] += 1
                 db.episodes.update_one({"_id": episode["_id"]},
-                                       {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
+                                       {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message),
+                                                 "transcript_throttle_attempts": attempts,
+                                                 "transcript_gave_up_at": datetime.utcnow()}})
                 logger.warning("字幕队列放弃 %s：连续 %d 次被限流", item.get("title", "")[:40], attempts)
                 return
+            db.episodes.update_one({"_id": episode["_id"]},
+                                   {"$set": {"transcript_throttle_attempts": attempts}})
             item["throttle_attempts"] = attempts
             # 先换出口 IP：换了新 IP 后不需要长退避，短冷却即可重试
             rotated = self._rotate_exit(f"429×{attempts}")
@@ -352,8 +429,14 @@ class TranscriptQueue:
                            attempts, f"已换出口 {rotated}" if rotated else "未换出口", item.get("title", "")[:40], backoff)
             return
         self._stats["failed"] += 1
-        db.episodes.update_one({"_id": episode["_id"]},
-                               {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
+        # 明确"没有字幕/字幕被禁用"是终局结论，落成轨道状态，补捞与队列都不再碰
+        if "No subtitles" in message or "No transcript" in message or "disabled" in message.lower():
+            self._mark_no_captions(episode)
+            db.episodes.update_one({"_id": episode["_id"]},
+                                   {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
+        else:
+            db.episodes.update_one({"_id": episode["_id"]},
+                                   {"$set": {"transcript_fetch_error": _humanize_subtitle_error(message)}})
 
 
 _queue_instance = None

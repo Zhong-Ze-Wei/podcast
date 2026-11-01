@@ -500,6 +500,63 @@ class YouTubeService:
             })
         return segments
 
+    # 字幕接口接受的语种；轨道探测与抓取共用同一份清单
+    CAPTION_LANGUAGES = ("en", "zh-Hans", "zh-Hant", "zh")
+
+    @classmethod
+    def caption_tracks(cls, info: dict, languages=None) -> dict:
+        """从 yt-dlp 的 info 里读出可用字幕轨道，不额外发请求。
+
+        返回 {"manual": [...], "automatic": [...], "available": bool}。
+        manual 是频道主上传的字幕，automatic 是 YouTube 自动生成的。
+        """
+        wanted = tuple(languages or cls.CAPTION_LANGUAGES)
+
+        def pick(tracks):
+            if not isinstance(tracks, dict):
+                return []
+            # 轨道键可能是 "en"、"en-US"、"zh-Hans" 等，按前缀匹配
+            return sorted(key for key in tracks if any(key == tag or key.startswith(f"{tag}-") for tag in wanted))
+
+        manual = pick(info.get("subtitles"))
+        automatic = pick(info.get("automatic_captions"))
+        return {"manual": manual, "automatic": automatic, "available": bool(manual or automatic)}
+
+    @classmethod
+    def probe_captions(cls, video_id: str, proxy: str = None) -> Tuple[Optional[dict], Optional[str]]:
+        """只探测字幕轨道是否存在，不下载字幕。
+
+        用于在入队前就把"频道主没开字幕轨"的期筛掉，避免抓一次失败才知道、
+        之后每轮补捞又重试一遍。
+        Returns: ({"manual": [...], "automatic": [...], "available": bool}, error)
+        """
+        import tempfile
+
+        from yt_dlp import YoutubeDL
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = cls._write_cookiefile(tmp)
+            opts = {
+                "quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
+                "proxy": proxy or cls._proxy(),
+                "socket_timeout": 20, "retries": 1, "extractor_retries": 1,
+                # 只要元数据：不取流也不写字幕文件
+                "ignore_no_formats_error": True,
+            }
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
+                opts["extractor_args"] = {"youtube": {"player_client": ["mweb"]}}
+            try:
+                with YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            except Exception as error:
+                return None, cls._classify_error(error)
+            if not info:
+                return None, "YouTube 未返回视频信息"
+            tracks = cls.caption_tracks(info)
+            tracks["title"] = info.get("title") or ""
+            return tracks, None
+
     @classmethod
     def fetch_metadata(cls, video_id: str) -> Tuple[Optional[dict], Optional[str]]:
         """
@@ -508,25 +565,33 @@ class YouTubeService:
         Returns:
             ({title, duration, uploader, thumbnail, published, description}, error)
         """
+        import tempfile
+
         from yt_dlp import YoutubeDL
 
-        opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "proxy": cls._proxy(),
-            "socket_timeout": 15,
-            "retries": 1,
-            "extractor_retries": 1,
-        }
-
-        try:
-            with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(
-                    f"https://www.youtube.com/watch?v={video_id}", download=False
-                )
-        except Exception as e:
-            return None, cls._classify_error(e)
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_path = cls._write_cookiefile(tmp)
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "proxy": cls._proxy(),
+                "socket_timeout": 15,
+                "retries": 1,
+                "extractor_retries": 1,
+                "ignore_no_formats_error": True,
+            }
+            # 带登录态：数据中心 IP 常被要求 "Sign in to confirm you're not a bot"
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
+                opts["extractor_args"] = {"youtube": {"player_client": ["mweb"]}}
+            try:
+                with YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(
+                        f"https://www.youtube.com/watch?v={video_id}", download=False
+                    )
+            except Exception as e:
+                return None, cls._classify_error(e)
 
         timestamp = info.get("timestamp") or info.get("release_timestamp")
         published = datetime.utcfromtimestamp(timestamp) if timestamp else None
@@ -540,6 +605,8 @@ class YouTubeService:
             "thumbnail": info.get("thumbnail") or "",
             "published": published,
             "description": info.get("description") or "",
+            # 顺手带上轨道信息：调用方不必再单独探测一次
+            "captions": cls.caption_tracks(info),
         }, None
 
     @classmethod

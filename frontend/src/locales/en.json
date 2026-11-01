@@ -335,7 +335,10 @@
       "inHours": "in ~{{count}} h",
       "more": "{{count}} more in queue",
       "stats": "{{done}} done · {{throttled}} throttled",
-      "clear": "Clear backlog"
+      "clear": "Clear backlog",
+      "cooling": "Cooling down after throttling",
+      "coolingHint": "YouTube throttled the last request. It will resume automatically.",
+      "coolingOnly": "Nothing queued · resumes {{duration}}"
     },
     "autoDaily": {
       "title": "Auto-updated today",
@@ -355,7 +358,7 @@
     "biliSessdataInvalid": "Verification failed: make sure you copied the latest SESSDATA while logged in to bilibili.com",
     "biliSessdataHowTo": "How to get it: log in to bilibili.com, press F12 → Application → Cookies → SESSDATA, copy the whole value into the box above",
     "templatesTab": "Summary Templates",
-    "appTab": "App Settings",
+    "appTab": "App & feeds",
     "templatesDesc": "Manage prompt templates used by summary generation.",
     "templates": "Templates",
     "templatesCount": "templates",
@@ -364,7 +367,7 @@
     "save": "Save",
     "saved": "Settings saved",
     "loadError": "Failed to load settings",
-    "saveError": "Failed to save settings",
+    "saveError": "Could not save, please try again",
     "maxConfigs": "Maximum 5 configs allowed",
     "minConfigs": "At least one config is required",
     "active": "Active",
@@ -420,21 +423,33 @@
       "statusEnabled": "Enabled",
       "statusDisabled": "Disabled",
       "aiSwitchTitle": "AI Analysis",
-      "aiSwitchDesc": "Master switch: disable to freeze new summary / translation / briefing generation. Existing results stay readable. Takes effect immediately."
+      "aiSwitchDesc": "Master switch: disable to freeze new summary / translation / briefing generation. Existing results stay readable. Takes effect immediately.",
+      "segmentProviders": "Providers & models",
+      "segmentTemplates": "Summary templates",
+      "magpieTitle": "magpie local gateway",
+      "magpieOnline": "Connected",
+      "magpieOffline": "Not detected",
+      "magpieDesc": "Found {{count}} models at {{url}}. Route everything through the local gateway instead of configuring each provider.",
+      "magpieOfflineDesc": "No magpie on this machine ({{url}}). Start it and refresh to auto-detect.",
+      "magpieConnect": "Connect and add models",
+      "magpieAddModels": "Fetch models again",
+      "magpieConnected": "Added {{count}} magpie models"
     },
     "account": {
       "title": "Account",
-      "description": "Review the signed-in identity, log out, and inspect users and system health as an administrator.",
+      "description": "Review your identity and system overview, and manage registered accounts.",
       "localUser": "Local default user",
       "role": "Role",
       "logout": "Log out",
       "adminTitle": "Administrator",
       "userList": "Users",
       "adminLoadError": "Failed to load administrator data",
-      "firstAdminHint": "This account has administrator access. The first registered user in an empty database becomes the administrator."
+      "firstAdminHint": "This account has administrator access. The first registered user in an empty database becomes the administrator.",
+      "adminDescription": "System overview and every registered account",
+      "memberHint": "Members and system overview are visible to administrators only"
     },
     "app": {
-      "description": "App behavior and task panel preferences are saved in this browser.",
+      "description": "Refresh cadence and task panel behaviour, all in one place.",
       "autoRefreshTitle": "Refresh displayed data",
       "autoRefreshDescription": "Read saved feeds and episode results from the backend. Source content is fetched by backend synchronization or the feed refresh action.",
       "taskPollTitle": "Task polling interval",
@@ -463,11 +478,14 @@
         "60": "Last 1 hour",
         "1440": "Last 24 hours",
         "10080": "Last 7 days"
-      }
+      },
+      "title": "App settings",
+      "displayGroup": "Tasks and pages",
+      "displayGroupHint": "Changes apply after you press Save, stored in this browser."
     },
     "refresh": {
       "title": "Subscription updates",
-      "description": "Every update interval lives here and takes effect immediately once saved — no backend restart. Refreshes run silently in the background and never appear in the task list.",
+      "description": "All update intervals live here. They take effect when you press Save at the bottom — no backend restart needed. Refreshes run silently in the background and never appear in the task list.",
       "enabled": "Enable background auto-update",
       "feedInterval": "Feed refresh interval",
       "feedIntervalHint": "Shared by YouTube and RSS: check each feed every {{min}}–{{max}} hours",
@@ -490,7 +508,30 @@
       "todayDone": "Auto-updated {{done}}/{{total}} feeds today, {{failed}} failed",
       "loading": "Loading subscription update settings…",
       "loadError": "Could not load subscription update settings",
-      "saveError": "Could not save, please retry"
-    }
+      "saveError": "Could not save, please retry",
+      "enabledHint": "When off, only manual refreshes run; already queued transcripts still complete",
+      "biliTitle": "Bilibili login",
+      "biliSessdata": "Update SESSDATA"
+    },
+    "tabs": {
+      "general": "General",
+      "generalDesc": "Task panel, polling and history range. Changes apply immediately.",
+      "subscriptions": "Feeds & updates",
+      "subscriptionsDesc": "Refresh cadence, transcript fetching and source logins in one place.",
+      "briefing": "Reading & briefings",
+      "briefingDesc": "Topics, automatic report periods and reading layouts.",
+      "ai": "AI & prompts",
+      "aiDesc": "Model providers, default models and summary prompt templates.",
+      "account": "Account & members",
+      "accountDesc": "Your identity, system overview and member management."
+    },
+    "biliSessdataHowToShort": "Copy it from your browser cookies; applied immediately",
+    "cancel": "Cancel",
+    "unsavedChanges": "You have unsaved changes",
+    "noChanges": "No changes",
+    "pendingSave": "Pending",
+    "pendingHint": "Changes apply after you press Save",
+    "close": "Close",
+    "tabSavesOwn": "This tab has its own save button and instant actions"
   }
 }

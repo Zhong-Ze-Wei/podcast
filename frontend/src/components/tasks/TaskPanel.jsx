@@ -32,6 +32,8 @@ function TranscriptQueueCard({ queue, onOpenSettings, onClear }) {
   if (!queue || (!queue.queued_count && !queue.active)) return null;
   const active = queue.active;
   const pending = queue.pending || [];
+  // 冷却中（刚被限流退避）与正在抓取是两回事，不能都写成「正在抓取」
+  const cooling = !active && queue.next_fetch_in_seconds > 0;
   return (
     <article className="mx-3 mt-3 overflow-hidden rounded-xl border border-amber-500/25 bg-amber-950/20">
       <div className="flex items-start justify-between gap-3 px-3.5 pt-3">
@@ -40,7 +42,9 @@ function TranscriptQueueCard({ queue, onOpenSettings, onClear }) {
             <FileText size={12} />{t('tasks.queue.title')}
           </p>
           <p className="mt-1 text-sm font-medium text-zinc-100">
-            {t('tasks.queue.summary', { count: queue.queued_count, minutes: queue.interval_minutes })}
+            {queue.queued_count
+              ? t('tasks.queue.summary', { count: queue.queued_count, minutes: queue.interval_minutes })
+              : t('tasks.queue.coolingOnly', { duration: describeEta(queue.next_fetch_in_seconds, t) })}
           </p>
         </div>
         <button type="button" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-amber-300/80 hover:bg-amber-500/15 hover:text-amber-200" onClick={onOpenSettings}>
@@ -51,6 +55,12 @@ function TranscriptQueueCard({ queue, onOpenSettings, onClear }) {
         <div className="mx-3.5 mt-2.5 rounded-lg border border-sky-500/25 bg-sky-950/30 px-2.5 py-2">
           <p className="text-[11px] text-sky-300/80">{t('tasks.queue.fetchingNow')}</p>
           <p className="mt-0.5 truncate text-xs font-medium text-zinc-100" title={active.title}>{active.title}</p>
+        </div>
+      )}
+      {!active && cooling && (
+        <div className="mx-3.5 mt-2.5 rounded-lg border border-amber-500/25 bg-amber-950/30 px-2.5 py-2">
+          <p className="text-[11px] text-amber-300/80">{t('tasks.queue.cooling')}</p>
+          <p className="mt-0.5 truncate text-xs text-zinc-300">{t('tasks.queue.coolingHint')}</p>
         </div>
       )}
       {pending.length > 0 && (
@@ -489,8 +499,8 @@ const TaskPanel = ({
 
           <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
             {requestError && <div role="alert" className="mx-3 mt-3 rounded-lg bg-red-900/20 p-3 text-xs text-red-300">{localizeUiMessage(requestError, t)}</div>}
-            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} onClear={clearTranscriptQueue} />}
-            {activeTab === 'history' && <DailyAutoRefreshCard daily={autoRefreshDaily} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'app' })} />}
+            {activeTab === 'active' && <TranscriptQueueCard queue={transcriptQueue} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'subscriptions' })} onClear={clearTranscriptQueue} />}
+            {activeTab === 'history' && <DailyAutoRefreshCard daily={autoRefreshDaily} onOpenSettings={() => onNavigate?.({ type: 'settings', section: 'subscriptions' })} />}
             {visibleTasks.length > 0 ? (
               visibleTasks.map(renderTask)
             ) : (

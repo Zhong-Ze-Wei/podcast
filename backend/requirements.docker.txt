@@ -1,0 +1,21 @@
+# 容器用的后端依赖：只装应用直接需要的包（版本对齐本地 .venv）。
+#
+# 刻意不装本地 AI 组件（torch / faster-whisper / whisperx / transformers 等）：
+# 它们由 whisper_service.py、whisperx_service.py 在函数内懒加载，
+# 装齐会额外拉进 7GB+ 的 CUDA 依赖树。需要本地转写时在宿主上按
+# setup_local_ai.py 安装；本服务的平台字幕（YouTube / B站）不依赖它们。
+Flask==3.1.3
+flask-cors==6.0.2
+pymongo==4.17.0
+feedparser==6.0.12
+requests==2.34.2
+tavily-python==0.7.24
+openai==2.37.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+markdown==3.10.2
+weasyprint==68.1
+assemblyai==0.64.2
+yt-dlp==2026.8.19
+youtube-transcript-api==1.2.4
+curl-cffi==0.16.3

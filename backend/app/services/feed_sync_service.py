@@ -349,6 +349,7 @@ def _refresh_youtube_channel_feed(db, feed, progress_callback=None, *, queue=tas
     from .transcript_queue_service import get_transcript_queue, PRIORITY_HISTORY, PRIORITY_NEW_EPISODE
     transcript_queue = get_transcript_queue(db, queue)
     if new_guids:
+        # 频道 RSS 的 video 条目里已经带了字幕轨道清单（flat 列表没有），有就不用再探测
         fresh = list(db.episodes.find({"feed_id": feed["_id"], "guid": {"$in": new_guids},
                                       "has_transcript": {"$ne": True}}))
         transcript_queue.enqueue(fresh, priority=PRIORITY_NEW_EPISODE, feed_id=str(feed["_id"]))

@@ -100,14 +100,44 @@ def _default_user():
 
 
 def _dev_auto_login_user():
-    """本地回环请求免登录：以 AUTH_DEV_AUTO_LOGIN 指定的活跃管理员身份进入。"""
+    """本地回环请求免登录：以 AUTH_DEV_AUTO_LOGIN 指定的活跃管理员身份进入。
+
+    容器部署时请求来自 nginx 的私有网段（如 172.20.0.4）而不是回环地址，
+    可用 AUTH_DEV_TRUSTED_NETWORKS（逗号分隔的 CIDR）显式放行这些来源。
+    """
     name = current_app.config.get("AUTH_DEV_AUTO_LOGIN", "")
-    if not name or request.remote_addr not in ("127.0.0.1", "::1"):
+    if not name or not _from_trusted_origin():
         return None
     doc = _get_db().users.find_one({"email": User.normalize_email(name)})
     if doc and doc.get("role") == User.ROLE_ADMIN and doc.get("status") == User.STATUS_ACTIVE:
         return User.to_response(doc)
     return None
+
+
+def _from_trusted_origin():
+    """回环地址，或命中 AUTH_DEV_TRUSTED_NETWORKS 的来源。"""
+    import ipaddress
+
+    remote = request.remote_addr or ""
+    if remote in ("127.0.0.1", "::1"):
+        return True
+    networks = current_app.config.get("AUTH_DEV_TRUSTED_NETWORKS", "") or ""
+    if not networks.strip():
+        return False
+    try:
+        address = ipaddress.ip_address(remote)
+    except ValueError:
+        return False
+    for item in networks.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            if address in ipaddress.ip_network(item, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def current_user():

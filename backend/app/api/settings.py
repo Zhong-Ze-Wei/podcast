@@ -395,6 +395,46 @@ def save_search_query_fragment():
         return jsonify({"error": str(e)}), 500
 
 
+@settings_bp.route("/llm/magpie", methods=["GET"])
+@require_auth
+def detect_magpie():
+    """探测本机 magpie 网关：可用时返回默认接入参数与模型列表。"""
+    from ..models.setting import SettingModel
+
+    model = get_setting_model()
+    base_url = SettingModel.MAGPIE_BASE_URL
+    if not SettingModel.magpie_available():
+        return jsonify({"available": False, "base_url": base_url})
+
+    models = []
+    try:
+        import requests as http_requests
+
+        resp = http_requests.get(
+            f"{base_url.rstrip('/')}/models",
+            headers={"Authorization": f"Bearer {SettingModel.MAGPIE_API_KEY}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        models = [
+            {"id": item.get("id", ""),
+             "name": item.get("display_name") or item.get("name") or item.get("id", "")}
+            for item in resp.json().get("data", []) if item.get("id")
+        ]
+    except Exception as error:  # 网关在监听但模型列表取不到，仍算可用
+        current_app.logger.warning(f"magpie models unavailable: {error}")
+
+    return jsonify({
+        "available": True,
+        "base_url": base_url,
+        "api_key": SettingModel.MAGPIE_API_KEY,
+        "default_model": SettingModel.MAGPIE_MODEL,
+        "models": models,
+        "configured": any(p.get("provider") == "magpie" or p.get("id") == "magpie"
+                          for p in model.get_llm_settings()["providers"]),
+    })
+
+
 @settings_bp.route("/llm/fetch-models", methods=["POST"])
 @require_auth
 def fetch_provider_models():
@@ -431,8 +471,11 @@ def fetch_provider_models():
         )
         resp.raise_for_status()
         body = resp.json()
+        # 网关（如 magpie）会在 display_name / name 里给人类可读名字，优先用它
         model_list = sorted(
-            [{"id": m.get("id", ""), "name": m.get("id", "")} for m in body.get("data", []) if m.get("id")],
+            [{"id": m.get("id", ""),
+              "name": m.get("display_name") or m.get("name") or m.get("id", "")}
+             for m in body.get("data", []) if m.get("id")],
             key=lambda x: x["id"],
         )
         return jsonify({"models": model_list})

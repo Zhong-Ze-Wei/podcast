@@ -566,3 +566,85 @@ def test_excluded_feed_hides_all_its_episodes(tmp_path):
     assert by_id[str(episode["_id"])]["excluded_by_user"] is True
     assert by_id[str(episode["_id"])]["selected"] is False
     assert by_id[str(other["_id"])]["excluded_by_user"] is False
+
+
+def _materials(service, count, interests=("AI",)):
+    return [{"episode_id": f"{index:024x}", "title": f"标题 {index}", "feed": "节目",
+             "description": "", "interests": interests} for index in range(count)]
+
+
+def _cached_decision(service, item, interests):
+    # _screen_path 按 title/feed/description 定位，materials 里就是这些字段
+    path = service._screen_path({"title": item["title"], "feed": item["feed"], "description": item["description"]}, interests) / "result.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def _fake_model_call(calls, respond):
+    """构造一个会真正跑 validator 的 _model_call 替身。"""
+    def call(system, prompt, validator, **kwargs):
+        payload = json.loads(prompt.split("节目标题与已有简介：", 1)[1].lstrip())
+        ids = [item["id"] for item in payload]
+        calls.append(len(ids))
+        result = {"decisions": respond(ids, len(calls))}
+        try:
+            validator(result)
+        except ValueError as error:
+            raise ModelValidationError("模型结果未通过依据校验", [
+                {"content": json.dumps(result, ensure_ascii=False), "error": str(error)}]) from error
+        return result, {"model": "test", "usage": {}}
+    return call
+
+
+def test_missing_decisions_are_retried_alone_instead_of_failing_the_batch(tmp_path, monkeypatch):
+    """模型漏返回个别 id 时，只把漏掉的几条补判，整批不作废。"""
+    service = scope_service(tmp_path)
+    interests = ["AI"]
+    materials = _materials(service, 20)
+    calls = []
+
+    # 第一轮故意少返回最后两条（复现实测的 18/20）
+    def respond(ids, round_number):
+        returned = ids[:-2] if round_number == 1 else ids
+        return [{"id": item_id, "decision": "include"} for item_id in returned]
+
+    monkeypatch.setattr(service.report_service.lab, "_model_call", _fake_model_call(calls, respond))
+    service._screen_batch(materials, interests)
+
+    assert calls == [20, 2]
+    for item in materials:
+        assert _cached_decision(service, item, interests)["selected"] is True
+
+
+def test_unrecoverable_missing_decisions_keep_episodes_as_uncertain(tmp_path, monkeypatch):
+    """补判仍漏返回时按 uncertain 保留，不能整份周报失败。"""
+    service = scope_service(tmp_path)
+    interests = ["AI"]
+    materials = _materials(service, 4)
+    calls = []
+
+    # 每次都只判第一条，且补判深度用尽后不再继续问
+    def respond(ids, round_number):
+        return [{"id": ids[0], "decision": "include"}]
+
+    monkeypatch.setattr(service.report_service.lab, "_model_call", _fake_model_call(calls, respond))
+    service._screen_batch(materials, interests)
+
+    decisions = [_cached_decision(service, item, interests) for item in materials]
+    # 补判会逐轮推进，最终每期都有结论；拿不到的不应让整批失败
+    assert all(item is not None for item in decisions)
+    assert any(item.get("fallback") == "model_omitted" for item in decisions),         "补判耗尽后仍未给出的节目应降级为 uncertain"
+
+
+def test_unknown_ids_are_still_rejected_as_before(tmp_path, monkeypatch):
+    """真正跑偏的返回（未知 id）不该被降级逻辑掩盖。"""
+    service = scope_service(tmp_path)
+    interests = ["AI"]
+    materials = _materials(service, 2)
+    calls = []
+
+    def respond(ids, round_number):
+        return [{"id": "f" * 24, "decision": "include"}]
+
+    monkeypatch.setattr(service.report_service.lab, "_model_call", _fake_model_call(calls, respond))
+    with pytest.raises(ValueError):
+        service._screen_batch(materials, interests)

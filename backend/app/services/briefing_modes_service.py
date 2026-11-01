@@ -556,7 +556,18 @@ class BriefingModesService:
                 attempt_id, COMPACT_SYSTEM + "\n" + task_prompt, "稳定材料 → 关注主题与本次栏目任务")
             if progress_callback:
                 progress_callback((60 + int((index + 1) / len(selected) * 40), f"已整理{MODE_INDEX[mode]['name']}"))
+        self._supersede_previous(reports, selected, scope)
         return reports
+
+    def _supersede_previous(self, reports, modes, scope):
+        """同一周期重生成后，把旧版本标记为已取代，页面上只留最新一份。"""
+        if scope is None:
+            return
+        keep = {mode: reports[mode]["id"] for mode in modes if reports.get(mode)}
+        for mode, report_id in keep.items():
+            self.report_service.store.supersede(
+                "content-modes-v1/reports", keep_id=report_id, owner_id=self.owner_id,
+                period_type=scope["period"]["type"], period_start=scope["period"]["start"], modes=[mode])
 
     def _generate_one(self, mode, topic, corpus, cards, payload, scope=None):
         definition = MODE_INDEX[mode]

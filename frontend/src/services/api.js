@@ -180,6 +180,8 @@ export const settingsApi = {
   saveLlmConfigs: (data) => api.put('/settings/llm', data),
   testLlmConnection: (config) => api.post('/settings/llm/test', config),
   fetchProviderModels: (providerId) => api.post('/settings/llm/fetch-models', { provider_id: providerId }),
+  // 探测本机 magpie 网关，可用时返回接入参数与模型列表
+  detectMagpie: () => api.get('/settings/llm/magpie'),
   getAiAnalysis: () => api.get('/settings/ai-analysis'),
   // 订阅更新节奏：所有间隔统一在这里调节，保存后后端即时生效
   getRefreshSettings: () => api.get('/settings/refresh'),

@@ -129,3 +129,38 @@ def test_uncertain_index_write_is_reconciled_without_publishing_failed_report(tm
     monkeypatch.setattr(db.briefing_reports, "update_one", original)
     rows, total = store.history(1, 20)
     assert total == 1 and rows[0]["id"] == "a" * 32
+
+
+def test_supersede_hides_previous_reports_of_same_period(tmp_path):
+    """重新生成后同周期旧报告不再出现在列表，文件仍保留可追溯。"""
+    db = MockDB()
+    store = BriefingStore(tmp_path, db=db, owner_id="owner")
+    old = report("a")
+    new = report("b", generated_at="2026-10-02T00:00:00+00:00")
+    store.publish(old, "content-modes-v1/reports")
+    store.publish(new, "content-modes-v1/reports")
+    assert len(store.reports("content-modes-v1/reports")) == 2
+
+    marked = store.supersede("content-modes-v1/reports", keep_id=new["id"], owner_id="owner",
+                             period_type="month", period_start="2026-09-01", modes=["core"])
+    assert marked == [old["id"]]
+    visible = store.reports("content-modes-v1/reports")
+    assert [item["id"] for item in visible] == [new["id"]]
+    # 磁盘上的旧文件还在，只是被标记
+    assert (tmp_path / "content-modes-v1" / "reports" / (old["id"] + ".json")).exists()
+
+
+def test_supersede_ignores_other_periods_and_modes(tmp_path):
+    db = MockDB()
+    store = BriefingStore(tmp_path, db=db, owner_id="owner")
+    same_period = report("a")
+    other_mode = {**report("c"), "mode": "quotes"}
+    other_period = {**report("d"), "period": {"type": "month", "start": "2026-08-01", "end": "2026-09-01"}}
+    for item in (same_period, other_mode, other_period):
+        store.publish(item, "content-modes-v1/reports")
+
+    marked = store.supersede("content-modes-v1/reports", keep_id="e" * 32, owner_id="owner",
+                             period_type="month", period_start="2026-09-01", modes=["core"])
+    assert marked == [same_period["id"]]
+    visible = {item["id"] for item in store.reports("content-modes-v1/reports")}
+    assert other_mode["id"] in visible and other_period["id"] in visible

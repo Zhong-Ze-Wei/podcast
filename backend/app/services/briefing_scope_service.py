@@ -355,27 +355,95 @@ class BriefingScopeService:
         self._screen_batch([material], interests)
         return self.cached_screening(source, interests)
 
-    def _screen_batch(self, materials, interests):
+    def _screen_batch(self, materials, interests, depth=0):
+        """判定一批节目标题。模型漏返回个别 id 时保留已给出的结论，只补判剩下的。
+
+        模型常见行为是"返回了大多数但漏几条"（实测 20 条输入只返回 18 条，
+        finish_reason 仍是 stop）。若因此整批失败，一个周报就永远生成不出来；
+        这里先落盘已经拿到的判定，再只补判缺口，仍拿不到就按 uncertain 保留。
+        """
+        index = {item["episode_id"]: item for item in materials}
+        try:
+            decisions, metadata = self._ask_title_screening(materials, interests)
+        except ModelValidationError as error:
+            salvaged = self._salvaged_decisions(error, index)
+            if not salvaged and depth == 0:
+                # 一条都抢救不出来 = 模型整体跑偏（未知 id、结构错乱），保持原有失败语义
+                for item in materials:
+                    write_json(self._screen_path(item, interests) / "title.failure.json", {
+                        "episode_id": item["episode_id"], "title": item["title"], "interests": interests,
+                        "generated_at": now_iso(), "error": str(error), "attempts": error.attempts})
+                raise ValueError(f"标题筛选失败，未将这些节目当作无关内容：{error}") from error
+            for decision in salvaged:
+                self._store_decision(index[decision["id"]], decision, interests, model=None)
+            missing = [item_id for item_id in index if item_id not in {d["id"] for d in salvaged}]
+            if missing and depth < 2:
+                # 只把漏掉的几条再问一次，输入更短，模型更容易逐条覆盖
+                self._screen_batch([index[item_id] for item_id in missing], interests, depth + 1)
+                return
+            if missing:
+                self._record_undecided([index[item_id] for item_id in missing], interests, error)
+                return
+            raise ValueError(f"标题筛选失败，未将这些节目当作无关内容：{error}") from error
+        for decision in decisions:
+            self._store_decision(index[decision["id"]], decision, interests, model=metadata.get("model"),
+                                 usage=metadata.get("usage", {}))
+
+    def _store_decision(self, material, decision, interests, model=None, usage=None):
+        write_json(self._screen_path(material, interests) / "result.json", {
+            "selected": decision["decision"] != "exclude",
+            "decision": decision["decision"],
+            "topic_tags": decision.get("topics") or [],
+            "relevance_reason": decision.get("reason") or "",
+            "evidence": [], "chunks": 0, "interests": interests,
+            "generated_at": now_iso(), "version": SCREENING_VERSION,
+            "basis": "title_and_description",
+            "model": model, "batch_usage": usage or {}})
+
+    def _ask_title_screening(self, materials, interests):
         prompt = "用户关注：" + json.dumps(interests, ensure_ascii=False) + "\n节目标题与已有简介：\n" + json.dumps([
             {"id": item["episode_id"], "title": item["title"], "feed": item.get("feed", ""), "description": item.get("description", "")}
             for item in materials], ensure_ascii=False)
+        result, metadata = self.report_service.lab._model_call(SCREENING_PROMPT, prompt,
+            lambda value: validate_title_screening(value, materials, interests), task="summary", max_tokens=8000)
+        return result["decisions"], metadata
+
+    @staticmethod
+    def _salvaged_decisions(error, index):
+        """从失败的响应里抢救模型已给出的合法判定（只认已知 id 和合法 decision）。"""
+        if not error.attempts:
+            return []
+        import json as _json
+
         try:
-            result, metadata = self.report_service.lab._model_call(SCREENING_PROMPT, prompt,
-                lambda value: validate_title_screening(value, materials, interests), task="summary", max_tokens=8000)
-        except ModelValidationError as error:
-            for item in materials:
-                write_json(self._screen_path(item, interests) / "title.failure.json", {
-                    "episode_id": item["episode_id"], "title": item["title"], "interests": interests,
-                    "generated_at": now_iso(), "error": str(error), "attempts": error.attempts})
-            raise ValueError(f"标题筛选失败，未将这些节目当作无关内容：{error}") from error
-        index = {item["episode_id"]: item for item in materials}
-        for decision in result["decisions"]:
-            selected = decision["decision"] != "exclude"
-            result = {"selected": selected, "decision": decision["decision"], "topic_tags": decision["topics"],
-                      "relevance_reason": decision["reason"], "evidence": [], "chunks": 0, "interests": interests,
-                      "generated_at": now_iso(), "version": SCREENING_VERSION, "basis": "title_and_description",
-                      "model": metadata.get("model"), "batch_usage": metadata.get("usage", {})}
-            write_json(self._screen_path(index[decision["id"]], interests) / "result.json", result)
+            raw = _json.loads(error.attempts[-1].get("content") or "").get("decisions") or []
+        except (ValueError, AttributeError):
+            return []
+        salvaged, seen = [], set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("id")
+            if item_id not in index or item_id in seen:
+                continue
+            if item.get("decision") not in ("include", "exclude", "uncertain"):
+                continue
+            seen.add(item_id)
+            salvaged.append(item)
+        return salvaged
+
+    def _record_undecided(self, materials, interests, error):
+        """补判仍失败：记为 uncertain 保留，并留下失败记录供排查。"""
+        for item in materials:
+            path = self._screen_path(item, interests)
+            write_json(path / "title.failure.json", {
+                "episode_id": item["episode_id"], "title": item["title"], "interests": interests,
+                "generated_at": now_iso(), "error": str(error), "attempts": error.attempts})
+            write_json(path / "result.json", {
+                "selected": True, "decision": "uncertain", "topic_tags": [], "relevance_reason": "",
+                "evidence": [], "chunks": 0, "interests": interests, "generated_at": now_iso(),
+                "version": SCREENING_VERSION, "basis": "title_and_description",
+                "model": None, "batch_usage": {}, "fallback": "model_omitted"})
 
     def screen(self, scope, progress_callback=None):
         materials, interests = scope["materials"], scope["interests"]

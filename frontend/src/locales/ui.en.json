@@ -334,7 +334,7 @@
   "clickTheHeartBelowAnItemTo": "Click the heart below an item to save it.",
   "adjustYourInterestsInSettingsAtThe": "Adjust your interests in Settings at the lower left, then generate again.",
   "generatedOn": "Generated on",
-  "regenerateThisSection": "Regenerate this section",
+  "regenerateThisSection": "Reset all five",
   "noTranscript": "No transcript",
   "downloading": "Downloading",
   "downloaded": "Downloaded",
@@ -530,5 +530,8 @@
   "transcriptQueueInterval": "Interval per episode",
   "transcriptQueueFastest": "1 min",
   "transcriptQueueSlowest": "300 min",
-  "transcriptQueueBacklog": "{{count}} episodes queued, about {{duration}} to finish."
+  "transcriptQueueBacklog": "{{count}} episodes queued, about {{duration}} to finish.",
+  "resetAllFive": "Reset all five",
+  "resetAllFiveHint": "Rebuild all five sections for this period from current interests and latest material",
+  "reportOutdated": "Material changed — you can reset"
 }
